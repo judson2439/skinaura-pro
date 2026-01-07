@@ -1,6 +1,5 @@
 /**
- * Secure API Client with TLS enforcement
- * All requests to non-localhost URLs must use HTTPS
+ * API Client for HTTP requests
  */
 
 import { API_CONFIG } from '../config/api';
@@ -42,38 +41,9 @@ const createApiError = (
 };
 
 /**
- * Check if a URL uses HTTPS or is localhost
+ * API Client class
  */
-const validateSecureConnection = (url: string): void => {
-  const isDev = import.meta.env.DEV;
-  
-  try {
-    const parsed = new URL(url);
-    const isLocalhost = 
-      parsed.hostname === 'localhost' ||
-      parsed.hostname === '127.0.0.1' ||
-      parsed.hostname === '::1';
-
-    // Allow HTTP only for localhost in development
-    if (parsed.protocol === 'http:' && !isLocalhost && !isDev) {
-      throw createApiError(
-        'HTTPS required for all API connections',
-        0,
-        'INSECURE_CONNECTION'
-      );
-    }
-  } catch (e) {
-    if ((e as ApiError).code === 'INSECURE_CONNECTION') {
-      throw e;
-    }
-    // URL parsing failed - let the request fail naturally
-  }
-};
-
-/**
- * Secure API Client class
- */
-class SecureApiClient {
+class ApiClient {
   private baseUrl: string;
   private defaultHeaders: Record<string, string>;
   private timeout: number;
@@ -104,16 +74,13 @@ class SecureApiClient {
   }
 
   /**
-   * Make a secure API request
+   * Make an API request
    */
   async request<T = unknown>(
     path: string,
     options: RequestOptions = {}
   ): Promise<ApiResponse<T>> {
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
-    
-    // Validate secure connection
-    validateSecureConnection(url);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(
@@ -228,10 +195,9 @@ class SecureApiClient {
 }
 
 // Export singleton instance
-export const apiClient = new SecureApiClient();
+export const apiClient = new ApiClient();
 
 // Export class for custom instances
-export { SecureApiClient };
+export { ApiClient };
 
 export default apiClient;
-

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   User,
   Mail,
@@ -195,9 +196,8 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
     }
   };
 
-  // Generate default avatar URL
-  const defaultAvatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.full_name || 'User')}&background=${userRole === 'professional' ? '2D2A3E' : 'CFAFA3'}&color=${userRole === 'professional' ? 'FFFFFF' : '2D2A3E'}&size=200`;
-  const avatarUrl = profile?.avatar_url || defaultAvatarUrl;
+  // Get avatar URL - could be encrypted (API path) or external URL
+  const avatarUrl = profile?.avatar_url || null;
 
   // Format date
   const formatDate = (dateString: string | null) => {
@@ -261,10 +261,11 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                       <Loader2 className="w-8 h-8 animate-spin text-[#CFAFA3]" />
                     </div>
                   ) : (
-                    <img
+                    <EncryptedImage
                       src={avatarUrl}
                       alt={profile?.full_name || 'User'}
                       className="w-full h-full object-cover"
+                      fallbackClassName="w-full h-full rounded-full"
                     />
                   )}
                 </div>

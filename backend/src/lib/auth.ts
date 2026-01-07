@@ -332,12 +332,10 @@ export const verifyEmailCode = async (
       [user.id]
     );
 
-    // Send welcome email
-    await sendWelcomeEmail(user.email, user.full_name, 'client');
-
+    // Note: Welcome email will be sent after phone verification (not here)
     console.log(`✅ Email verified for: ${email}`);
 
-    return { success: true };
+    return { success: true, needsPhoneVerification: true };
   } catch (error) {
     console.error('❌ Email verification error:', error);
     return { success: false, error: 'Verification failed' };
@@ -509,12 +507,32 @@ export const verifyPhoneCode = async (
       [user.id]
     );
 
-    // Send welcome SMS
-    if (user.phone) {
-      await sendWelcomeSms(user.phone);
+    // Get user's role from user_profiles table
+    const userProfile = await queryOne<{ role: string }>(
+      `SELECT role FROM user_profiles WHERE id = $1`,
+      [user.id]
+    );
+    const userRole = (userProfile?.role as 'client' | 'professional') || 'client';
+
+    // Send welcome email (after phone verification is complete)
+    const emailResult = await sendWelcomeEmail(user.email, user.full_name, userRole);
+    if (emailResult.success) {
+      console.log(`✅ Welcome email sent to: ${user.email}`);
+    } else {
+      console.warn(`⚠️ Failed to send welcome email to: ${user.email}`);
     }
 
-    console.log(`✅ Phone verified for: ${email}`);
+    // Send welcome SMS
+    if (user.phone) {
+      const smsResult = await sendWelcomeSms(user.phone);
+      if (smsResult.success) {
+        console.log(`✅ Welcome SMS sent to: ${user.phone}`);
+      } else {
+        console.warn(`⚠️ Failed to send welcome SMS to: ${user.phone}`);
+      }
+    }
+
+    console.log(`✅ Phone verified for: ${email} - Welcome messages sent`);
 
     return { success: true };
   } catch (error) {

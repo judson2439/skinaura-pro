@@ -6,11 +6,6 @@ import morgan from 'morgan';
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
-import { 
-  httpsEnforcement, 
-  securityHeaders, 
-  validateTLSVersion 
-} from './middleware/httpsEnforcement.js';
 import healthRouter from './routes/health.js';
 import apiRouter from './routes/index.js';
 
@@ -21,16 +16,7 @@ if (env.TRUST_PROXY) {
   app.set('trust proxy', 1);
 }
 
-// TLS version validation (when handling TLS directly)
-app.use(validateTLSVersion);
-
-// HTTPS enforcement and redirect
-app.use(httpsEnforcement);
-
-// Security headers (HSTS, etc.)
-app.use(securityHeaders);
-
-// Helmet security middleware
+// Helmet security middleware (basic security headers)
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -44,11 +30,6 @@ app.use(helmet({
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
     },
-  },
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true,
   },
 }));
 

@@ -1,12 +1,9 @@
 import https from 'https';
 import http from 'http';
 import { URL } from 'url';
-import tls from 'tls';
-import { getClientTLSOptions } from '../config/tls.js';
 
 /**
- * Secure HTTP Client with TLS 1.2+ enforcement
- * Use this for all outbound API requests
+ * HTTP Client for outbound API requests
  */
 
 export interface RequestOptions {
@@ -23,11 +20,10 @@ export interface HttpResponse<T = unknown> {
   data: T;
 }
 
-export class SecureHttpClient {
+export class HttpClient {
   private baseUrl: string;
   private defaultHeaders: Record<string, string>;
   private timeout: number;
-  private httpsAgent: https.Agent;
 
   constructor(options: {
     baseUrl?: string;
@@ -41,23 +37,10 @@ export class SecureHttpClient {
       ...options.headers,
     };
     this.timeout = options.timeout || 30000;
-
-    // Create HTTPS agent with TLS 1.2+ enforcement
-    const tlsOptions = getClientTLSOptions();
-    this.httpsAgent = new https.Agent({
-      minVersion: tlsOptions.minVersion,
-      maxVersion: tlsOptions.maxVersion,
-      ciphers: tlsOptions.ciphers,
-      rejectUnauthorized: tlsOptions.rejectUnauthorized,
-      keepAlive: true,
-      keepAliveMsecs: 30000,
-      maxSockets: 50,
-      maxFreeSockets: 10,
-    });
   }
 
   /**
-   * Make a secure HTTP request with TLS 1.2+ enforcement
+   * Make an HTTP request
    */
   async request<T = unknown>(
     path: string,
@@ -65,11 +48,6 @@ export class SecureHttpClient {
   ): Promise<HttpResponse<T>> {
     const url = new URL(path, this.baseUrl);
     const isHttps = url.protocol === 'https:';
-
-    // Enforce HTTPS for non-localhost URLs
-    if (!isHttps && !this.isLocalhost(url.hostname)) {
-      throw new Error(`HTTPS required for non-localhost requests: ${url.toString()}`);
-    }
 
     const method = options.method || 'GET';
     const headers = { ...this.defaultHeaders, ...options.headers };
@@ -80,17 +58,13 @@ export class SecureHttpClient {
     }
 
     return new Promise((resolve, reject) => {
-      const requestOptions: https.RequestOptions = {
+      const requestOptions: http.RequestOptions = {
         hostname: url.hostname,
         port: url.port || (isHttps ? 443 : 80),
         path: url.pathname + url.search,
         method,
         headers,
         timeout: options.timeout || this.timeout,
-        ...(isHttps && {
-          agent: this.httpsAgent,
-          ...getClientTLSOptions(),
-        }),
       };
 
       const protocol = isHttps ? https : http;
@@ -102,17 +76,6 @@ export class SecureHttpClient {
         });
 
         res.on('end', () => {
-          // Verify TLS version for HTTPS connections
-          if (isHttps && res.socket instanceof tls.TLSSocket) {
-            const protocol = res.socket.getProtocol();
-            const tlsVersion = protocol ? parseFloat(protocol.replace('TLSv', '')) : 0;
-            
-            if (tlsVersion < 1.2) {
-              reject(new Error(`TLS version ${protocol} not allowed. Minimum: TLSv1.2`));
-              return;
-            }
-          }
-
           try {
             const parsedData = data ? JSON.parse(data) : null;
             resolve({
@@ -141,18 +104,6 @@ export class SecureHttpClient {
         req.destroy();
         reject(new Error(`Request timeout after ${this.timeout}ms`));
       });
-
-      // Verify TLS on secure connection
-      if (isHttps) {
-        req.on('socket', (socket) => {
-          socket.on('secureConnect', () => {
-            if (socket instanceof tls.TLSSocket) {
-              const protocol = socket.getProtocol();
-              console.log(`🔒 TLS connection established: ${protocol}`);
-            }
-          });
-        });
-      }
 
       if (body) {
         req.write(body);
@@ -184,31 +135,19 @@ export class SecureHttpClient {
   async delete<T = unknown>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<HttpResponse<T>> {
     return this.request<T>(path, { ...options, method: 'DELETE' });
   }
-
-  private isLocalhost(hostname: string): boolean {
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-  }
-
-  /**
-   * Close the HTTPS agent connections
-   */
-  destroy(): void {
-    this.httpsAgent.destroy();
-  }
 }
 
 /**
- * Create a pre-configured secure HTTP client
+ * Create a pre-configured HTTP client
  */
-export const createSecureClient = (baseUrl: string, options?: {
+export const createHttpClient = (baseUrl: string, options?: {
   headers?: Record<string, string>;
   timeout?: number;
-}): SecureHttpClient => {
-  return new SecureHttpClient({
+}): HttpClient => {
+  return new HttpClient({
     baseUrl,
     ...options,
   });
 };
 
-export default SecureHttpClient;
-
+export default HttpClient;

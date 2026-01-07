@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRouter from './auth.js';
+import uploadRouter from './upload.js';
 
 const router = Router();
 
@@ -13,5 +14,7 @@ router.get('/', (req, res) => {
 // Auth routes (with encrypted request handling)
 router.use('/auth', authRouter);
 
-export default router;
+// Upload routes (for avatars and other files)
+router.use('/upload', uploadRouter);
 
+export default router;

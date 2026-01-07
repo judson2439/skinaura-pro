@@ -1,10 +1,12 @@
 /**
- * Crypto utilities for request decryption.
+ * Crypto utilities for request decryption and file encryption.
  * Uses AES-256-GCM with PBKDF2 key derivation.
  * Must match frontend encryption implementation.
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { env } from '../config/env.js';
 
 export interface EncryptedPayload {
@@ -19,9 +21,17 @@ export interface DecryptedResult<T> {
   error?: string;
 }
 
+export interface FileEncryptionResult {
+  success: boolean;
+  encryptedPath?: string;
+  hashedFilename?: string;
+  error?: string;
+}
+
 // Must match frontend key
 const ENCRYPTION_KEY = env.ENCRYPTION_KEY || 'skinaura-default-key-32chars!!';
 const SALT = 'skinaura-salt-2024';
+const FILE_SALT = 'skinaura-file-salt-2024';
 const ITERATIONS = 100000;
 const KEY_LENGTH = 32; // 256 bits
 
@@ -31,10 +41,10 @@ const MAX_TIMESTAMP_AGE_MS = 5 * 60 * 1000;
 /**
  * Derive key using PBKDF2 (matching Web Crypto API implementation)
  */
-const deriveKey = (password: string): Buffer => {
+const deriveKey = (password: string, salt: string = SALT): Buffer => {
   return crypto.pbkdf2Sync(
     password,
-    Buffer.from(SALT, 'utf-8'),
+    Buffer.from(salt, 'utf-8'),
     ITERATIONS,
     KEY_LENGTH,
     'sha256'
@@ -133,6 +143,122 @@ export const encryptResponseData = <T extends object>(data: T): EncryptedPayload
 };
 
 /**
+ * Hash a filename for secure storage
+ * @param originalFilename - Original filename with extension
+ * @param userId - User ID for uniqueness
+ * @returns Hashed filename with original extension
+ */
+export const hashFilename = (originalFilename: string, userId: string): string => {
+  const ext = path.extname(originalFilename).toLowerCase();
+  const timestamp = Date.now();
+  const randomBytes = crypto.randomBytes(8).toString('hex');
+  
+  // Create hash from userId + timestamp + random
+  const hash = crypto.createHash('sha256')
+    .update(`${userId}-${timestamp}-${randomBytes}`)
+    .digest('hex')
+    .substring(0, 32);
+  
+  return `${hash}${ext}`;
+};
+
+/**
+ * Encrypt file data and save to disk
+ * @param fileBuffer - File buffer to encrypt
+ * @param outputPath - Full path where to save the encrypted file
+ * @returns Encryption result
+ */
+export const encryptAndSaveFile = (
+  fileBuffer: Buffer,
+  outputPath: string
+): FileEncryptionResult => {
+  try {
+    const key = deriveKey(ENCRYPTION_KEY, FILE_SALT);
+    const iv = crypto.randomBytes(12);
+
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    
+    let encrypted = cipher.update(fileBuffer);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    
+    const authTag = cipher.getAuthTag();
+
+    // File format: [IV (12 bytes)] + [AuthTag (16 bytes)] + [Encrypted Data]
+    const fileData = Buffer.concat([iv, authTag, encrypted]);
+
+    // Ensure directory exists
+    const dir = path.dirname(outputPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Write encrypted file
+    fs.writeFileSync(outputPath, fileData);
+
+    return {
+      success: true,
+      encryptedPath: outputPath,
+    };
+  } catch (error) {
+    console.error('File encryption error:', error);
+    return {
+      success: false,
+      error: 'Failed to encrypt and save file',
+    };
+  }
+};
+
+/**
+ * Read and decrypt file from disk
+ * @param filePath - Path to encrypted file
+ * @returns Decrypted file buffer or null
+ */
+export const readAndDecryptFile = (filePath: string): Buffer | null => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      console.error('File not found:', filePath);
+      return null;
+    }
+
+    const fileData = fs.readFileSync(filePath);
+
+    // Extract IV, AuthTag, and encrypted data
+    const iv = fileData.subarray(0, 12);
+    const authTag = fileData.subarray(12, 28);
+    const encrypted = fileData.subarray(28);
+
+    const key = deriveKey(ENCRYPTION_KEY, FILE_SALT);
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+
+    let decrypted = decipher.update(encrypted);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+
+    return decrypted;
+  } catch (error) {
+    console.error('File decryption error:', error);
+    return null;
+  }
+};
+
+/**
+ * Get MIME type from file extension
+ */
+export const getMimeType = (filename: string): string => {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+  };
+  return mimeTypes[ext] || 'application/octet-stream';
+};
+
+/**
  * Middleware to decrypt request body
  */
 export const decryptRequestMiddleware = (
@@ -169,5 +295,8 @@ export default {
   decryptRequestData,
   encryptResponseData,
   decryptRequestMiddleware,
+  hashFilename,
+  encryptAndSaveFile,
+  readAndDecryptFile,
+  getMimeType,
 };
-

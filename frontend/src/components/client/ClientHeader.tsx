@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   Menu,
   X,
@@ -64,8 +65,8 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
-  // Use profile avatar if available, otherwise generate default
-  const avatarUrl = profile?.avatar_url || userAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userDisplayName)}&background=CFAFA3&color=2D2A3E`;
+  // Use profile avatar if available
+  const avatarUrl = profile?.avatar_url || userAvatar || null;
 
   // Fetch recent notifications when dropdown opens
   const fetchRecentNotifications = async () => {
@@ -300,10 +301,11 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center gap-2 p-1 hover:bg-gray-100 rounded-xl transition-colors"
             >
-              <img
+              <EncryptedImage
                 src={avatarUrl}
                 alt={userDisplayName}
                 className="w-9 h-9 rounded-full object-cover border-2 border-gray-100"
+                fallbackClassName="w-9 h-9 rounded-full border-2 border-gray-100"
               />
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>

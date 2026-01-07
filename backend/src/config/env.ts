@@ -1,5 +1,5 @@
 /**
- * Environment configuration with TLS settings
+ * Environment configuration
  */
 
 // Compute NODE_ENV first
@@ -10,22 +10,11 @@ const isProd = NODE_ENV === 'production';
 export const env = {
   // Server
   PORT: parseInt(process.env.PORT || '3000', 10),
-  HTTPS_PORT: parseInt(process.env.HTTPS_PORT || '3443', 10),
   NODE_ENV,
   isDev,
   isProd,
 
-  // TLS/SSL Configuration - disabled by default in development
-  SSL_ENABLED: isProd ? true : process.env.SSL_ENABLED === 'true',
-  SSL_KEY_PATH: process.env.SSL_KEY_PATH || '',
-  SSL_CERT_PATH: process.env.SSL_CERT_PATH || '',
-  SSL_CA_PATH: process.env.SSL_CA_PATH || '',
-  
-  // Mutual TLS (mTLS) - client certificate verification
-  MTLS_ENABLED: process.env.MTLS_ENABLED === 'true',
-
-  // HTTPS redirect settings
-  FORCE_HTTPS: process.env.FORCE_HTTPS === 'true' || process.env.NODE_ENV === 'production',
+  // Proxy settings
   TRUST_PROXY: process.env.TRUST_PROXY === 'true',
 
   // API Configuration
@@ -72,9 +61,6 @@ export const validateEnv = (): void => {
   const errors: string[] = [];
 
   if (env.isProd) {
-    if (env.SSL_ENABLED && (!env.SSL_KEY_PATH || !env.SSL_CERT_PATH)) {
-      errors.push('SSL_KEY_PATH and SSL_CERT_PATH are required when SSL_ENABLED is true');
-    }
     if (!env.DB_PASSWORD) {
       errors.push('DB_PASSWORD is required in production');
     }

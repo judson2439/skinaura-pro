@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   Menu,
   X,
@@ -65,8 +66,8 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
   const [unreadNotes, setUnreadNotes] = useState<RoutineNote[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Use profile avatar if available, otherwise generate default
-  const avatarUrl = profile?.avatar_url || userAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userDisplayName)}&background=2D2A3E&color=FFFFFF`;
+  // Use profile avatar if available
+  const avatarUrl = profile?.avatar_url || userAvatar || null;
 
   // Fetch unread notes from routine_notes table (only client messages)
   const fetchUnreadNotes = async () => {
@@ -423,10 +424,11 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center gap-2 p-1 hover:bg-gray-100 rounded-xl transition-colors"
             >
-              <img
+              <EncryptedImage
                 src={avatarUrl}
                 alt={userDisplayName}
                 className="w-9 h-9 rounded-full object-cover border-2 border-gray-100"
+                fallbackClassName="w-9 h-9 rounded-full border-2 border-gray-100"
               />
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>

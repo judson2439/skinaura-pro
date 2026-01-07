@@ -2,7 +2,6 @@ import 'dotenv/config';
 import http from 'http';
 import app from './app.js';
 import { env, validateEnv } from './config/env.js';
-import { createSecureServer } from './config/tls.js';
 import { testConnection, closePool } from './config/database.js';
 
 // Validate environment variables
@@ -18,50 +17,15 @@ const initDatabase = async (): Promise<void> => {
 };
 
 /**
- * Start the server with TLS 1.2+ support
+ * Start the HTTP server
  */
 const startServer = (): void => {
-  let server: http.Server;
-  let protocol: string;
-  let port: number;
-
-  // Force HTTP in development for easier local testing
-  const useSSL = env.SSL_ENABLED && env.isProd;
-
-  if (useSSL) {
-    // Create HTTPS server with TLS 1.2+ enforcement
-    server = createSecureServer(app);
-    protocol = 'https';
-    port = env.HTTPS_PORT;
-    console.log('🔒 TLS 1.2+ enabled for all connections');
-  } else {
-    // Create HTTP server (development mode)
-    if (env.isProd) {
-      console.warn('⚠️  WARNING: Running without TLS in production is not recommended!');
-    }
-    console.log('📡 HTTP mode enabled for development');
-    server = http.createServer(app);
-    protocol = 'http';
-    port = env.PORT;
-  }
+  const port = env.PORT;
+  const server = http.createServer(app);
 
   server.listen(port, () => {
-    console.log(`🚀 Server running on ${protocol}://localhost:${port}`);
+    console.log(`🚀 Server running on http://localhost:${port}`);
     console.log(`📍 Environment: ${env.NODE_ENV}`);
-    
-    if (env.FORCE_HTTPS) {
-      console.log('🔐 HTTPS enforcement: enabled');
-    }
-    
-    if (env.MTLS_ENABLED) {
-      console.log('🔑 Mutual TLS (mTLS): enabled');
-    }
-  });
-
-  // Handle TLS errors
-  server.on('tlsClientError', (err, tlsSocket) => {
-    console.error('❌ TLS Client Error:', err.message);
-    tlsSocket.destroy();
   });
 
   // Graceful shutdown
