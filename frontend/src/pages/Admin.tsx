@@ -3,7 +3,8 @@
  * Provides administrative controls and overview for the SkinAura PRO platform.
  * 
  * Session Management:
- * - On mount, checks localStorage for admin session
+ * - On mount, checks localStorage for admin session using centralized auth storage
+ * - Validates JWT token expiration and 10-minute inactivity timeout
  * - If valid session exists, stays on admin page
  * - If no session or invalid session, redirects to "/" and clears localStorage
  */
@@ -19,6 +20,8 @@ import RoutinesSection from '@/components/admin/sections/RoutinesSection';
 import ProgressPhotosSection from '@/components/admin/sections/ProgressPhotosSection';
 import { supabase } from '@/lib/supabase';
 import { Loader2 } from 'lucide-react';
+import { validateAuthSession, getAuthSession, clearAuthSession } from '@/lib/authStorage';
+import { useToast } from '@/hooks/use-toast';
 
 // ============================================================================
 // CONSTANTS
@@ -82,6 +85,7 @@ const clearAdminSession = (): void => {
 
 const Admin: React.FC = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<AdminTabType>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -106,7 +110,54 @@ const Admin: React.FC = () => {
     const checkAdminSession = async () => {
       console.log('Checking admin session from localStorage...');
       
-      // Step 1: Get session from localStorage
+      // Step 1: Validate auth session using centralized auth storage
+      const { valid, reason } = validateAuthSession();
+      const customSession = getAuthSession();
+      
+      // Check centralized auth first
+      if (customSession && customSession.token) {
+        if (!valid && reason) {
+          console.log(`Admin session invalid: ${reason}, redirecting to /`);
+          
+          // Show toast if session expired due to inactivity
+          if (reason === 'Session expired due to inactivity') {
+            toast({
+              title: 'Session Expired',
+              description: 'You have been logged out due to inactivity. Please sign in again.',
+              variant: 'destructive',
+              duration: 5000,
+            });
+          }
+          
+          clearAuthSession();
+          clearAdminSession();
+          navigate('/', { replace: true });
+          return;
+        }
+        
+        // Verify role is admin
+        if (customSession.user.role !== 'admin') {
+          console.log(`User role is ${customSession.user.role}, not admin. Redirecting...`);
+          if (customSession.user.role === 'client') {
+            navigate('/client', { replace: true });
+          } else {
+            navigate('/professional', { replace: true });
+          }
+          return;
+        }
+        
+        // Session is valid, set admin profile
+        setAdminProfile({
+          id: customSession.user.id,
+          email: customSession.user.email,
+          full_name: customSession.user.full_name,
+          role: customSession.user.role,
+        });
+        setIsCheckingSession(false);
+        return;
+      }
+      
+      // Fallback: Check legacy admin session storage
       const storedSession = getAdminSessionFromStorage();
       
       if (!storedSession) {
@@ -116,7 +167,7 @@ const Admin: React.FC = () => {
         return;
       }
 
-      // Step 2: Check if session is expired
+      // Step 2: Check if legacy session is expired
       const expiresAt = storedSession.session.expires_at;
       const now = Math.floor(Date.now() / 1000);
       

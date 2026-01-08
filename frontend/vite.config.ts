@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "::",
       port: 8080,
+      allowedHosts: ["dev.skinaura.pro"],
       // Proxy API requests to backend in development
       proxy: {
         '/api': {

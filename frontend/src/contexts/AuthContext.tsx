@@ -1,10 +1,11 @@
 /**
  * @fileoverview Authentication context for managing user session, authentication, and profile data.
- * Implements Supabase authentication with localStorage-based session management.
+ * Implements custom JWT-based authentication with localStorage session management.
  * 
  * Key Features:
- * - Session persistence using localStorage
+ * - Session persistence using localStorage with custom JWT tokens
  * - On page refresh, checks localStorage for existing session
+ * - 10-minute inactivity timeout with auto-logout
  * - Automatic profile fetching from user_profiles table
  * - Sign in, sign up, and sign out functionality
  */
@@ -13,6 +14,16 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { sanitizeInput } from '@/lib/security';
+import {
+  AuthUser as StoredAuthUser,
+  getAuthSession,
+  saveAuthSession,
+  clearAuthSession,
+  validateAuthSession,
+  updateLastActivity,
+  isSessionExpiredByInactivity,
+  INACTIVITY_TIMEOUT_MS,
+} from '@/lib/authStorage';
 
 // ============================================================================
 // CONSTANTS
@@ -20,6 +31,7 @@ import { sanitizeInput } from '@/lib/security';
 
 const SESSION_STORAGE_KEY = 'glowplan_session';
 const PROFILE_STORAGE_KEY = 'glowplan_profile';
+const INACTIVITY_CHECK_INTERVAL = 30000; // Check every 30 seconds
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -30,7 +42,7 @@ export interface UserProfile {
   email: string;
   full_name: string;
   phone: string | null;
-  role: 'client' | 'professional';
+  role: 'client' | 'professional' | 'admin';
   avatar_url: string | null;
   skin_type: string | null;
   concerns: string[] | null;
@@ -63,7 +75,7 @@ export interface AuthResult {
   success: boolean;
   error?: string;
   needsEmailVerification?: boolean;
-  role?: 'client' | 'professional';
+  role?: 'client' | 'professional' | 'admin';
 }
 
 interface StoredSessionData {
@@ -80,6 +92,8 @@ interface AuthContextType {
   loading: boolean;
   initialized: boolean;
   isAuthenticated: boolean;
+  /** JWT token for API calls */
+  authToken: string | null;
   
   // Actions
   signIn: (data: SignInData) => Promise<AuthResult>;
@@ -87,6 +101,12 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<AuthResult>;
+  /** Update activity timestamp (call on user interactions) */
+  updateActivity: () => void;
+  /** Set auth from custom backend login */
+  setCustomAuth: (user: StoredAuthUser, token: string) => void;
+  /** Clear auth session (for logout) */
+  clearAuth: () => void;
 }
 
 // ============================================================================
@@ -159,9 +179,68 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
 
   // Computed property for authentication status
-  const isAuthenticated = !!session && !!user;
+  // Check both Supabase session and custom auth token
+  const isAuthenticated = !!(session && user) || !!authToken;
+
+  // Set custom auth from backend login
+  const setCustomAuth = useCallback((user: StoredAuthUser, token: string) => {
+    console.log('Setting custom auth for user:', user.email);
+    
+    // Save to localStorage
+    saveAuthSession(user, token);
+    
+    // Update state
+    setAuthToken(token);
+    
+    // Create profile from user data
+    const newProfile: UserProfile = {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone || null,
+      role: user.role,
+      avatar_url: user.avatar_url || null,
+      skin_type: null,
+      concerns: null,
+      business_name: null,
+      license_number: null,
+      professional_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
+    setProfile(newProfile);
+    
+    // Update activity timestamp
+    updateLastActivity();
+    
+    console.log('✅ Custom auth set successfully');
+  }, []);
+
+  // Clear auth session (for logout or expiration)
+  const clearAuth = useCallback(() => {
+    console.log('Clearing auth session...');
+    
+    // Clear all storage
+    clearAuthSession();
+    clearSessionFromStorage();
+    
+    // Clear state
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setAuthToken(null);
+    
+    console.log('✅ Auth session cleared');
+  }, []);
+
+  // Update activity (for manual activity tracking)
+  const handleUpdateActivity = useCallback(() => {
+    updateLastActivity();
+  }, []);
 
   // Fetch user profile from user_profiles table
   const fetchProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
@@ -189,11 +268,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const initializeAuth = () => {
       console.log('Initializing auth - checking localStorage for existing session...');
       
-      // Check localStorage for existing session
+      // First, check for custom auth session (from our backend)
+      const customSession = getAuthSession();
+      
+      if (customSession && customSession.token) {
+        console.log('Custom auth session found in localStorage');
+        
+        // Validate the session (check token expiration and inactivity)
+        const { valid, reason } = validateAuthSession();
+        
+        if (!valid) {
+          console.log(`Custom session invalid: ${reason}, clearing...`);
+          clearAuthSession();
+          setAuthToken(null);
+          setProfile(null);
+          // Continue to check Supabase session below
+        } else {
+          // Session is valid, restore state
+          setAuthToken(customSession.token);
+          
+          // Create a profile from the stored user data
+          const storedUser = customSession.user;
+          const restoredProfile: UserProfile = {
+            id: storedUser.id,
+            email: storedUser.email,
+            full_name: storedUser.full_name,
+            phone: storedUser.phone || null,
+            role: storedUser.role,
+            avatar_url: storedUser.avatar_url || null,
+            skin_type: null,
+            concerns: null,
+            business_name: null,
+            license_number: null,
+            professional_id: null,
+            created_at: customSession.loginTime,
+            updated_at: customSession.lastActivity,
+          };
+          
+          setProfile(restoredProfile);
+          console.log('Custom session restored from localStorage, role:', storedUser.role);
+          setInitialized(true);
+          return;
+        }
+      }
+      
+      // Check Supabase localStorage for existing session (legacy/fallback)
       const storedData = getSessionFromStorage();
       
       if (storedData && storedData.session && storedData.user) {
-        console.log('Session found in localStorage, user is authenticated');
+        console.log('Supabase session found in localStorage, user is authenticated');
         
         // Check if session is expired
         const expiresAt = storedData.session.expires_at;
@@ -220,6 +343,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setSession(null);
         setUser(null);
         setProfile(null);
+        setAuthToken(null);
       }
       
       // Mark initialization as complete
@@ -229,6 +353,69 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     initializeAuth();
   }, []);
+
+  // Inactivity timeout checker - runs every 30 seconds
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    const checkInactivity = () => {
+      if (isSessionExpiredByInactivity()) {
+        console.log('⏰ Session expired due to inactivity (10 minutes)');
+        
+        // Clear all auth data
+        clearAuthSession();
+        clearSessionFromStorage();
+        
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setAuthToken(null);
+        
+        // Redirect will be handled by the page components
+      }
+    };
+
+    const intervalId = setInterval(checkInactivity, INACTIVITY_CHECK_INTERVAL);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isAuthenticated]);
+
+  // Activity tracking - update on user interactions
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
+    let lastUpdate = 0;
+
+    const handleActivity = () => {
+      const now = Date.now();
+      // Throttle to once per second
+      if (now - lastUpdate < 1000) {
+        return;
+      }
+      lastUpdate = now;
+      updateLastActivity();
+    };
+
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true });
+    });
+
+    // Initial activity update
+    updateLastActivity();
+
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleActivity);
+      });
+    };
+  }, [isAuthenticated]);
 
   // Upload avatar to Supabase storage
   const uploadAvatar = async (userId: string, avatarFile: File): Promise<string | null> => {
@@ -521,11 +708,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     initialized,
     isAuthenticated,
+    authToken,
     signIn,
     signUp,
     signOut,
     refreshProfile,
     updateProfile,
+    updateActivity: handleUpdateActivity,
+    setCustomAuth,
+    clearAuth,
   };
 
   return (

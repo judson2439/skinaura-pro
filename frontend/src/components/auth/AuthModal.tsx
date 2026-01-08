@@ -101,7 +101,7 @@ const PasswordStrengthIndicator: React.FC<{ strength: PasswordStrength }> = ({ s
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'login', initialRole }) => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { loading: authLoading } = useAuth();
+  const { loading: authLoading, setCustomAuth } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [view, setView] = useState<AuthView>(initialRole ? initialMode : 'select-role');
@@ -243,10 +243,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     setLoading(true);
     
     try {
-      // Encrypt credentials before sending to backend
+      // Encrypt credentials before sending to backend (include selectedRole for validation)
       const credentials = {
         email: email.trim().toLowerCase(),
         password: password,
+        selectedRole: selectedRole, // Send selected role for backend validation
       };
 
       console.log('🔐 Encrypting credentials...');
@@ -274,9 +275,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         success: boolean;
         message: string;
         data?: {
-          user?: { id: string; email: string; full_name: string; role: string; avatar_url?: string };
+          user?: { id: string; email: string; full_name: string; role: string; avatar_url?: string; phone?: string };
           token?: string;
           redirectTo?: string;
+          roleMismatch?: boolean;
+          actualRole?: string;
         };
         error?: string;
       }>(signInEndpoint, encryptedPayload);
@@ -285,37 +288,55 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
       if (!response.data.success) {
         const errorMsg = response.data.error || 'Invalid credentials';
-        setErrors({ email: errorMsg });
-        toast({
-          title: 'Login Failed',
-          description: errorMsg,
-          variant: 'destructive'
-        });
+        
+        // Check if this is a role mismatch error
+        if (response.data.data?.roleMismatch) {
+          const actualRole = response.data.data.actualRole || 'unknown';
+          toast({
+            title: 'Incorrect Role Selected',
+            description: `Your account is registered as "${actualRole}". Please go back and select the correct role to sign in.`,
+            variant: 'destructive',
+            duration: 6000,
+          });
+          setErrors({ email: `Your account is a "${actualRole}" account` });
+        } else {
+          setErrors({ email: errorMsg });
+          toast({
+            title: 'Login Failed',
+            description: errorMsg,
+            variant: 'destructive'
+          });
+        }
+        
         setLoading(false);
         return;
       }
 
-      // Store auth token if provided
-      if (response.data.data?.token) {
-        localStorage.setItem('skinaura_auth_token', response.data.data.token);
-        console.log('✅ Auth token stored');
-      }
-
-      // Store user data in localStorage for session
-      if (response.data.data?.user) {
-        localStorage.setItem('skinaura_user', JSON.stringify(response.data.data.user));
-        console.log('✅ User data stored');
-      }
-
-      // Admin-specific session storage
-      if (selectedRole === 'admin' && response.data.data?.user) {
-        const adminSessionData = {
-          user: response.data.data.user,
-          token: response.data.data.token,
-          loginTime: new Date().toISOString()
-        };
-        localStorage.setItem('glowplan_admin_session', JSON.stringify(adminSessionData));
-        console.log('✅ Admin session saved to localStorage');
+      // Store auth session using the AuthContext method
+      if (response.data.data?.user && response.data.data?.token) {
+        const userData = response.data.data.user;
+        const token = response.data.data.token;
+        
+        // Use the role from backend response, fallback to selectedRole if not provided
+        const userRole = (userData.role || selectedRole || 'client') as 'client' | 'professional' | 'admin';
+        
+        console.log('📋 User data from backend:', userData);
+        console.log('📋 Role resolved as:', userRole);
+        
+        // Use the AuthContext setCustomAuth to properly save the session
+        setCustomAuth(
+          {
+            id: userData.id,
+            email: userData.email,
+            full_name: userData.full_name,
+            phone: userData.phone,
+            role: userRole,
+            avatar_url: userData.avatar_url,
+          },
+          token
+        );
+        
+        console.log('✅ Auth session saved via AuthContext');
       }
 
       toast({
@@ -482,17 +503,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         return;
       }
 
-      // Store auth token if provided
-      if (response.data.data?.token) {
-        localStorage.setItem('skinaura_auth_token', response.data.data.token);
-        console.log('✅ Auth token stored');
-      }
-
-      // Store user data in localStorage for session
-      if (response.data.data?.user) {
-        localStorage.setItem('skinaura_user', JSON.stringify(response.data.data.user));
-        console.log('✅ User data stored');
-      }
+      // Note: Don't save full auth session during signup - user needs to verify first
+      // Just store temporary data for the verification flow
+      console.log('✅ Account created, proceeding to email verification');
 
       toast({
         title: 'Account Created!',

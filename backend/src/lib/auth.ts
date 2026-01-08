@@ -47,6 +47,8 @@ export interface UserProfile {
   phone?: string;
   email_verified: boolean;
   phone_verified: boolean;
+  role?: 'client' | 'professional' | 'admin';
+  avatar_url?: string;
 }
 
 export interface AuthResult {
@@ -594,13 +596,14 @@ export const resendPhoneVerificationCode = async (
 
 /**
  * Authenticate user with email and password
+ * Fetches user role from user_profiles table for role-based access
  */
 export const authenticateUser = async (
   email: string,
   password: string
 ): Promise<AuthResult> => {
   try {
-    // Find user by email
+    // Find user by email in auth table
     const user = await findUserByEmail(email);
     
     if (!user) {
@@ -631,6 +634,15 @@ export const authenticateUser = async (
       };
     }
 
+    // Fetch user profile to get role and avatar from user_profiles table
+    const userProfile = await queryOne<{ role: string; avatar_url: string | null }>(
+      `SELECT role, avatar_url FROM user_profiles WHERE id = $1`,
+      [user.id]
+    );
+
+    const userRole = (userProfile?.role as 'client' | 'professional' | 'admin') || 'client';
+    const avatarUrl = userProfile?.avatar_url || undefined;
+
     // Generate token
     const token = generateToken(user.id, user.email);
 
@@ -643,6 +655,8 @@ export const authenticateUser = async (
         phone: user.phone,
         email_verified: user.email_verified,
         phone_verified: user.phone_verified,
+        role: userRole,
+        avatar_url: avatarUrl,
       },
       token,
     };

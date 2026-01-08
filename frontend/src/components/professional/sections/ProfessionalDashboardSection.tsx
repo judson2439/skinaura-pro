@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users,
   Check,
@@ -12,9 +12,10 @@ import {
   Loader2,
   Send,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 
 // ============================================================================
 // TYPES
@@ -41,69 +42,12 @@ interface ProfessionalDashboardSectionProps {
   onOpenSMSModal?: (client: Client) => void;
 }
 
-interface UserGamification {
-  user_id: string;
-  current_streak: number;
-  longest_streak: number;
-  points: number;
-  total_routines_completed: number;
-  level: string;
-  last_completion_date: string | null;
+interface DashboardStats {
+  totalClients: number;
+  completedToday: number;
+  needAttention: number;
+  avgCompliance: number;
 }
-
-interface UserProfile {
-  id: string;
-  email: string;
-  full_name: string | null;
-  avatar_url: string | null;
-  phone: string | null;
-  skin_type: string | null;
-  concerns: string[] | null;
-}
-
-interface RoutineCompletion {
-  client_id: string;
-  completion_date: string;
-  routine_type: string;
-}
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-// Calculate level based on points (fallback if not in gamification table)
-const calculateLevel = (points: number): string => {
-  if (points >= 5000) return 'Diamond';
-  if (points >= 3000) return 'Platinum';
-  if (points >= 1500) return 'Gold';
-  if (points >= 500) return 'Silver';
-  return 'Bronze';
-};
-
-// Calculate compliance percentage based on routine completions
-const calculateCompliance = (
-  completions: RoutineCompletion[],
-  clientId: string,
-  daysToCheck: number = 30
-): number => {
-  const clientCompletions = completions.filter(c => c.client_id === clientId);
-  
-  // Get unique completion dates for this client
-  const uniqueDates = new Set(clientCompletions.map(c => c.completion_date));
-  
-  // Calculate compliance as percentage of days with at least one completion
-  const compliance = Math.round((uniqueDates.size / daysToCheck) * 100);
-  return Math.min(compliance, 100); // Cap at 100%
-};
-
-// Check if routine was completed today
-const checkCompletedToday = (
-  completions: RoutineCompletion[],
-  clientId: string
-): boolean => {
-  const today = new Date().toISOString().split('T')[0];
-  return completions.some(c => c.client_id === clientId && c.completion_date === today);
-};
 
 // ============================================================================
 // COMPONENT
@@ -114,9 +58,15 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
   onOpenClientProfile,
   onOpenSMSModal,
 }) => {
-  const { user, profile } = useAuth();
+  const { profile } = useAuth();
   const { toast } = useToast();
   const [allDisplayClients, setAllDisplayClients] = useState<Client[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({
+    totalClients: 0,
+    completedToday: 0,
+    needAttention: 0,
+    avgCompliance: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -126,138 +76,57 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
   const [smsMessage, setSmsMessage] = useState('');
   const [sendingSMS, setSendingSMS] = useState(false);
 
-  // Fetch clients data from database
+  // Fetch dashboard data from backend API
+  const fetchDashboardData = useCallback(async () => {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Set auth token for API client
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          clients: Client[];
+          stats: DashboardStats;
+        };
+        error?: string;
+      }>('/api/professional/dashboard');
+
+      if (response.data.success && response.data.data) {
+        setAllDisplayClients(response.data.data.clients);
+        setDashboardStats(response.data.data.stats);
+      } else {
+        console.error('Error fetching dashboard:', response.data.error);
+        setError(response.data.error || 'Failed to load dashboard data');
+      }
+    } catch (err: any) {
+      console.error('Unexpected error:', err);
+      setError(err.message || 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchClientsData = async () => {
-      if (!user?.id) {
-        setLoading(false);
-        return;
-      }
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
-      setLoading(true);
-      setError(null);
-
-      try {
-        // Step 1: Get all client_ids from client_professional_relationships
-        const { data: relationshipsData, error: relationshipsError } = await supabase
-          .from('client_professional_relationships')
-          .select('client_id')
-          .eq('professional_id', user.id);
-
-        if (relationshipsError) {
-          console.error('Error fetching relationships:', relationshipsError);
-          setError('Failed to load client relationships');
-          setLoading(false);
-          return;
-        }
-
-        const clientIds = relationshipsData?.map(r => r.client_id) || [];
-
-        if (clientIds.length === 0) {
-          setAllDisplayClients([]);
-          setLoading(false);
-          return;
-        }
-
-        // Step 2: Get client profiles from user_profiles
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('user_profiles')
-          .select('id, email, full_name, avatar_url, phone, skin_type, concerns')
-          .in('id', clientIds);
-
-        if (profilesError) {
-          console.error('Error fetching profiles:', profilesError);
-          setError('Failed to load client profiles');
-          setLoading(false);
-          return;
-        }
-
-        // Step 3: Get gamification data for all clients
-        const { data: gamificationData, error: gamificationError } = await supabase
-          .from('user_gamification')
-          .select('user_id, current_streak, longest_streak, points, total_routines_completed, level, last_completion_date')
-          .in('user_id', clientIds);
-
-        if (gamificationError) {
-          console.error('Error fetching gamification data:', gamificationError);
-          // Continue without gamification data - use defaults
-        }
-
-        // Step 4: Get routine completions for the last 30 days
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
-
-        const { data: completionsData, error: completionsError } = await supabase
-          .from('routine_completions')
-          .select('client_id, completion_date, routine_type')
-          .in('client_id', clientIds)
-          .gte('completion_date', thirtyDaysAgoStr);
-
-        if (completionsError) {
-          console.error('Error fetching completions:', completionsError);
-          // Continue without completions data - use defaults
-        }
-
-        // Create lookup maps
-        const gamificationMap = new Map<string, UserGamification>();
-        (gamificationData || []).forEach((g: UserGamification) => {
-          gamificationMap.set(g.user_id, g);
-        });
-
-        const completions: RoutineCompletion[] = (completionsData || []).map(c => ({
-          client_id: c.client_id,
-          completion_date: c.completion_date,
-          routine_type: c.routine_type,
-        }));
-
-        // Step 5: Build client objects
-        const clients: Client[] = (profilesData || []).map((profileData: UserProfile) => {
-          const gamification = gamificationMap.get(profileData.id);
-          const compliance = calculateCompliance(completions, profileData.id);
-          const completedToday = checkCompletedToday(completions, profileData.id);
-
-          // Generate avatar URL if not available
-          const displayName = profileData.full_name || profileData.email?.split('@')[0] || 'Unknown';
-          const avatarUrl = profileData.avatar_url || 
-            `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=CFAFA3&color=fff&size=100`;
-
-          return {
-            id: profileData.id,
-            name: displayName,
-            email: profileData.email || '',
-            image: avatarUrl,
-            phone: profileData.phone || undefined,
-            skinType: profileData.skin_type || undefined,
-            concerns: profileData.concerns || undefined,
-            currentStreak: gamification?.current_streak || 0,
-            level: gamification?.level || calculateLevel(gamification?.points || 0),
-            compliance: compliance,
-            routineCompletedToday: completedToday,
-            isRegistered: true, // All clients from database are registered
-          };
-        });
-
-        setAllDisplayClients(clients);
-      } catch (err) {
-        console.error('Unexpected error:', err);
-        setError('An unexpected error occurred');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchClientsData();
-  }, [user?.id]);
-
-  // Calculate stats
-  const totalClients = allDisplayClients.length;
+  // Use stats from backend or calculate from clients as fallback
+  const totalClients = dashboardStats.totalClients || allDisplayClients.length;
   const registeredClients = allDisplayClients.filter(c => c.isRegistered);
-  const completedToday = allDisplayClients.filter(c => c.routineCompletedToday).length;
-  const needAttention = allDisplayClients.filter(c => !c.routineCompletedToday || c.compliance < 70).length;
-  const avgCompliance = totalClients > 0 
-    ? Math.round(allDisplayClients.reduce((sum, c) => sum + c.compliance, 0) / totalClients)
-    : 0;
+  const completedToday = dashboardStats.completedToday;
+  const needAttention = dashboardStats.needAttention;
+  const avgCompliance = dashboardStats.avgCompliance;
 
   const setActiveView = (viewId: string) => {
     if (onNavigateToView) {
@@ -288,35 +157,40 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
     
     setSendingSMS(true);
     try {
-      // Get the professional's name from profile
-      const professionalName = profile?.full_name || 'Your Skincare Professional';
-      const clientFirstName = selectedClientForSMS.name.split(' ')[0];
+      const authSession = getAuthSession();
+      const token = authSession?.token || getAuthToken();
       
-      // Call the send-sms-reminder edge function
-      const { data, error } = await supabase.functions.invoke('send-sms-reminder', {
-        body: {
-          to: selectedClientForSMS.phone,
-          message: smsMessage,
-          clientName: clientFirstName,
-          professionalName: professionalName,
-        },
-      });
-
-      if (error) {
-        console.error('Error sending SMS:', error);
+      if (!token) {
         toast({
-          title: 'Failed to send SMS',
-          description: error.message || 'An error occurred while sending the SMS reminder.',
+          title: 'Authentication Required',
+          description: 'Please sign in to send SMS reminders.',
           variant: 'destructive',
         });
         return;
       }
 
-      if (data?.error) {
-        console.error('SMS API error:', data.error);
+      // Set auth token for API client
+      apiClient.setAuthToken(token);
+      
+      const clientFirstName = selectedClientForSMS.name.split(' ')[0];
+      
+      // Call the backend SMS endpoint
+      const response = await apiClient.post<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>('/api/professional/sms/send', {
+        clientId: selectedClientForSMS.id,
+        phone: selectedClientForSMS.phone,
+        message: smsMessage,
+        clientName: clientFirstName,
+      });
+
+      if (!response.data.success) {
+        console.error('SMS API error:', response.data.error);
         toast({
           title: 'Failed to send SMS',
-          description: data.error,
+          description: response.data.error || 'An error occurred while sending the SMS reminder.',
           variant: 'destructive',
         });
         return;
@@ -333,7 +207,7 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
       console.error('Error sending SMS:', error);
       toast({
         title: 'Failed to send SMS',
-        description: error.message || 'An unexpected error occurred.',
+        description: error.data?.error || error.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
     } finally {

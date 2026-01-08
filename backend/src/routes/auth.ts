@@ -22,6 +22,7 @@ const router = Router();
 interface SignInRequest {
   email: string;
   password: string;
+  selectedRole?: 'client' | 'professional' | 'admin';
 }
 
 interface SignUpRequest {
@@ -71,11 +72,15 @@ interface AuthResponse {
       phone?: string;
       email_verified: boolean;
       phone_verified?: boolean;
+      role?: string;
+      avatar_url?: string;
     };
     token?: string;
     needsPhoneVerification?: boolean;
     redirectTo?: string;
     needsVerification?: boolean;
+    roleMismatch?: boolean;
+    actualRole?: string;
   };
   error?: string;
 }
@@ -567,11 +572,11 @@ router.post('/resend-phone-verification', async (req: Request, res: Response): P
 
 /**
  * POST /auth/signin
- * User sign-in
+ * User sign-in with role validation
  */
 router.post('/signin', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body as SignInRequest;
+    const { email, password, selectedRole } = req.body as SignInRequest;
 
     if (!email || !password) {
       res.status(400).json({
@@ -595,7 +600,32 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    console.log(`✅ Sign-in successful for: ${email}`);
+    // Get actual role from user profile
+    const actualRole = result.user?.role || 'client';
+    
+    // If selectedRole is provided, validate it matches
+    if (selectedRole && actualRole !== selectedRole) {
+      console.log(`⚠️ Role mismatch for ${email}: selected '${selectedRole}', actual '${actualRole}'`);
+      res.status(403).json({
+        success: false,
+        error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
+        data: {
+          roleMismatch: true,
+          actualRole: actualRole,
+        },
+      } as AuthResponse);
+      return;
+    }
+
+    // Determine redirect path based on actual role
+    let redirectTo = '/client';
+    if (actualRole === 'admin') {
+      redirectTo = '/admin';
+    } else if (actualRole === 'professional') {
+      redirectTo = '/professional';
+    }
+
+    console.log(`✅ Sign-in successful for: ${email} (role: ${actualRole})`);
 
     res.status(200).json({
       success: true,
@@ -603,7 +633,7 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
       data: {
         user: result.user,
         token: result.token,
-        redirectTo: '/client', // Default redirect
+        redirectTo: redirectTo,
       },
     } as AuthResponse);
 
@@ -618,11 +648,11 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /auth/client/signin
- * Client sign-in (alias)
+ * Client sign-in with role validation
  */
 router.post('/client/signin', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body as SignInRequest;
+    const { email, password, selectedRole } = req.body as SignInRequest;
 
     if (!email || !password) {
       res.status(400).json({
@@ -642,6 +672,23 @@ router.post('/client/signin', async (req: Request, res: Response): Promise<void>
         success: false,
         error: result.error || 'Invalid credentials',
         data: result.needsVerification ? { needsVerification: true } : undefined,
+      } as AuthResponse);
+      return;
+    }
+
+    // Validate role - user's actual role must match selected role
+    const actualRole = result.user?.role || 'client';
+    const expectedRole = selectedRole || 'client';
+    
+    if (actualRole !== expectedRole) {
+      console.log(`⚠️ Role mismatch for ${email}: selected '${expectedRole}', actual '${actualRole}'`);
+      res.status(403).json({
+        success: false,
+        error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
+        data: {
+          roleMismatch: true,
+          actualRole: actualRole,
+        },
       } as AuthResponse);
       return;
     }
@@ -669,11 +716,11 @@ router.post('/client/signin', async (req: Request, res: Response): Promise<void>
 
 /**
  * POST /auth/professional/signin
- * Professional sign-in
+ * Professional sign-in with role validation
  */
 router.post('/professional/signin', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body as SignInRequest;
+    const { email, password, selectedRole } = req.body as SignInRequest;
 
     if (!email || !password) {
       res.status(400).json({
@@ -693,6 +740,23 @@ router.post('/professional/signin', async (req: Request, res: Response): Promise
         success: false,
         error: result.error || 'Invalid credentials',
         data: result.needsVerification ? { needsVerification: true } : undefined,
+      } as AuthResponse);
+      return;
+    }
+
+    // Validate role - user's actual role must match selected role
+    const actualRole = result.user?.role || 'client';
+    const expectedRole = selectedRole || 'professional';
+    
+    if (actualRole !== expectedRole) {
+      console.log(`⚠️ Role mismatch for ${email}: selected '${expectedRole}', actual '${actualRole}'`);
+      res.status(403).json({
+        success: false,
+        error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
+        data: {
+          roleMismatch: true,
+          actualRole: actualRole,
+        },
       } as AuthResponse);
       return;
     }
@@ -720,11 +784,11 @@ router.post('/professional/signin', async (req: Request, res: Response): Promise
 
 /**
  * POST /auth/admin/signin
- * Admin sign-in
+ * Admin sign-in with role validation
  */
 router.post('/admin/signin', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body as SignInRequest;
+    const { email, password, selectedRole } = req.body as SignInRequest;
 
     if (!email || !password) {
       res.status(400).json({
@@ -746,7 +810,23 @@ router.post('/admin/signin', async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // TODO: Add admin role check here if needed
+    // Validate role - user's actual role must be admin
+    const actualRole = result.user?.role || 'client';
+    const expectedRole = selectedRole || 'admin';
+    
+    if (actualRole !== expectedRole) {
+      console.log(`⚠️ Role mismatch for ${email}: selected '${expectedRole}', actual '${actualRole}'`);
+      res.status(403).json({
+        success: false,
+        error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
+        data: {
+          roleMismatch: true,
+          actualRole: actualRole,
+        },
+      } as AuthResponse);
+      return;
+    }
+
     console.log(`✅ Admin sign-in successful for: ${email}`);
 
     res.status(200).json({

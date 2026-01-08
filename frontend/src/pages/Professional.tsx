@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { validateAuthSession, getAuthSession, getAuthToken } from '@/lib/authStorage';
+import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/apiClient';
 import ProfessionalSidebar, { PROFESSIONAL_NAV_ITEMS } from '@/components/professional/ProfessionalSidebar';
 import ProfessionalHeader from '@/components/professional/ProfessionalHeader';
 import ProfessionalFooter from '@/components/professional/ProfessionalFooter';
@@ -45,7 +47,8 @@ interface Client {
 const ProfessionalPage: React.FC = () => {
   const { section } = useParams<{ section: string }>();
   const navigate = useNavigate();
-  const { user, profile, initialized, loading, isAuthenticated } = useAuth();
+  const { toast } = useToast();
+  const { user, profile, initialized, loading, isAuthenticated, clearAuth } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -57,86 +60,74 @@ const ProfessionalPage: React.FC = () => {
   // Get active view from URL parameter
   const activeView = section || 'dashboard';
 
-  // Fetch real client count from database
-  useEffect(() => {
-    const fetchClientCount = async () => {
-      if (!user?.id) return;
+  // Fetch real client count from backend API
+  const fetchClientCount = useCallback(async () => {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    
+    if (!token) return;
 
-      try {
-        const { count, error } = await supabase
-          .from('client_professional_relationships')
-          .select('*', { count: 'exact', head: true })
-          .eq('professional_id', user.id)
-          .eq('status', 'active');
+    try {
+      // Set auth token for API client
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { count: number };
+        error?: string;
+      }>('/api/professional/clients/count');
 
-        if (error) {
-          console.error('Error fetching client count:', error);
-          return;
-        }
-
-        setTotalClients(count || 0);
-      } catch (err) {
-        console.error('Error fetching client count:', err);
+      if (response.data.success && response.data.data) {
+        setTotalClients(response.data.data.count);
+      } else {
+        console.error('Error fetching client count:', response.data.error);
       }
-    };
+    } catch (err) {
+      console.error('Error fetching client count:', err);
+    }
+  }, []);
 
+  useEffect(() => {
     fetchClientCount();
-  }, [user?.id]);
+  }, [fetchClientCount]);
 
-  // Fetch unread notifications count
-  useEffect(() => {
-    const fetchUnreadCount = async () => {
-      if (!user?.id) return;
+  // Fetch unread notifications count from backend API
+  const fetchUnreadCount = useCallback(async () => {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    
+    if (!token) return;
 
-      try {
-        // Count unread notes from clients where professional_id matches current user
-        // and sender_type is 'client' or null (messages from clients)
-        const { data: notes, error } = await supabase
-          .from('routine_notes')
-          .select('id, sender_type, read_status')
-          .eq('professional_id', user.id)
-          .eq('read_status', false)
-          .eq('professional_deleted', false);
+    try {
+      // Set auth token for API client
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { count: number };
+        error?: string;
+      }>('/api/professional/notifications/unread-count');
 
-        if (error) {
-          console.error('Error fetching unread count:', error);
-          return;
-        }
-
-        // Filter in JS to count only messages from clients (sender_type is 'client' or null)
-        const unreadFromClients = notes?.filter(
-          note => note.sender_type === 'client' || !note.sender_type
-        ).length || 0;
-
-        setUnreadNotifications(unreadFromClients);
-      } catch (err) {
-        console.error('Error fetching unread notifications:', err);
+      if (response.data.success && response.data.data) {
+        setUnreadNotifications(response.data.data.count);
+      } else {
+        console.error('Error fetching unread count:', response.data.error);
       }
-    };
+    } catch (err) {
+      console.error('Error fetching unread notifications:', err);
+    }
+  }, []);
 
+  useEffect(() => {
     fetchUnreadCount();
 
-    // Subscribe to real-time updates for new notes
-    const channel = supabase
-      .channel('sidebar-notifications')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'routine_notes',
-        },
-        () => {
-          // Refetch unread count when notes change
-          fetchUnreadCount();
-        }
-      )
-      .subscribe();
+    // Poll for updates every 30 seconds (alternative to real-time subscriptions)
+    const pollInterval = setInterval(fetchUnreadCount, 30000);
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [user?.id]);
+  }, [fetchUnreadCount]);
 
 
 
@@ -149,21 +140,60 @@ const ProfessionalPage: React.FC = () => {
       return;
     }
 
-    // Session check complete
-    if (!isAuthenticated || !user) {
-      // No session found - user is signed out, redirect to landing
+    // Get auth session from storage
+    const authSession = getAuthSession();
+    const hasCustomAuth = authSession && authSession.token;
+    const hasSupabaseAuth = isAuthenticated && user;
+    
+    // If we have custom auth, validate it
+    if (hasCustomAuth) {
+      const { valid, reason } = validateAuthSession();
+      
+      if (!valid && reason) {
+        console.log(`Custom session invalid: ${reason}`);
+        
+        // Only redirect for actual expiration, not "No session found"
+        if (reason === 'Session expired due to inactivity' || reason === 'Token expired') {
+          toast({
+            title: 'Session Expired',
+            description: reason === 'Session expired due to inactivity' 
+              ? 'You have been logged out due to inactivity. Please sign in again.'
+              : 'Your session has expired. Please sign in again.',
+            variant: 'destructive',
+            duration: 5000,
+          });
+          
+          clearAuth();
+          navigate('/', { replace: true });
+          return;
+        }
+      }
+    }
+
+    // Check if user has any valid session
+    if (!hasCustomAuth && !hasSupabaseAuth) {
       console.log('No session found, redirecting to landing page');
       navigate('/', { replace: true });
       return;
     }
 
+    // Get role from auth storage or profile
+    const userRole = profile?.role || authSession?.user?.role;
+
     // User is authenticated, check role
-    if (profile && profile.role !== 'professional') {
-      // User is not a professional, redirect to client page
-      console.log('User is not a professional, redirecting to client page');
-      navigate('/client', { replace: true });
+    if (userRole && userRole !== 'professional') {
+      console.log(`User role is ${userRole}, redirecting...`);
+      if (userRole === 'admin') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/client', { replace: true });
+      }
     }
-  }, [initialized, isAuthenticated, user, profile, navigate]);
+  }, [initialized, isAuthenticated, user, profile, navigate, clearAuth, toast]);
+
+  // Check for valid auth session (custom auth or Supabase)
+  const authSession = getAuthSession();
+  const hasValidSession = isAuthenticated || (authSession && authSession.token);
 
   // Show loading state while checking session
   if (!initialized || loading) {
@@ -178,7 +208,7 @@ const ProfessionalPage: React.FC = () => {
   }
 
   // Don't render content if not authenticated (will redirect)
-  if (!isAuthenticated || !user) {
+  if (!hasValidSession) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
         <div className="flex flex-col items-center gap-4">
@@ -189,10 +219,11 @@ const ProfessionalPage: React.FC = () => {
     );
   }
 
-  // Get user data from profile or fallback to defaults
-  const userDisplayName = profile?.full_name || user.user_metadata?.full_name || 'Professional';
-  const userEmail = profile?.email || user.email || '';
-  const userAvatar = profile?.avatar_url || user.user_metadata?.avatar_url || '';
+  // Get user data from profile, auth session, or fallback to defaults
+  const storedUser = authSession?.user;
+  const userDisplayName = profile?.full_name || storedUser?.full_name || user?.user_metadata?.full_name || 'Professional';
+  const userEmail = profile?.email || storedUser?.email || user?.email || '';
+  const userAvatar = profile?.avatar_url || storedUser?.avatar_url || user?.user_metadata?.avatar_url || '';
   const businessName = profile?.business_name || 'Your Business';
 
 

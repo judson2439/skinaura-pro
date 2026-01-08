@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { validateAuthSession, clearAuthSession, getAuthSession } from '@/lib/authStorage';
+import { useToast } from '@/hooks/use-toast';
 import ClientSidebar, { CLIENT_NAV_ITEMS } from '@/components/client/ClientSidebar';
 import ClientHeader from '@/components/client/ClientHeader';
 import ClientFooter from '@/components/client/ClientFooter';
@@ -69,7 +71,8 @@ function calculateLevel(points: number): string {
 const ClientPage: React.FC = () => {
   const { section } = useParams<{ section: string }>();
   const navigate = useNavigate();
-  const { user, profile, initialized, loading, isAuthenticated } = useAuth();
+  const { toast } = useToast();
+  const { user, profile, initialized, loading, isAuthenticated, clearAuth } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [clientStats, setClientStats] = useState<ClientStats>({
     level: 'Bronze',
@@ -91,21 +94,56 @@ const ClientPage: React.FC = () => {
       return;
     }
 
-    // Session check complete
-    if (!isAuthenticated || !user) {
-      // No session found - user is signed out, redirect to landing
+    // Get auth session from storage
+    const authSession = getAuthSession();
+    const hasCustomAuth = authSession && authSession.token;
+    const hasSupabaseAuth = isAuthenticated && user;
+    
+    // If we have custom auth, validate it
+    if (hasCustomAuth) {
+      const { valid, reason } = validateAuthSession();
+      
+      if (!valid && reason) {
+        console.log(`Custom session invalid: ${reason}`);
+        
+        // Only redirect for actual expiration, not "No session found"
+        if (reason === 'Session expired due to inactivity' || reason === 'Token expired') {
+          toast({
+            title: 'Session Expired',
+            description: reason === 'Session expired due to inactivity' 
+              ? 'You have been logged out due to inactivity. Please sign in again.'
+              : 'Your session has expired. Please sign in again.',
+            variant: 'destructive',
+            duration: 5000,
+          });
+          
+          clearAuth();
+          navigate('/', { replace: true });
+          return;
+        }
+      }
+    }
+
+    // Check if user has any valid session
+    if (!hasCustomAuth && !hasSupabaseAuth) {
       console.log('No session found, redirecting to landing page');
       navigate('/', { replace: true });
       return;
     }
 
+    // Get role from auth storage or profile
+    const userRole = profile?.role || authSession?.user?.role;
+
     // User is authenticated, check role
-    if (profile && profile.role !== 'client') {
-      // User is not a client, redirect to professional page
-      console.log('User is not a client, redirecting to professional page');
-      navigate('/professional', { replace: true });
+    if (userRole && userRole !== 'client') {
+      console.log(`User role is ${userRole}, redirecting...`);
+      if (userRole === 'admin') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/professional', { replace: true });
+      }
     }
-  }, [initialized, isAuthenticated, user, profile, navigate]);
+  }, [initialized, isAuthenticated, user, profile, navigate, clearAuth, toast]);
 
   // Fetch gamification stats from database
   useEffect(() => {
@@ -263,8 +301,12 @@ const ClientPage: React.FC = () => {
     );
   }
 
+  // Check for valid auth session (custom auth or Supabase)
+  const currentAuthSession = getAuthSession();
+  const hasValidSession = isAuthenticated || (currentAuthSession && currentAuthSession.token);
+
   // Don't render content if not authenticated (will redirect)
-  if (!isAuthenticated || !user) {
+  if (!hasValidSession) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
         <div className="flex flex-col items-center gap-4">
@@ -275,10 +317,11 @@ const ClientPage: React.FC = () => {
     );
   }
 
-  // Get user data from profile or fallback to defaults
-  const userDisplayName = profile?.full_name || user.user_metadata?.full_name || 'User';
-  const userEmail = profile?.email || user.email || '';
-  const userAvatar = profile?.avatar_url || undefined;
+  // Get user data from profile, auth session, or fallback to defaults
+  const storedUser = currentAuthSession?.user;
+  const userDisplayName = profile?.full_name || storedUser?.full_name || user?.user_metadata?.full_name || 'User';
+  const userEmail = profile?.email || storedUser?.email || user?.email || '';
+  const userAvatar = profile?.avatar_url || storedUser?.avatar_url || undefined;
 
   const handleNavigateToView = (viewId: string) => {
     navigate(`/client/${viewId}`);
