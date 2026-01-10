@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { validateAuthSession, clearAuthSession, getAuthSession } from '@/lib/authStorage';
+import { apiClient } from '@/lib/apiClient';
+import { validateAuthSession, clearAuthSession, getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 import ClientSidebar, { CLIENT_NAV_ITEMS } from '@/components/client/ClientSidebar';
 import ClientHeader from '@/components/client/ClientHeader';
@@ -148,48 +148,46 @@ const ClientPage: React.FC = () => {
   // Fetch gamification stats from database
   useEffect(() => {
     const fetchGamificationStats = async () => {
-      if (!user?.id) {
+      const token = getAuthToken();
+      if (!token) {
         setStatsLoading(false);
         return;
       }
 
       try {
+        apiClient.setAuthToken(token);
+        
         // Fetch user's gamification data
-        const { data: gamificationData, error } = await supabase
-          .from('user_gamification')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { gamification: UserGamification | null };
+          error?: string;
+        }>('/client/gamification');
 
-        if (error) {
-          if (error.code === 'PGRST116') {
-            // No record found - user hasn't started gamification yet
-            // Create initial record
-            const { data: newData, error: insertError } = await supabase
-              .from('user_gamification')
-              .insert({
-                user_id: user.id,
-                points: 0,
-                level: 'Bronze',
-                current_streak: 0,
-                longest_streak: 0,
-                total_routines_completed: 0,
-                badges_earned: 0,
-              })
-              .select()
-              .single();
+        if (!response.data.success) {
+          console.error('Error fetching gamification stats:', response.data.error);
+          setStatsLoading(false);
+          return;
+        }
 
-            if (!insertError && newData) {
-              setClientStats({
-                level: newData.level || 'Bronze',
-                points: newData.points || 0,
-                currentStreak: newData.current_streak || 0,
-              });
-            }
-          } else {
-            console.error('Error fetching gamification stats:', error);
+        const gamificationData = response.data.data?.gamification;
+
+        if (!gamificationData) {
+          // No record found - create initial record
+          const createResponse = await apiClient.post<{
+            success: boolean;
+            data?: { gamification: UserGamification };
+          }>('/client/gamification');
+
+          if (createResponse.data.success && createResponse.data.data?.gamification) {
+            const newData = createResponse.data.data.gamification;
+            setClientStats({
+              level: newData.level || 'Bronze',
+              points: newData.points || 0,
+              currentStreak: newData.current_streak || 0,
+            });
           }
-        } else if (gamificationData) {
+        } else {
           // Calculate level based on points (in case it's out of sync)
           const calculatedLevel = calculateLevel(gamificationData.points || 0);
           
@@ -201,10 +199,7 @@ const ClientPage: React.FC = () => {
 
           // Update level in database if it's different
           if (calculatedLevel !== gamificationData.level) {
-            await supabase
-              .from('user_gamification')
-              .update({ level: calculatedLevel })
-              .eq('user_id', user.id);
+            await apiClient.patch('/client/gamification', { level: calculatedLevel });
           }
         }
       } catch (err) {
@@ -214,7 +209,7 @@ const ClientPage: React.FC = () => {
       }
     };
 
-    if (initialized && isAuthenticated && user) {
+    if (initialized && (isAuthenticated || getAuthToken())) {
       fetchGamificationStats();
     }
   }, [initialized, isAuthenticated, user]);
@@ -222,67 +217,60 @@ const ClientPage: React.FC = () => {
   // Fetch unread notifications count
   useEffect(() => {
     const fetchUnreadCount = async () => {
-      if (!user?.id) return;
+      const token = getAuthToken();
+      if (!token) return;
 
       try {
-        // Fetch unread messages from professionals
-        const { data, error } = await supabase
-          .from('routine_notes')
-          .select('id')
-          .eq('client_id', user.id)
-          .eq('client_deleted', false)
-          .eq('sender_type', 'professional')
-          .eq('read_status', false);
+        apiClient.setAuthToken(token);
+        
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { count: number };
+          error?: string;
+        }>('/client/notifications/unread-count');
 
-        if (error) {
-          console.error('Error fetching unread count:', error);
+        if (!response.data.success) {
+          console.error('Error fetching unread count:', response.data.error);
           return;
         }
 
-        setUnreadNotifications(data?.length || 0);
+        setUnreadNotifications(response.data.data?.count || 0);
       } catch (err) {
         console.error('Error fetching unread count:', err);
       }
     };
 
-    if (initialized && isAuthenticated && user) {
+    if (initialized && (isAuthenticated || getAuthToken())) {
       fetchUnreadCount();
     }
   }, [initialized, isAuthenticated, user]);
 
-  // Set up real-time subscription for notifications
+  // Poll for notification updates (replaces real-time subscription)
   useEffect(() => {
-    if (!user?.id || !initialized || !isAuthenticated) return;
+    const token = getAuthToken();
+    if (!token || !initialized) return;
 
-    const channel = supabase
-      .channel('client_notifications_count')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'routine_notes',
-          filter: `client_id=eq.${user.id}`,
-        },
-        async () => {
-          // Refetch unread count when notes change
-          const { data } = await supabase
-            .from('routine_notes')
-            .select('id')
-            .eq('client_id', user.id)
-            .eq('client_deleted', false)
-            .eq('sender_type', 'professional')
-            .eq('read_status', false);
+    const pollInterval = setInterval(async () => {
+      try {
+        apiClient.setAuthToken(token);
+        
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { count: number };
+        }>('/client/notifications/unread-count');
 
-          setUnreadNotifications(data?.length || 0);
+        if (response.data.success) {
+          setUnreadNotifications(response.data.data?.count || 0);
         }
-      )
-      .subscribe();
+      } catch (err) {
+        console.error('Error polling notifications:', err);
+      }
+    }, 30000000); // Poll every 30 seconds
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [user?.id, initialized, isAuthenticated]);
+  }, [initialized, isAuthenticated]);
 
   // Handle unread count change from NotificationsSection
   const handleUnreadCountChange = (count: number) => {

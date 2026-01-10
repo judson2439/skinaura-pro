@@ -15,8 +15,63 @@ import {
   verifyPhoneCode,
   resendPhoneVerificationCode,
 } from '../lib/auth.js';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 
 const router = Router();
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Generate a unique filename for encrypted files
+ */
+const generateFilename = (ext: string = '.enc'): string => {
+  const hash = crypto.randomBytes(16).toString('hex');
+  return `enc_${hash}${ext}`;
+};
+
+/**
+ * Save pre-encrypted avatar data from frontend during signup
+ * Frontend encrypts the image, backend just stores the encrypted data as-is
+ * @param encryptedData - Base64 encoded encrypted image data
+ * @param iv - Base64 encoded IV
+ * @param mimeType - MIME type of the original image
+ * @returns The avatar URL path or null if failed
+ */
+const saveEncryptedAvatar = (encryptedData: string, iv: string, mimeType?: string): string | null => {
+  try {
+    // Ensure upload directory exists
+    const uploadDir = path.join(process.cwd(), 'uploads', 'avatars');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const detectedMimeType = mimeType || 'image/jpeg';
+    const ext = detectedMimeType.split('/')[1] === 'jpeg' ? '.jpg' : `.${detectedMimeType.split('/')[1]}`;
+    const filename = generateFilename(ext);
+    const filePath = path.join(uploadDir, filename);
+
+    // Save the encrypted data as JSON (same format as image.ts)
+    const fileData = JSON.stringify({
+      encrypted: encryptedData,
+      iv: iv,
+      mimeType: detectedMimeType,
+    });
+    
+    fs.writeFileSync(filePath, fileData, 'utf-8');
+
+    console.log(`✅ Encrypted avatar saved: ${filename}`);
+
+    // Return the URL path
+    return `/api/images/avatars/${filename}`;
+  } catch (error) {
+    console.error('❌ Failed to save avatar:', error);
+    return null;
+  }
+};
 
 // Types
 interface SignInRequest {
@@ -36,6 +91,10 @@ interface SignUpRequest {
   businessName?: string;
   licenseNumber?: string;
   avatarUrl?: string;
+  // Pre-encrypted avatar data from frontend
+  avatarEncrypted?: string;  // Base64 encoded encrypted image
+  avatarIv?: string;         // Base64 encoded IV
+  avatarMimeType?: string;   // Original mime type
 }
 
 interface VerifyEmailRequest {
@@ -232,6 +291,12 @@ router.post('/client/signup', async (req: Request, res: Response): Promise<void>
 
     console.log(`📝 Client sign-up attempt for: ${signupData.email}`);
 
+    // Handle pre-encrypted avatar from frontend
+    let avatarUrl = signupData.avatarUrl;
+    if (signupData.avatarEncrypted && signupData.avatarIv && !avatarUrl) {
+      avatarUrl = saveEncryptedAvatar(signupData.avatarEncrypted, signupData.avatarIv, signupData.avatarMimeType) || undefined;
+    }
+
     const result = await createUser({
       email: signupData.email,
       password: signupData.password,
@@ -240,7 +305,7 @@ router.post('/client/signup', async (req: Request, res: Response): Promise<void>
       role: 'client',
       skinType: signupData.skinType,
       concerns: signupData.concerns,
-      avatarUrl: signupData.avatarUrl,
+      avatarUrl: avatarUrl,
     });
 
     if (!result.success) {
@@ -305,6 +370,12 @@ router.post('/professional/signup', async (req: Request, res: Response): Promise
 
     console.log(`📝 Professional sign-up attempt for: ${signupData.email}`);
 
+    // Handle pre-encrypted avatar from frontend
+    let avatarUrl = signupData.avatarUrl;
+    if (signupData.avatarEncrypted && signupData.avatarIv && !avatarUrl) {
+      avatarUrl = saveEncryptedAvatar(signupData.avatarEncrypted, signupData.avatarIv, signupData.avatarMimeType) || undefined;
+    }
+
     // Create professional account with all profile details
     const result = await createUser({
       email: signupData.email,
@@ -314,7 +385,7 @@ router.post('/professional/signup', async (req: Request, res: Response): Promise
       role: 'professional',
       businessName: signupData.businessName,
       licenseNumber: signupData.licenseNumber,
-      avatarUrl: signupData.avatarUrl,
+      avatarUrl: avatarUrl,
     });
 
     if (!result.success) {

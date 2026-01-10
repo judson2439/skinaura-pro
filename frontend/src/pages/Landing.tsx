@@ -16,7 +16,8 @@ import {
 import AuthModal from '@/components/auth/AuthModal';
 
 // Placeholder images - replace with actual images
-const HERO_IMAGE = 'https://d64gsuwffb70l.cloudfront.net/69343bc0dba891717b31545c_1765037141170_ed9df5c7.png';
+const HERO_IMAGE = 'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/primary.jpeg';
+
 const PROFESSIONAL_IMAGES = [
   'https://d64gsuwffb70l.cloudfront.net/6934399edba891717b312123_1766523991930_b65a01cd.jpeg',
   'https://d64gsuwffb70l.cloudfront.net/6934399edba891717b312123_1766524635631_66fa63e8.jpeg',
@@ -93,11 +94,16 @@ const Landing: React.FC = () => {
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">
                 <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={24} height={24}/> 
               </div>
-              <div>
-                <h1 className="font-serif text-xl font-bold text-[#2D2A3E]">SkinAura</h1>
-                <p className="text-xs text-[#CFAFA3] -mt-1">PRO</p>
+              <div className="flex flex-col">
+                <img 
+                  src="https://d64gsuwffb70l.cloudfront.net/6934399edba891717b312123_1767940504418_b46cd2a4.png" 
+                  alt="SkinAura" 
+                  className="mt-1 h-4 w-auto object-contain"
+                />
+                <p className="text-md text-[#CFAFA3]">PRO</p>
               </div>
             </div>
+
             <div className="flex items-center gap-4">
               <a href="https://skinaura.ai" target="_blank" rel="noopener noreferrer" className="text-sm text-gray-600 hover:text-[#CFAFA3] transition-colors hidden sm:block">
                 SkinAura AI
@@ -129,7 +135,7 @@ const Landing: React.FC = () => {
             <div>
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#CFAFA3]/10 rounded-full mb-6">
                 <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={16} height={16}/>
-                <span className="text-sm font-medium text-[#CFAFA3]">Skincare is Selfcare</span>
+                <span className="text-sm font-medium text-[#CFAFA3]">Skincare is Selfcare. Consistency is Our Strategy!</span>
               </div>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-bold text-[#2D2A3E] mb-6 leading-tight">
                 Professional Guidance.
@@ -164,9 +170,10 @@ const Landing: React.FC = () => {
             </div>
             <div className="relative">
               <div className="relative rounded-3xl overflow-hidden shadow-2xl">
-                <img src={HERO_IMAGE} alt="SkinAura PRO" className="w-full h-[500px] object-cover" />
+                <img src={HERO_IMAGE} alt="SkinAura PRO" className="w-auto h-auto max-w-full object-contain" />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#2D2A3E]/60 via-transparent to-transparent" />
               </div>
+
               {/* Floating Stats Cards */}
               <div className="absolute -bottom-6 -left-6 bg-white rounded-2xl p-4 shadow-xl border border-gray-100">
                 <div className="flex items-center gap-3">
@@ -231,7 +238,8 @@ const Landing: React.FC = () => {
 
 
       {/* For Professionals Section */}
-      <section id="professionals" className="py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-[#2D2A3E] to-[#3D3A4E]">
+      <section id="professionals" className="py-16 px-4 sm:px-6 lg:px-8 bg-[#000000]">
+
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
@@ -264,13 +272,16 @@ const Landing: React.FC = () => {
                 </li>
               </ul>
               <div className="flex flex-col items-start gap-3">
-                <button
-                  onClick={() => openAuthModal('signup', 'professional')}
+                <a
+                  href="https://calendly.com/skinaura/brand-presentation-or-product-demo"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white rounded-xl font-medium hover:shadow-lg hover:shadow-[#CFAFA3]/30 transition-all"
                 >
-                  <Users className="w-5 h-5" />
+                  <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={20} height={20}/>
                   Book a Private Demo
-                </button>
+                </a>
+
                 <button
                   onClick={() => openAuthModal('signup', 'professional')}
                   className="text-sm text-white/70 hover:text-[#CFAFA3] transition-colors"
@@ -312,7 +323,7 @@ const Landing: React.FC = () => {
               </h3>
               <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
                 <p className="text-gray-600" itemProp="text">
-                  SkinAura PRO is a professional skincare tracking platform designed for estheticians and their clients. It helps track skincare routines, manage products, analyze progress photos, and monitor client compliance with AI-powered insights specifically designed for melanin-rich skin.
+                  SkinAura PRO is a professional skincare tracking platform designed for skincare professionals (estheticians, dermatologists, med spas) and their clients. It helps track skincare routines, manage products, analyze progress photos, and monitor client compliance with AI-powered insights specifically designed for all skin tones.
                 </p>
               </div>
             </div>
@@ -325,11 +336,11 @@ const Landing: React.FC = () => {
               itemType="https://schema.org/Question"
             >
               <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
-                How does the skincare routine tracking work?
+                Is SkinAura PRO designed for all skin tones?
               </h3>
               <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
                 <p className="text-gray-600" itemProp="text">
-                  Clients log their morning and evening skincare routines daily. The app tracks which products are used, maintains streak counts for consistency, awards points and badges for compliance, and alerts when products need reordering after 25+ days of use.
+                  Yes, SkinAura PRO is specifically designed with multicultural skin in mind. The AI analysis and product recommendations are optimized for diverse skin tones, addressing common concerns like hyperpigmentation, uneven skin tone, and texture.
                 </p>
               </div>
             </div>
@@ -342,7 +353,7 @@ const Landing: React.FC = () => {
               itemType="https://schema.org/Question"
             >
               <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
-                Can estheticians monitor their clients' progress?
+                Can skincare professionals monitor their clients' progress?
               </h3>
               <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
                 <p className="text-gray-600" itemProp="text">
@@ -359,11 +370,11 @@ const Landing: React.FC = () => {
               itemType="https://schema.org/Question"
             >
               <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
-                Is SkinAura PRO designed for melanin-rich skin?
+                Does SkinAura PRO integrate with other tools?
               </h3>
               <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
                 <p className="text-gray-600" itemProp="text">
-                  Yes, SkinAura PRO is specifically designed with melanin-rich skin in mind. The AI analysis and product recommendations are optimized for diverse skin tones, addressing concerns like hyperpigmentation, uneven skin tone, and texture that are common in melanin-rich skin.
+                  SkinAura PRO integrates with Twilio for SMS reminders, supports Shopify product imports, bulk CSV product imports, and connects with the SkinAura AI skin analysis platform for advanced skin scanning capabilities. Designed to complement your booking/POS—without replacing it.
                 </p>
               </div>
             </div>
@@ -376,62 +387,11 @@ const Landing: React.FC = () => {
               itemType="https://schema.org/Question"
             >
               <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
-                What features are available for skincare professionals?
-              </h3>
-              <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
-                <p className="text-gray-600" itemProp="text">
-                  Professionals get access to client management, routine template creation, treatment plan management, progress photo annotation tools, product library management, compliance analytics, SMS reminders via Twilio, and the ability to recommend products to clients.
-                </p>
-              </div>
-            </div>
-
-            {/* FAQ Item 6 */}
-            <div 
-              className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm"
-              itemScope 
-              itemProp="mainEntity" 
-              itemType="https://schema.org/Question"
-            >
-              <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
                 How does the gamification system work?
               </h3>
               <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
                 <p className="text-gray-600" itemProp="text">
-                  Clients earn points for completing routines (50 points each), with bonus points for maintaining streaks. They progress through Bronze, Silver, Gold, Platinum, and Diamond levels. Badges are awarded for milestones like first routine completion, 7-day streaks, and 30-day consistency.
-                </p>
-              </div>
-            </div>
-
-            {/* FAQ Item 7 */}
-            <div 
-              className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm"
-              itemScope 
-              itemProp="mainEntity" 
-              itemType="https://schema.org/Question"
-            >
-              <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
-                Can I upload and track progress photos?
-              </h3>
-              <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
-                <p className="text-gray-600" itemProp="text">
-                  Yes, clients can upload before, after, and progress photos. Professionals can view these photos, add annotations and markup to highlight areas of concern or improvement, and provide feedback directly on the images.
-                </p>
-              </div>
-            </div>
-
-            {/* FAQ Item 8 */}
-            <div 
-              className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm"
-              itemScope 
-              itemProp="mainEntity" 
-              itemType="https://schema.org/Question"
-            >
-              <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
-                Does SkinAura PRO integrate with other tools?
-              </h3>
-              <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
-                <p className="text-gray-600" itemProp="text">
-                  SkinAura PRO integrates with Twilio for SMS reminders, supports Shopify product imports, CSV product imports, and connects with the SkinAura AI skin analysis platform for advanced skin scanning capabilities.
+                  Clients earn points for completing routines (50 points each), with bonus points for maintaining streaks. They progress through Bronze, Silver, Gold, Platinum, and Diamond levels. Badges are awarded for milestones like first routine completion, 7-day streaks, and 30-day consistency. Professionals determine what rewards to provide clients to incentivize rebooking and consistency.
                 </p>
               </div>
             </div>
@@ -441,13 +401,16 @@ const Landing: React.FC = () => {
           <div className="mt-12 text-center">
             <p className="text-gray-600 mb-4">Ready to transform your skincare routine?</p>
             <div className="flex flex-col items-center gap-3">
-              <button
-                onClick={() => openAuthModal('signup', 'professional')}
+              <a
+                href="https://calendly.com/skinaura/brand-presentation-or-product-demo"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white rounded-xl font-medium hover:shadow-lg hover:shadow-[#CFAFA3]/30 transition-all"
               >
                 <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={20} height={20}/>
                 Book a Private Demo
-              </button>
+              </a>
+
               <button
                 onClick={() => openAuthModal('signup', 'professional')}
                 className="text-sm text-gray-500 hover:text-[#CFAFA3] transition-colors"

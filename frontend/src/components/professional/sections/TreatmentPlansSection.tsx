@@ -22,7 +22,8 @@ import {
 } from '@/components/professional/modals/treatmentPlanTypes';
 import CreateTreatmentPlanModal from '@/components/professional/modals/CreateTreatmentPlanModal';
 import TreatmentPlanDetailModal from '@/components/professional/modals/TreatmentPlanDetailModal';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useAuth } from '@/contexts/AuthContext';
 
 // ============================================================================
@@ -40,7 +41,7 @@ interface TreatmentPlansSectionProps {
 const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   onNavigateToView,
 }) => {
-  const { user } = useAuth();
+  useAuth(); // Ensure auth context is available
   
   // Data state
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
@@ -61,11 +62,14 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const uniqueClients = new Set(plans.map(p => p.client_id)).size;
 
   // ============================================================================
-  // FETCH CLIENTS FROM DATABASE
+  // FETCH CLIENTS FROM BACKEND API
   // ============================================================================
   
   const fetchClients = async () => {
-    if (!user?.id) {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    
+    if (!token) {
       setClientsLoading(false);
       return;
     }
@@ -73,49 +77,28 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
     setClientsLoading(true);
 
     try {
-      // Step 1: Get all client_ids from client_professional_relationships
-      // where professional_id matches the current signed-in professional
-      const { data: relationshipsData, error: relationshipsError } = await supabase
-        .from('client_professional_relationships')
-        .select('client_id')
-        .eq('professional_id', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { clients: Array<{ id: string; full_name: string | null; avatar_url: string | null }> };
+        error?: string;
+      }>('/api/treatment-plans/clients');
 
-      if (relationshipsError) {
-        console.error('Error fetching relationships:', relationshipsError);
-        setClientsLoading(false);
-        return;
+      if (response.data.success && response.data.data) {
+        const clientsData = response.data.data.clients || [];
+
+        // Map database data to TreatmentPlanClient interface
+        const mappedClients: TreatmentPlanClient[] = clientsData.map((clientData, index) => ({
+          id: clientData.id,
+          name: clientData.full_name || 'Unknown',
+          image: clientData.avatar_url || CLIENT_IMAGES[index % CLIENT_IMAGES.length] || `https://ui-avatars.com/api/?name=${encodeURIComponent(clientData.full_name || 'U')}&background=CFAFA3&color=fff`,
+        }));
+
+        setClients(mappedClients);
+      } else {
+        console.error('Error fetching clients:', response.data.error);
       }
-
-      // Extract client IDs from relationships
-      const clientIds = relationshipsData?.map(r => r.client_id) || [];
-
-      if (clientIds.length === 0) {
-        // No clients found for this professional
-        setClients([]);
-        setClientsLoading(false);
-        return;
-      }
-
-      // Step 2: Get client details from user_profiles using the client_ids
-      const { data: clientsData, error: clientsError } = await supabase
-        .from('user_profiles')
-        .select('id, full_name, avatar_url')
-        .in('id', clientIds);
-
-      if (clientsError) {
-        console.error('Error fetching clients:', clientsError);
-        setClientsLoading(false);
-        return;
-      }
-
-      // Step 3: Map database data to TreatmentPlanClient interface
-      const mappedClients: TreatmentPlanClient[] = (clientsData || []).map((clientData, index) => ({
-        id: clientData.id,
-        name: clientData.full_name || 'Unknown',
-        image: clientData.avatar_url || CLIENT_IMAGES[index % CLIENT_IMAGES.length] || `https://ui-avatars.com/api/?name=${encodeURIComponent(clientData.full_name || 'U')}&background=CFAFA3&color=fff`,
-      }));
-
-      setClients(mappedClients);
     } catch (err) {
       console.error('Error fetching clients:', err);
     } finally {
@@ -125,11 +108,14 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
 
   // ============================================================================
-  // FETCH TREATMENT PLANS FROM DATABASE (with milestones)
+  // FETCH TREATMENT PLANS FROM BACKEND API
   // ============================================================================
 
   const fetchTreatmentPlans = async () => {
-    if (!user?.id) {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    
+    if (!token) {
       setLoading(false);
       return;
     }
@@ -138,138 +124,92 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
     setError(null);
 
     try {
-      // Fetch treatment plans
-      const { data: plansData, error: plansError } = await supabase
-        .from('treatment_plans')
-        .select('*')
-        .eq('professional_id', user.id)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          plans: any[];
+          milestones: any[];
+          products: any[];
+          routines: any[];
+          appointments: any[];
+        };
+        error?: string;
+      }>('/api/treatment-plans');
 
-      if (plansError) {
-        console.error('Error fetching treatment plans:', plansError);
-        setError('Failed to load treatment plans');
+      if (!response.data.success || !response.data.data) {
+        console.error('Error fetching treatment plans:', response.data.error);
+        setError(response.data.error || 'Failed to load treatment plans');
         setLoading(false);
         return;
       }
 
-      // Fetch milestones for all plans
-      const planIds = (plansData || []).map(p => p.id);
-      let milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
-      let productsMap: Record<string, TreatmentPlanProduct[]> = {};
-      let routinesMap: Record<string, TreatmentPlanRoutine[]> = {};
-      let appointmentsMap: Record<string, TreatmentPlanAppointment[]> = {};
+      const plansData = response.data.data?.plans || [];
+      const milestonesData = response.data.data?.milestones || [];
+      const productsData = response.data.data?.products || [];
+      const routinesData = response.data.data?.routines || [];
+      const appointmentsData = response.data.data?.appointments || [];
 
-      if (planIds.length > 0) {
-        // Fetch milestones
-        const { data: milestonesData, error: milestonesError } = await supabase
-          .from('treatment_plan_milestones')
-          .select('*')
-          .in('plan_id', planIds)
-          .order('order_index', { ascending: true });
+      // Group related data by plan_id
+      const milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
+      const productsMap: Record<string, TreatmentPlanProduct[]> = {};
+      const routinesMap: Record<string, TreatmentPlanRoutine[]> = {};
+      const appointmentsMap: Record<string, TreatmentPlanAppointment[]> = {};
 
-        if (milestonesError) {
-          console.error('Error fetching milestones:', milestonesError);
-        } else {
-          // Group milestones by plan_id
-          (milestonesData || []).forEach(milestone => {
-            if (!milestonesMap[milestone.plan_id]) {
-              milestonesMap[milestone.plan_id] = [];
-            }
-            milestonesMap[milestone.plan_id].push({
-              id: milestone.id,
-              plan_id: milestone.plan_id,
-              title: milestone.title,
-              description: milestone.description || undefined,
-              target_date: milestone.target_date,
-              completed: milestone.completed || false,
-              completed_at: milestone.completed_at || undefined,
-            });
-          });
-        }
+      milestonesData.forEach((milestone: any) => {
+        if (!milestonesMap[milestone.plan_id]) milestonesMap[milestone.plan_id] = [];
+        milestonesMap[milestone.plan_id].push({
+          id: milestone.id,
+          plan_id: milestone.plan_id,
+          title: milestone.title,
+          description: milestone.description || undefined,
+          target_date: milestone.target_date,
+          completed: milestone.completed || false,
+          completed_at: milestone.completed_at || undefined,
+        });
+      });
 
-        // Fetch products from treatment_plan_products table
-        const { data: productsData, error: productsError } = await supabase
-          .from('treatment_plan_products')
-          .select('*')
-          .in('plan_id', planIds)
-          .order('created_at', { ascending: true });
+      productsData.forEach((product: any) => {
+        if (!productsMap[product.plan_id]) productsMap[product.plan_id] = [];
+        productsMap[product.plan_id].push({
+          id: product.id,
+          plan_id: product.plan_id,
+          product_name: product.product_name,
+          product_brand: product.product_brand || undefined,
+          product_category: product.product_category || undefined,
+          usage_instructions: product.usage_instructions || undefined,
+          priority: product.priority || 'recommended',
+        });
+      });
 
-        if (productsError) {
-          console.error('Error fetching products:', productsError);
-        } else {
-          // Group products by plan_id
-          (productsData || []).forEach(product => {
-            if (!productsMap[product.plan_id]) {
-              productsMap[product.plan_id] = [];
-            }
-            productsMap[product.plan_id].push({
-              id: product.id,
-              plan_id: product.plan_id,
-              product_name: product.product_name,
-              product_brand: product.product_brand || undefined,
-              product_category: product.product_category || undefined,
-              usage_instructions: product.usage_instructions || undefined,
-              priority: product.priority || 'recommended',
-            });
-          });
-        }
+      routinesData.forEach((routine: any) => {
+        if (!routinesMap[routine.plan_id]) routinesMap[routine.plan_id] = [];
+        routinesMap[routine.plan_id].push({
+          id: routine.id,
+          plan_id: routine.plan_id,
+          routine_name: routine.routine_name,
+          routine_type: routine.routine_type || undefined,
+          notes: routine.notes || undefined,
+        });
+      });
 
-        // Fetch routines from treatment_plan_routines table
-        const { data: routinesData, error: routinesError } = await supabase
-          .from('treatment_plan_routines')
-          .select('*')
-          .in('plan_id', planIds)
-          .order('created_at', { ascending: true });
-
-        if (routinesError) {
-          console.error('Error fetching routines:', routinesError);
-        } else {
-          // Group routines by plan_id
-          (routinesData || []).forEach(routine => {
-            if (!routinesMap[routine.plan_id]) {
-              routinesMap[routine.plan_id] = [];
-            }
-            routinesMap[routine.plan_id].push({
-              id: routine.id,
-              plan_id: routine.plan_id,
-              routine_name: routine.routine_name,
-              routine_type: routine.routine_type || undefined,
-              notes: routine.notes || undefined,
-            });
-          });
-        }
-
-        // Fetch appointments from treatment_plan_appointments table
-        const { data: appointmentsData, error: appointmentsError } = await supabase
-          .from('treatment_plan_appointments')
-          .select('*')
-          .in('plan_id', planIds)
-          .order('scheduled_date', { ascending: true });
-
-        if (appointmentsError) {
-          console.error('Error fetching appointments:', appointmentsError);
-        } else {
-          // Group appointments by plan_id
-          (appointmentsData || []).forEach(appointment => {
-            if (!appointmentsMap[appointment.plan_id]) {
-              appointmentsMap[appointment.plan_id] = [];
-            }
-            appointmentsMap[appointment.plan_id].push({
-              id: appointment.id,
-              plan_id: appointment.plan_id,
-              appointment_type: appointment.appointment_type,
-              scheduled_date: appointment.scheduled_date,
-              scheduled_time: appointment.scheduled_time || undefined,
-              duration_minutes: appointment.duration_minutes || 60,
-              notes: appointment.notes || undefined,
-              completed: appointment.completed || false,
-            });
-          });
-        }
-      }
+      appointmentsData.forEach((appointment: any) => {
+        if (!appointmentsMap[appointment.plan_id]) appointmentsMap[appointment.plan_id] = [];
+        appointmentsMap[appointment.plan_id].push({
+          id: appointment.id,
+          plan_id: appointment.plan_id,
+          appointment_type: appointment.appointment_type,
+          scheduled_date: appointment.scheduled_date,
+          scheduled_time: appointment.scheduled_time || undefined,
+          duration_minutes: appointment.duration_minutes || 60,
+          notes: appointment.notes || undefined,
+          completed: appointment.completed || false,
+        });
+      });
 
       // Map database data to TreatmentPlan interface
-      const mappedPlans: TreatmentPlan[] = (plansData || []).map(plan => ({
+      const mappedPlans: TreatmentPlan[] = plansData.map((plan: any) => ({
         id: plan.id,
         client_id: plan.client_id,
         professional_id: plan.professional_id,
@@ -279,15 +219,14 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         start_date: plan.start_date,
         end_date: plan.end_date,
         status: plan.status || 'active',
-        milestones: milestonesMap[plan.id] || [], // Fetched from treatment_plan_milestones table
-        products: productsMap[plan.id] || [], // Fetched from treatment_plan_products table
-        routines: routinesMap[plan.id] || [], // Fetched from treatment_plan_routines table
-        appointments: appointmentsMap[plan.id] || [], // Fetched from treatment_plan_appointments table
+        milestones: milestonesMap[plan.id] || [],
+        products: productsMap[plan.id] || [],
+        routines: routinesMap[plan.id] || [],
+        appointments: appointmentsMap[plan.id] || [],
         notes: plan.notes || undefined,
         created_at: plan.created_at,
         updated_at: plan.updated_at || undefined,
       }));
-
 
       setPlans(mappedPlans);
     } catch (err) {
@@ -305,11 +244,11 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
 
 
-  // Fetch data on mount and when user changes
+  // Fetch data on mount
   useEffect(() => {
     fetchClients();
     fetchTreatmentPlans();
-  }, [user?.id]);
+  }, []);
 
   // ============================================================================
   // CREATE TREATMENT PLAN
@@ -324,38 +263,38 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
     goals: string[];
     notes: string;
   }) => {
-    if (!user?.id) {
-      console.error('User not authenticated');
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) {
+      console.error('No auth token');
       return;
     }
 
     try {
-      // Insert the treatment plan into the database
-      // Only include columns that exist in the treatment_plans table:
-      // id, professional_id, client_id, title, description, start_date, end_date, status, goals, notes, created_at, updated_at
-      const { data: newPlanData, error: insertError } = await supabase
-        .from('treatment_plans')
-        .insert({
-          professional_id: user.id,
-          client_id: data.clientId,
-          title: data.title,
-          description: data.description || null,
-          goals: data.goals,
-          start_date: data.startDate,
-          end_date: data.endDate,
-          status: 'active',
-          notes: data.notes || null,
-        })
-        .select()
-        .single();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { plan: any };
+        error?: string;
+      }>('/api/treatment-plans', {
+        client_id: data.clientId,
+        title: data.title,
+        description: data.description || null,
+        goals: data.goals,
+        start_date: data.startDate,
+        end_date: data.endDate,
+        notes: data.notes || null,
+      });
 
-      if (insertError) {
-        console.error('Error creating treatment plan:', insertError);
-        throw insertError;
+      if (!response.data.success || !response.data.data?.plan) {
+        console.error('Error creating treatment plan:', response.data.error);
+        throw new Error(response.data.error || 'Failed to create plan');
       }
 
+      const newPlanData = response.data.data.plan;
+
       // Map the returned data to TreatmentPlan interface
-      // Note: milestones, products, routines, appointments are managed locally (not in DB)
       const newPlan: TreatmentPlan = {
         id: newPlanData.id,
         client_id: newPlanData.client_id,
@@ -366,10 +305,10 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         start_date: newPlanData.start_date,
         end_date: newPlanData.end_date,
         status: newPlanData.status || 'active',
-        milestones: [], // Managed locally
-        products: [], // Managed locally
-        routines: [], // Managed locally
-        appointments: [], // Managed locally
+        milestones: [],
+        products: [],
+        routines: [],
+        appointments: [],
         notes: newPlanData.notes || undefined,
         created_at: newPlanData.created_at,
         updated_at: newPlanData.updated_at || undefined,
@@ -394,17 +333,21 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   // ============================================================================
 
   const handleUpdateStatus = async (planId: string, status: TreatmentPlan['status']) => {
-    try {
-      const { error: updateError } = await supabase
-        .from('treatment_plans')
-        .update({ 
-          status, 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', planId);
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (updateError) {
-        console.error('Error updating status:', updateError);
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { plan: any };
+        error?: string;
+      }>(`/api/treatment-plans/${planId}/status`, { status });
+
+      if (!response.data.success) {
+        console.error('Error updating status:', response.data.error);
         return;
       }
 
@@ -422,14 +365,21 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   // ============================================================================
 
   const handleDeletePlan = async (planId: string) => {
-    try {
-      const { error: deleteError } = await supabase
-        .from('treatment_plans')
-        .delete()
-        .eq('id', planId);
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (deleteError) {
-        console.error('Error deleting plan:', deleteError);
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/treatment-plans/${planId}`);
+
+      if (!response.data.success) {
+        console.error('Error deleting plan:', response.data.error);
         return;
       }
 
@@ -443,27 +393,12 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
   // ============================================================================
   // UPDATE PLAN IN DATABASE (helper function)
-  // Note: milestones, products, routines, appointments columns don't exist in DB
-  // These are managed locally in state only and won't persist across page refreshes
+  // Updates the updated_at timestamp when related data changes
   // ============================================================================
 
-  const updatePlanInDatabase = async (updatedPlan: TreatmentPlan) => {
-    // Since milestones, products, routines, appointments columns don't exist in the DB,
-    // we only update the updated_at timestamp to indicate the plan was modified
-    try {
-      const { error: updateError } = await supabase
-        .from('treatment_plans')
-        .update({
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', updatedPlan.id);
-
-      if (updateError) {
-        console.error('Error updating plan:', updateError);
-      }
-    } catch (err) {
-      console.error('Error updating plan:', err);
-    }
+  const updatePlanInDatabase = async (_updatedPlan: TreatmentPlan) => {
+    // The backend endpoints already update the plan's updated_at timestamp
+    // This function is kept for compatibility but no longer needed
   };
 
 
@@ -474,30 +409,30 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleAddMilestone = async (milestone: Omit<TreatmentPlanMilestone, 'id' | 'plan_id' | 'completed'>) => {
     if (!selectedPlan) return;
     
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
+
     try {
-      // Calculate order_index for the new milestone
-      const orderIndex = selectedPlan.milestones.length;
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { milestone: any };
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/milestones`, {
+        title: milestone.title,
+        description: milestone.description || null,
+        target_date: milestone.target_date,
+      });
 
-      // Insert milestone into the database
-      const { data: newMilestoneData, error: insertError } = await supabase
-        .from('treatment_plan_milestones')
-        .insert({
-          plan_id: selectedPlan.id,
-          title: milestone.title,
-          description: milestone.description || null,
-          target_date: milestone.target_date, // Format: 'YYYY-MM-DD' (date type)
-          completed: false,
-          order_index: orderIndex,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Error creating milestone:', insertError);
-        throw insertError;
+      if (!response.data.success || !response.data.data?.milestone) {
+        console.error('Error creating milestone:', response.data.error);
+        return;
       }
 
-      // Map the returned data to TreatmentPlanMilestone interface
+      const newMilestoneData = response.data.data.milestone;
+
       const newMilestone: TreatmentPlanMilestone = {
         id: newMilestoneData.id,
         plan_id: newMilestoneData.plan_id,
@@ -508,7 +443,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         completed_at: newMilestoneData.completed_at || undefined,
       };
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         milestones: [...selectedPlan.milestones, newMilestone],
@@ -517,9 +451,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error adding milestone:', err);
     }
@@ -528,28 +459,22 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleUpdateMilestone = async (milestoneId: string, data: Partial<TreatmentPlanMilestone>) => {
     if (!selectedPlan) return;
 
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
+
     try {
-      // Prepare update data for the database
-      const updateData: Record<string, any> = {};
+      apiClient.setAuthToken(token);
       
-      if (data.title !== undefined) updateData.title = data.title;
-      if (data.description !== undefined) updateData.description = data.description || null;
-      if (data.target_date !== undefined) updateData.target_date = data.target_date;
-      if (data.completed !== undefined) {
-        updateData.completed = data.completed;
-        // Set completed_at timestamp when marking as completed
-        updateData.completed_at = data.completed ? new Date().toISOString() : null;
-      }
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { milestone: any };
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/milestones/${milestoneId}`, data);
 
-      // Update milestone in the database
-      const { error: updateError } = await supabase
-        .from('treatment_plan_milestones')
-        .update(updateData)
-        .eq('id', milestoneId);
-
-      if (updateError) {
-        console.error('Error updating milestone:', updateError);
-        throw updateError;
+      if (!response.data.success) {
+        console.error('Error updating milestone:', response.data.error);
+        return;
       }
 
       // Update local state
@@ -571,9 +496,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error updating milestone:', err);
     }
@@ -582,19 +504,24 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleDeleteMilestone = async (milestoneId: string) => {
     if (!selectedPlan) return;
 
-    try {
-      // Delete milestone from the database
-      const { error: deleteError } = await supabase
-        .from('treatment_plan_milestones')
-        .delete()
-        .eq('id', milestoneId);
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (deleteError) {
-        console.error('Error deleting milestone:', deleteError);
-        throw deleteError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/milestones/${milestoneId}`);
+
+      if (!response.data.success) {
+        console.error('Error deleting milestone:', response.data.error);
+        return;
       }
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         milestones: selectedPlan.milestones.filter(m => m.id !== milestoneId),
@@ -603,9 +530,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error deleting milestone:', err);
     }
@@ -619,28 +543,32 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleAddProduct = async (product: Omit<TreatmentPlanProduct, 'id' | 'plan_id'>) => {
     if (!selectedPlan) return;
 
-    try {
-      // Insert product into the database
-      // Table columns: id, plan_id, product_name, product_brand, product_category, usage_instructions, priority, created_at
-      const { data: newProductData, error: insertError } = await supabase
-        .from('treatment_plan_products')
-        .insert({
-          plan_id: selectedPlan.id,
-          product_name: product.product_name,
-          product_brand: product.product_brand || null,
-          product_category: product.product_category || null,
-          usage_instructions: product.usage_instructions || null,
-          priority: product.priority || 'recommended',
-        })
-        .select()
-        .single();
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (insertError) {
-        console.error('Error creating product:', insertError);
-        throw insertError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { product: any };
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/products`, {
+        product_name: product.product_name,
+        product_brand: product.product_brand || null,
+        product_category: product.product_category || null,
+        usage_instructions: product.usage_instructions || null,
+        priority: product.priority || 'recommended',
+      });
+
+      if (!response.data.success || !response.data.data?.product) {
+        console.error('Error creating product:', response.data.error);
+        return;
       }
 
-      // Map the returned data to TreatmentPlanProduct interface
+      const newProductData = response.data.data.product;
+
       const newProduct: TreatmentPlanProduct = {
         id: newProductData.id,
         plan_id: newProductData.plan_id,
@@ -651,7 +579,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         priority: newProductData.priority || 'recommended',
       };
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         products: [...selectedPlan.products, newProduct],
@@ -660,9 +587,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error adding product:', err);
     }
@@ -671,19 +595,24 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleDeleteProduct = async (productId: string) => {
     if (!selectedPlan) return;
 
-    try {
-      // Delete product from the database
-      const { error: deleteError } = await supabase
-        .from('treatment_plan_products')
-        .delete()
-        .eq('id', productId);
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (deleteError) {
-        console.error('Error deleting product:', deleteError);
-        throw deleteError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/products/${productId}`);
+
+      if (!response.data.success) {
+        console.error('Error deleting product:', response.data.error);
+        return;
       }
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         products: selectedPlan.products.filter(p => p.id !== productId),
@@ -692,9 +621,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error deleting product:', err);
     }
@@ -710,26 +636,30 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleAddRoutine = async (routine: Omit<TreatmentPlanRoutine, 'id' | 'plan_id'>) => {
     if (!selectedPlan) return;
 
-    try {
-      // Insert routine into the database
-      // Table columns: id, plan_id, routine_name, routine_type, notes, created_at
-      const { data: newRoutineData, error: insertError } = await supabase
-        .from('treatment_plan_routines')
-        .insert({
-          plan_id: selectedPlan.id,
-          routine_name: routine.routine_name,
-          routine_type: routine.routine_type || null,
-          notes: routine.notes || null,
-        })
-        .select()
-        .single();
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (insertError) {
-        console.error('Error creating routine:', insertError);
-        throw insertError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { routine: any };
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/routines`, {
+        routine_name: routine.routine_name,
+        routine_type: routine.routine_type || null,
+        notes: routine.notes || null,
+      });
+
+      if (!response.data.success || !response.data.data?.routine) {
+        console.error('Error creating routine:', response.data.error);
+        return;
       }
 
-      // Map the returned data to TreatmentPlanRoutine interface
+      const newRoutineData = response.data.data.routine;
+
       const newRoutine: TreatmentPlanRoutine = {
         id: newRoutineData.id,
         plan_id: newRoutineData.plan_id,
@@ -738,7 +668,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         notes: newRoutineData.notes || undefined,
       };
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         routines: [...selectedPlan.routines, newRoutine],
@@ -747,9 +676,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error adding routine:', err);
     }
@@ -758,19 +684,24 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleDeleteRoutine = async (routineId: string) => {
     if (!selectedPlan) return;
 
-    try {
-      // Delete routine from the database
-      const { error: deleteError } = await supabase
-        .from('treatment_plan_routines')
-        .delete()
-        .eq('id', routineId);
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (deleteError) {
-        console.error('Error deleting routine:', deleteError);
-        throw deleteError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/routines/${routineId}`);
+
+      if (!response.data.success) {
+        console.error('Error deleting routine:', response.data.error);
+        return;
       }
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         routines: selectedPlan.routines.filter(r => r.id !== routineId),
@@ -779,9 +710,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error deleting routine:', err);
     }
@@ -797,29 +725,32 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleAddAppointment = async (appointment: Omit<TreatmentPlanAppointment, 'id' | 'plan_id' | 'completed'>) => {
     if (!selectedPlan) return;
 
-    try {
-      // Insert appointment into the database
-      // Table columns: id, plan_id, appointment_type, scheduled_date, scheduled_time, duration_minutes, notes, completed, created_at
-      const { data: newAppointmentData, error: insertError } = await supabase
-        .from('treatment_plan_appointments')
-        .insert({
-          plan_id: selectedPlan.id,
-          appointment_type: appointment.appointment_type,
-          scheduled_date: appointment.scheduled_date, // Format: 'YYYY-MM-DD' (date type)
-          scheduled_time: appointment.scheduled_time || null, // Format: 'HH:MM:SS' or 'HH:MM' (time type)
-          duration_minutes: appointment.duration_minutes || 60,
-          notes: appointment.notes || null,
-          completed: false,
-        })
-        .select()
-        .single();
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (insertError) {
-        console.error('Error creating appointment:', insertError);
-        throw insertError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { appointment: any };
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/appointments`, {
+        appointment_type: appointment.appointment_type,
+        scheduled_date: appointment.scheduled_date,
+        scheduled_time: appointment.scheduled_time || null,
+        duration_minutes: appointment.duration_minutes || 60,
+        notes: appointment.notes || null,
+      });
+
+      if (!response.data.success || !response.data.data?.appointment) {
+        console.error('Error creating appointment:', response.data.error);
+        return;
       }
 
-      // Map the returned data to TreatmentPlanAppointment interface
+      const newAppointmentData = response.data.data.appointment;
+
       const newAppointment: TreatmentPlanAppointment = {
         id: newAppointmentData.id,
         plan_id: newAppointmentData.plan_id,
@@ -831,7 +762,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         completed: newAppointmentData.completed || false,
       };
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         appointments: [...selectedPlan.appointments, newAppointment],
@@ -840,9 +770,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error adding appointment:', err);
     }
@@ -851,29 +778,24 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleUpdateAppointment = async (appointmentId: string, data: Partial<TreatmentPlanAppointment>) => {
     if (!selectedPlan) return;
 
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
+
     try {
-      // Prepare update data for the database
-      const updateData: Record<string, any> = {};
+      apiClient.setAuthToken(token);
       
-      if (data.appointment_type !== undefined) updateData.appointment_type = data.appointment_type;
-      if (data.scheduled_date !== undefined) updateData.scheduled_date = data.scheduled_date;
-      if (data.scheduled_time !== undefined) updateData.scheduled_time = data.scheduled_time || null;
-      if (data.duration_minutes !== undefined) updateData.duration_minutes = data.duration_minutes;
-      if (data.notes !== undefined) updateData.notes = data.notes || null;
-      if (data.completed !== undefined) updateData.completed = data.completed;
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { appointment: any };
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/appointments/${appointmentId}`, data);
 
-      // Update appointment in the database
-      const { error: updateError } = await supabase
-        .from('treatment_plan_appointments')
-        .update(updateData)
-        .eq('id', appointmentId);
-
-      if (updateError) {
-        console.error('Error updating appointment:', updateError);
-        throw updateError;
+      if (!response.data.success) {
+        console.error('Error updating appointment:', response.data.error);
+        return;
       }
 
-      // Update local state
       const updatedAppointments = selectedPlan.appointments.map(a => 
         a.id === appointmentId ? { ...a, ...data } : a
       );
@@ -886,9 +808,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error updating appointment:', err);
     }
@@ -897,19 +816,24 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   const handleDeleteAppointment = async (appointmentId: string) => {
     if (!selectedPlan) return;
 
-    try {
-      // Delete appointment from the database
-      const { error: deleteError } = await supabase
-        .from('treatment_plan_appointments')
-        .delete()
-        .eq('id', appointmentId);
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
-      if (deleteError) {
-        console.error('Error deleting appointment:', deleteError);
-        throw deleteError;
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/treatment-plans/${selectedPlan.id}/appointments/${appointmentId}`);
+
+      if (!response.data.success) {
+        console.error('Error deleting appointment:', response.data.error);
+        return;
       }
 
-      // Update local state
       const updatedPlan = {
         ...selectedPlan,
         appointments: selectedPlan.appointments.filter(a => a.id !== appointmentId),
@@ -918,9 +842,6 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
 
       setSelectedPlan(updatedPlan);
       setPlans(plans.map(p => p.id === updatedPlan.id ? updatedPlan : p));
-      
-      // Update the treatment plan's updated_at timestamp
-      await updatePlanInDatabase(updatedPlan);
     } catch (err) {
       console.error('Error deleting appointment:', err);
     }

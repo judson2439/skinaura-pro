@@ -2,10 +2,12 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
 
 import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
+import { decryptRequestMiddleware } from './middleware/decryptRequest.js';
 import healthRouter from './routes/health.js';
 import apiRouter from './routes/index.js';
 
@@ -38,7 +40,7 @@ app.use(cors({
   origin: env.CORS_ORIGIN,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Encrypted'],
 }));
 
 // Request logging
@@ -47,6 +49,12 @@ app.use(morgan('dev'));
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Decrypt encrypted request bodies (after body parsing, before routes)
+app.use(decryptRequestMiddleware);
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Routes
 app.use('/health', healthRouter);

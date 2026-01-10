@@ -27,7 +27,10 @@ import AIPhotoScanModal from '@/components/professional/modals/AIPhotoScanModal'
 import EditProductModal from '@/components/professional/modals/EditProductModal';
 import CSVProductImport from '@/components/professional/modals/CSVProductImport';
 import ShopifyProductImport from '@/components/professional/modals/ShopifyProductImport';
-import { supabase } from '@/lib/supabase';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthSession, getAuthToken } from '@/lib/authStorage';
+import { uploadImage } from '@/lib/encryption';
 import { useAuth } from '@/contexts/AuthContext';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
 
@@ -47,47 +50,25 @@ type ImportMethodType = 'none' | 'csv' | 'shopify';
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Upload image to Supabase storage
-const uploadProductImage = async (file: File, userId: string): Promise<string | null> => {
+// Upload image to backend with encryption support using generic image endpoint
+const uploadProductImage = async (file: File): Promise<string | null> => {
   try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `products/${userId}/${Date.now()}.${fileExt}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('progress-photos')
-      .upload(fileName, file, {
-        cacheControl: '3600',
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error('Image upload error:', uploadError);
-      return null;
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return null;
+    
+    // Use the generic image upload utility with 'products' category
+    const result = await uploadImage(file, 'products', token);
+    
+    if (result.success && result.data?.image_url) {
+      return result.data.image_url;
     }
-
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('progress-photos')
-      .getPublicUrl(fileName);
-
-    return urlData.publicUrl;
+    
+    console.error('Image upload error:', result.error);
+    return null;
   } catch (error) {
     console.error('Image upload error:', error);
     return null;
-  }
-};
-
-// Delete image from Supabase storage
-const deleteProductImage = async (imageUrl: string): Promise<void> => {
-  try {
-    // Extract the file path from the URL
-    const urlParts = imageUrl.split('/progress-photos/');
-    if (urlParts.length < 2) return;
-
-    const filePath = urlParts[1];
-    await supabase.storage.from('progress-photos').remove([filePath]);
-  } catch (error) {
-    console.error('Image delete error:', error);
   }
 };
 
@@ -98,7 +79,7 @@ const deleteProductImage = async (imageUrl: string): Promise<void> => {
 const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
   onNavigateToView,
 }) => {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
 
   // Data state
   const [products, setProducts] = useState<Product[]>([]);
@@ -122,9 +103,12 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
   const [deleting, setDeleting] = useState(false);
 
 
-  // Fetch products from database
+  // Fetch products from backend API
   const fetchProducts = async () => {
-    if (!user) {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    
+    if (!token) {
       setProducts([]);
       setLoading(false);
       return;
@@ -132,18 +116,20 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('professional_id', user.id)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { products: Product[] };
+        error?: string;
+      }>('/api/products');
 
-      if (error) {
-        console.error('Error fetching products:', error);
-        // Fall back to mock data if table doesn't exist or other error
-        setProducts(MOCK_PRODUCTS);
+      if (response.data.success && response.data.data) {
+        setProducts(response.data.data.products || []);
       } else {
-        setProducts(data || []);
+        console.error('Error fetching products:', response.data.error);
+        // Fall back to mock data if error
+        setProducts(MOCK_PRODUCTS);
       }
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -158,7 +144,7 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
   // Fetch products on mount
   useEffect(() => {
     fetchProducts();
-  }, [user]);
+  }, []);
 
   // Stats calculations
   const totalProducts = products.length;
@@ -185,42 +171,44 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
     productData: Omit<Product, 'id' | 'created_at'>,
     imageFile?: File
   ) => {
-    if (!user) return;
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
     setSaving(true);
     try {
       // Upload image if provided
       let imageUrl = productData.image_url;
       if (imageFile) {
-        const uploadedUrl = await uploadProductImage(imageFile, user.id);
+        const uploadedUrl = await uploadProductImage(imageFile);
         if (uploadedUrl) {
           imageUrl = uploadedUrl;
         }
       }
 
-      // Insert product into database (matching actual table schema)
-      const { data, error } = await supabase
-        .from('products')
-        .insert({
-          professional_id: user.id,
-          name: productData.name,
-          brand: productData.brand || null,
-          category: productData.category || null,
-          description: productData.description || null,
-          price: productData.price || null,
-          image_url: imageUrl || null,
-          purchase_url: productData.purchase_url || null,
-          ingredients: productData.ingredients || [],
-          skin_types: productData.skin_types || [],
-          concerns: productData.concerns || [],
-          is_active: true,
-          is_global: false,
-        })
-        .select()
-        .single();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { product: Product };
+        error?: string;
+      }>('/api/products', {
+        name: productData.name,
+        brand: productData.brand || null,
+        category: productData.category || null,
+        description: productData.description || null,
+        price: productData.price || null,
+        image_url: imageUrl || null,
+        purchase_url: productData.purchase_url || null,
+        ingredients: productData.ingredients || [],
+        skin_types: productData.skin_types || [],
+        concerns: productData.concerns || [],
+      });
 
-      if (error) {
-        console.error('Error adding product:', error);
+      if (response.data.success && response.data.data?.product) {
+        setProducts(prev => [response.data.data!.product, ...prev]);
+      } else {
+        console.error('Error adding product:', response.data.error);
         // Fall back to local state update
         const newProduct: Product = {
           ...productData,
@@ -229,8 +217,6 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
           created_at: new Date().toISOString(),
         };
         setProducts(prev => [newProduct, ...prev]);
-      } else if (data) {
-        setProducts(prev => [data, ...prev]);
       }
 
       setShowAddModal(false);
@@ -257,21 +243,28 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
     data: Partial<Product>,
     imageFile?: File
   ) => {
-    if (!user) return;
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
     setSaving(true);
     try {
       // Upload new image if provided
       let imageUrl = data.image_url;
       if (imageFile) {
-        const uploadedUrl = await uploadProductImage(imageFile, user.id);
+        const uploadedUrl = await uploadProductImage(imageFile);
         if (uploadedUrl) {
           imageUrl = uploadedUrl;
         }
       }
 
-      // Build update data matching database schema
-      const updateData: Record<string, any> = {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { product: Product };
+        error?: string;
+      }>(`/api/products/${productId}`, {
         name: data.name,
         brand: data.brand || null,
         category: data.category || null,
@@ -282,17 +275,13 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
         ingredients: data.ingredients || [],
         skin_types: data.skin_types || [],
         concerns: data.concerns || [],
-        updated_at: new Date().toISOString(),
-      };
+      });
 
-      const { error } = await supabase
-        .from('products')
-        .update(updateData)
-        .eq('id', productId)
-        .eq('professional_id', user.id);
-
-      if (error) {
-        console.error('Error updating product:', error);
+      if (response.data.success) {
+        // Refresh products from database
+        await fetchProducts();
+      } else {
+        console.error('Error updating product:', response.data.error);
         // Fall back to local state update
         setProducts(prev =>
           prev.map(p =>
@@ -301,9 +290,6 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
               : p
           )
         );
-      } else {
-        // Refresh products from database
-        await fetchProducts();
       }
 
       setShowEditModal(false);
@@ -329,26 +315,27 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
 
   // Confirm and execute delete
   const confirmDeleteProduct = async () => {
-    if (!user || !productToDelete) return;
+    if (!productToDelete) return;
+
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
 
     setDeleting(true);
     try {
-      // Delete from database
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', productToDelete.id)
-        .eq('professional_id', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/products/${productToDelete.id}`);
 
-      if (error) {
-        console.error('Error deleting product:', error);
-        // Fall back to local state update
+      if (response.data.success) {
         setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
       } else {
-        // Delete image from storage if exists
-        if (productToDelete.image_url && productToDelete.image_url.includes('progress-photos')) {
-          await deleteProductImage(productToDelete.image_url);
-        }
+        console.error('Error deleting product:', response.data.error);
+        // Fall back to local state update
         setProducts(prev => prev.filter(p => p.id !== productToDelete.id));
       }
     } catch (error) {
@@ -563,22 +550,18 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
                 >
                   {/* Product Image */}
                   <div className="relative h-48 bg-gradient-to-br from-gray-100 to-gray-50">
-                    {product.image_url ? (
-                      <img
-                        src={product.image_url}
-                        alt={product.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Package className="w-16 h-16 text-gray-300" />
-                      </div>
-                    )}
+                    <EncryptedImage
+                      src={product.image_url}
+                      alt={product.name}
+                      className="w-full h-full object-cover"
+                      fallbackIcon="package"
+                      showFallback={true}
+                    />
                     {/* Price badge */}
                     {product.price && (
                       <div className="absolute top-3 right-3 px-2 py-1 bg-white/90 text-gray-900 text-sm font-medium rounded-full flex items-center gap-1">
                         <DollarSign className="w-3 h-3" />
-                        {product.price.toFixed(2)}
+                        {Number(product.price).toFixed(2)}
                       </div>
                     )}
                     {/* Category badge */}

@@ -14,6 +14,7 @@ import {
   type PasswordStrength,
 } from '@/lib/security';
 import { apiClient } from '@/lib/apiClient';
+import { encryptFile } from '@/lib/encryption';
 import {
   X,
   Mail,
@@ -369,47 +370,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   };
 
 
-  // Upload avatar to backend and get URL
-  const uploadAvatar = async (userId: string): Promise<string | null> => {
-    if (!avatarFile || !avatarPreview) return null;
-
-    try {
-      console.log('📁 Uploading avatar...');
-      
-      // Prepare upload data
-      const uploadData = {
-        imageData: avatarPreview, // Base64 data URL
-        filename: avatarFile.name,
-        userId: userId,
-        mimeType: avatarFile.type,
-      };
-
-      // Encrypt the upload request
-      const encryptedUpload = await encryptData(uploadData);
-
-      const response = await apiClient.post<{
-        success: boolean;
-        message: string;
-        data?: {
-          avatarUrl: string;
-          filename: string;
-        };
-        error?: string;
-      }>('/api/upload/avatar', encryptedUpload);
-
-      if (response.data.success && response.data.data?.avatarUrl) {
-        console.log('✅ Avatar uploaded:', response.data.data.avatarUrl);
-        return response.data.data.avatarUrl;
-      }
-
-      console.warn('⚠️ Avatar upload failed:', response.data.error);
-      return null;
-    } catch (error) {
-      console.error('❌ Avatar upload error:', error);
-      return null;
-    }
-  };
-
   // Handle signup using backend API with encryption
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -428,14 +388,22 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     setLoading(true);
     
     try {
-      // Generate a temporary user ID for avatar upload
-      // This will be replaced with actual user ID after signup
-      const tempUserId = `temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      // Encrypt avatar if provided (encryption happens on frontend)
+      let avatarEncrypted: string | undefined;
+      let avatarIv: string | undefined;
+      let avatarMimeType: string | undefined;
       
-      // Upload avatar first if selected
-      let avatarUrl: string | undefined;
-      if (avatarFile && avatarPreview) {
-        avatarUrl = (await uploadAvatar(tempUserId)) || undefined;
+      if (avatarFile) {
+        try {
+          console.log('🔐 Encrypting avatar...');
+          const encryptedAvatar = await encryptFile(avatarFile);
+          avatarEncrypted = encryptedAvatar.encrypted;
+          avatarIv = encryptedAvatar.iv;
+          avatarMimeType = encryptedAvatar.mimeType;
+          console.log('✅ Avatar encrypted');
+        } catch (err) {
+          console.warn('⚠️ Failed to encrypt avatar, continuing without it');
+        }
       }
 
       // Build signup data based on role
@@ -451,8 +419,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         // Professional-specific fields
         businessName: selectedRole === 'professional' ? businessName.trim() : undefined,
         licenseNumber: selectedRole === 'professional' ? (licenseNumber.trim() || undefined) : undefined,
-        // Avatar URL from upload
-        avatarUrl: avatarUrl,
+        // Pre-encrypted avatar data (frontend encrypts, backend just saves)
+        avatarEncrypted,
+        avatarIv,
+        avatarMimeType,
       };
 
       console.log('🔐 Encrypting signup data...');

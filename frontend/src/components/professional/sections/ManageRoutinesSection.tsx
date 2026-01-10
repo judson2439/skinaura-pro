@@ -29,7 +29,8 @@ import CreateRoutineModal from '@/components/professional/modals/CreateRoutineMo
 import EditRoutineModal from '@/components/professional/modals/EditRoutineModal';
 import AssignRoutineModal from '@/components/professional/modals/AssignRoutineModal';
 import AddClientPlaceholderModal from '@/components/professional/modals/AddClientPlaceholderModal';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -186,47 +187,33 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
   const [selectedRoutine, setSelectedRoutine] = useState<Routine | null>(null);
 
   // ============================================================================
-  // FETCH CLIENTS FROM SUPABASE
+  // FETCH CLIENTS FROM BACKEND API
   // ============================================================================
 
   const fetchClients = useCallback(async () => {
     if (!profile?.id) return;
 
+    const token = getAuthToken();
+    if (!token) return;
+
     try {
-      // Step 1: Get all client_ids from client_professional_relationships 
-      // where professional_id matches current professional
-      const { data: relationshipsData, error: relationshipsError } = await supabase
-        .from('client_professional_relationships')
-        .select('client_id')
-        .eq('professional_id', profile.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { clients: UserProfileDB[] };
+        error?: string;
+      }>('/api/routines/clients/list');
 
-      if (relationshipsError) {
-        console.error('Error fetching client_professional_relationships:', relationshipsError);
+      if (!response.data.success) {
+        console.error('Error fetching clients:', response.data.error);
         return;
       }
 
-      // Extract client_ids from relationships
-      const clientIds = (relationshipsData || []).map(r => r.client_id);
-
-      if (clientIds.length === 0) {
-        setClients([]);
-        return;
-      }
-
-      // Step 2: Fetch client details from user_profiles for all linked clients
-      const { data: clientsData, error: clientsError } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .in('id', clientIds)
-        .order('full_name', { ascending: true });
-
-      if (clientsError) {
-        console.error('Error fetching clients:', clientsError);
-        return;
-      }
+      const clientsData = response.data.data?.clients || [];
 
       // Map database clients to RoutineClient format
-      const mappedClients: RoutineClient[] = (clientsData || []).map((client: UserProfileDB) => ({
+      const mappedClients: RoutineClient[] = clientsData.map((client: UserProfileDB) => ({
         id: client.id,
         name: client.full_name || client.email,
         email: client.email,
@@ -251,27 +238,33 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
 
 
   // ============================================================================
-  // FETCH ASSIGNMENTS FROM SUPABASE
+  // FETCH ASSIGNMENTS FROM BACKEND API
   // ============================================================================
 
   const fetchAssignments = useCallback(async () => {
     if (!profile?.id) return;
 
-    try {
-      // Fetch all active assignments for this professional
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('client_routine_assignments')
-        .select('*')
-        .eq('professional_id', profile.id)
-        .eq('is_active', true);
+    const token = getAuthToken();
+    if (!token) return;
 
-      if (assignmentsError) {
-        console.error('Error fetching assignments:', assignmentsError);
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { assignments: ClientRoutineAssignmentDB[] };
+        error?: string;
+      }>('/api/routines/assignments');
+
+      if (!response.data.success) {
+        console.error('Error fetching assignments:', response.data.error);
         return;
       }
 
+      const assignmentsData = response.data.data?.assignments || [];
+
       // Map database assignments to RoutineAssignment format
-      const mappedAssignments: RoutineAssignment[] = (assignmentsData || []).map((assignment: ClientRoutineAssignmentDB) => ({
+      const mappedAssignments: RoutineAssignment[] = assignmentsData.map((assignment: ClientRoutineAssignmentDB) => ({
         id: assignment.id,
         routine_id: assignment.routine_id,
         client_id: assignment.client_id,
@@ -298,7 +291,7 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
   }, [profile?.id]);
 
   // ============================================================================
-  // FETCH ROUTINES FROM SUPABASE
+  // FETCH ROUTINES FROM BACKEND API
   // ============================================================================
 
   const fetchRoutines = useCallback(async () => {
@@ -307,45 +300,41 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
       return;
     }
 
+    const token = getAuthToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch routine templates for the current professional
-      const { data: routineData, error: routineError } = await supabase
-        .from('routine_templates')
-        .select('*')
-        .eq('professional_id', profile.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { routines: RoutineTemplateDB[]; steps: RoutineStepDB[] };
+        error?: string;
+      }>('/api/routines');
 
-      if (routineError) {
-        console.error('Error fetching routines:', routineError);
+      if (!response.data.success) {
+        console.error('Error fetching routines:', response.data.error);
         setError('Failed to load routines. Please try again.');
         return;
       }
 
-      if (!routineData || routineData.length === 0) {
+      const routineData = response.data.data?.routines || [];
+      const stepsData = response.data.data?.steps || [];
+
+      if (routineData.length === 0) {
         setRoutines([]);
         return;
       }
 
-      // Fetch all steps for these routines
-      const routineIds = routineData.map((r: RoutineTemplateDB) => r.id);
-      const { data: stepsData, error: stepsError } = await supabase
-        .from('routine_steps')
-        .select('*')
-        .in('routine_id', routineIds)
-        .order('step_order', { ascending: true });
-
-      if (stepsError) {
-        console.error('Error fetching routine steps:', stepsError);
-        // Continue without steps
-      }
-
       // Map database data to frontend format
       const mappedRoutines = routineData.map((routine: RoutineTemplateDB) => {
-        const routineSteps = (stepsData || []).filter(
+        const routineSteps = stepsData.filter(
           (step: RoutineStepDB) => step.routine_id === routine.id
         );
         return mapDBRoutineToFrontend(routine, routineSteps);
@@ -405,22 +394,31 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
       return;
     }
 
-    try {
-      // Insert into routine_templates table
-      const { data: newRoutineData, error: insertError } = await supabase
-        .from('routine_templates')
-        .insert({
-          professional_id: profile.id,
-          name: name.trim(),
-          description: description.trim() || null,
-          schedule_type: scheduleType,
-          is_active: true,
-        })
-        .select()
-        .single();
+    const token = getAuthToken();
+    if (!token) {
+      toast({
+        title: 'Error',
+        description: 'Authentication required.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
-      if (insertError) {
-        console.error('Error creating routine:', insertError);
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { routine: RoutineTemplateDB };
+        error?: string;
+      }>('/api/routines', {
+        name: name.trim(),
+        description: description.trim() || null,
+        schedule_type: scheduleType,
+      });
+
+      if (!response.data.success || !response.data.data?.routine) {
+        console.error('Error creating routine:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to create routine. Please try again.',
@@ -430,7 +428,7 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
       }
 
       // Map the new routine to frontend format
-      const newRoutine = mapDBRoutineToFrontend(newRoutineData as RoutineTemplateDB, []);
+      const newRoutine = mapDBRoutineToFrontend(response.data.data.routine, []);
 
       // Update local state
       setRoutines(prev => [newRoutine, ...prev]);
@@ -476,25 +474,28 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
     const routineId = deleteConfirmation.routineId;
     setIsDeleting(true);
 
+    const token = getAuthToken();
+    if (!token) {
+      toast({
+        title: 'Error',
+        description: 'Authentication required.',
+        variant: 'destructive',
+      });
+      setIsDeleting(false);
+      return;
+    }
+
     try {
-      // First delete all steps for this routine
-      const { error: stepsError } = await supabase
-        .from('routine_steps')
-        .delete()
-        .eq('routine_id', routineId);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/routines/${routineId}`);
 
-      if (stepsError) {
-        console.error('Error deleting routine steps:', stepsError);
-      }
-
-      // Then delete the routine (or soft delete by setting is_active to false)
-      const { error: routineError } = await supabase
-        .from('routine_templates')
-        .update({ is_active: false })
-        .eq('id', routineId);
-
-      if (routineError) {
-        console.error('Error deleting routine:', routineError);
+      if (!response.data.success) {
+        console.error('Error deleting routine:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to delete routine. Please try again.',
@@ -503,12 +504,6 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
         setIsDeleting(false);
         return;
       }
-
-      // Also deactivate all assignments for this routine
-      await supabase
-        .from('client_routine_assignments')
-        .update({ is_active: false })
-        .eq('routine_id', routineId);
 
       // Update local state
       setRoutines(prev => prev.filter(r => r.id !== routineId));
@@ -537,28 +532,35 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
   const handleAddStep = async (step: Omit<RoutineStep, 'id' | 'step_order'>) => {
     if (!selectedRoutine) return;
 
+    const token = getAuthToken();
+    if (!token) {
+      toast({
+        title: 'Error',
+        description: 'Authentication required.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
-      const newStepOrder = selectedRoutine.steps.length + 1;
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { step: RoutineStepDB };
+        error?: string;
+      }>(`/api/routines/${selectedRoutine.id}/steps`, {
+        step_name: step.step_name || step.product_name || 'New Step',
+        description: step.description || step.instructions || null,
+        product_category: step.product_category || step.product_type || null,
+        product_recommendation: step.product_recommendation || null,
+        tips: step.tips || null,
+        duration_seconds: step.duration_seconds || null,
+        is_optional: step.is_optional || false,
+      });
 
-      // Insert step into database
-      const { data: newStepData, error: insertError } = await supabase
-        .from('routine_steps')
-        .insert({
-          routine_id: selectedRoutine.id,
-          step_order: newStepOrder,
-          step_name: step.step_name || step.product_name || 'New Step',
-          description: step.description || step.instructions || null,
-          product_category: step.product_category || step.product_type || null,
-          product_recommendation: step.product_recommendation || null,
-          tips: step.tips || null,
-          duration_seconds: step.duration_seconds || null,
-          is_optional: step.is_optional || false,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Error adding step:', insertError);
+      if (!response.data.success || !response.data.data?.step) {
+        console.error('Error adding step:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to add step. Please try again.',
@@ -568,7 +570,7 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
       }
 
       // Map to frontend format
-      const newStep = mapDBStepToFrontend(newStepData as RoutineStepDB);
+      const newStep = mapDBStepToFrontend(response.data.data.step);
 
       // Update selected routine
       const updatedRoutine = {
@@ -597,26 +599,27 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
   const handleDeleteStep = async (stepId: string) => {
     if (!selectedRoutine) return;
 
+    const token = getAuthToken();
+    if (!token) {
+      toast({
+        title: 'Error',
+        description: 'Authentication required.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
-      // First delete any linked products for this step
-      const { error: linkDeleteError } = await supabase
-        .from('routine_step_products')
-        .delete()
-        .eq('routine_step_id', stepId);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>(`/api/routines/${selectedRoutine.id}/steps/${stepId}`);
 
-      if (linkDeleteError) {
-        console.error('Error deleting linked products:', linkDeleteError);
-        // Continue with step deletion even if link deletion fails
-      }
-
-      // Delete step from database
-      const { error: deleteError } = await supabase
-        .from('routine_steps')
-        .delete()
-        .eq('id', stepId);
-
-      if (deleteError) {
-        console.error('Error deleting step:', deleteError);
+      if (!response.data.success) {
+        console.error('Error deleting step:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to delete step. Please try again.',
@@ -629,14 +632,6 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
       const updatedSteps = selectedRoutine.steps
         .filter(s => s.id !== stepId)
         .map((s, idx) => ({ ...s, step_order: idx + 1, order: idx + 1 }));
-
-      // Update step orders in database
-      for (const step of updatedSteps) {
-        await supabase
-          .from('routine_steps')
-          .update({ step_order: step.step_order })
-          .eq('id', step.id);
-      }
 
       const updatedRoutine = {
         ...selectedRoutine,
@@ -672,104 +667,72 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
       return;
     }
 
+    const token = getAuthToken();
+    if (!token) {
+      toast({
+        title: 'Error',
+        description: 'Authentication required.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
-      // Check if assignment already exists
-      const { data: existingAssignment, error: checkError } = await supabase
-        .from('client_routine_assignments')
-        .select('id, is_active')
-        .eq('routine_id', selectedRoutine.id)
-        .eq('client_id', clientId)
-        .eq('professional_id', profile.id)
-        .maybeSingle();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { assignment: ClientRoutineAssignmentDB };
+        message?: string;
+        error?: string;
+      }>('/api/routines/assignments', {
+        routine_id: selectedRoutine.id,
+        client_id: clientId,
+        notes: notes.trim() || null,
+      });
 
-      if (checkError) {
-        console.error('Error checking existing assignment:', checkError);
+      if (!response.data.success) {
+        console.error('Error assigning routine:', response.data.error);
+        toast({
+          title: 'Error',
+          description: 'Failed to assign routine. Please try again.',
+          variant: 'destructive',
+        });
+        return;
       }
 
-      let newAssignment: RoutineAssignment;
-
-      if (existingAssignment) {
-        // If assignment exists but is inactive, reactivate it
-        if (!existingAssignment.is_active) {
-          const { data: updatedAssignment, error: updateError } = await supabase
-            .from('client_routine_assignments')
-            .update({
-              is_active: true,
-              notes: notes.trim() || null,
-              assigned_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingAssignment.id)
-            .select()
-            .single();
-
-          if (updateError) {
-            console.error('Error reactivating assignment:', updateError);
-            toast({
-              title: 'Error',
-              description: 'Failed to assign routine. Please try again.',
-              variant: 'destructive',
-            });
-            return;
-          }
-
-          newAssignment = {
-            id: updatedAssignment.id,
-            routine_id: updatedAssignment.routine_id,
-            client_id: updatedAssignment.client_id,
-            professional_id: updatedAssignment.professional_id,
-            is_active: updatedAssignment.is_active,
-            notes: updatedAssignment.notes || undefined,
-            assigned_at: updatedAssignment.assigned_at,
-            created_at: updatedAssignment.created_at,
-            updated_at: updatedAssignment.updated_at,
-          };
-        } else {
-          // Assignment already exists and is active
-          toast({
-            title: 'Info',
-            description: 'This routine is already assigned to this client.',
-          });
-          setShowAssignModal(false);
-          setSelectedRoutine(null);
-          return;
-        }
-      } else {
-        // Insert new assignment into client_routine_assignments table
-        const { data: insertedAssignment, error: insertError } = await supabase
-          .from('client_routine_assignments')
-          .insert({
-            routine_id: selectedRoutine.id,
-            client_id: clientId,
-            professional_id: profile.id,
-            is_active: true,
-            notes: notes.trim() || null,
-          })
-          .select()
-          .single();
-
-        if (insertError) {
-          console.error('Error assigning routine:', insertError);
-          toast({
-            title: 'Error',
-            description: 'Failed to assign routine. Please try again.',
-            variant: 'destructive',
-          });
-          return;
-        }
-
-        newAssignment = {
-          id: insertedAssignment.id,
-          routine_id: insertedAssignment.routine_id,
-          client_id: insertedAssignment.client_id,
-          professional_id: insertedAssignment.professional_id,
-          is_active: insertedAssignment.is_active,
-          notes: insertedAssignment.notes || undefined,
-          assigned_at: insertedAssignment.assigned_at,
-          created_at: insertedAssignment.created_at,
-          updated_at: insertedAssignment.updated_at,
-        };
+      // Check if it was already assigned
+      if (response.data.message === 'Routine is already assigned to this client') {
+        toast({
+          title: 'Info',
+          description: 'This routine is already assigned to this client.',
+        });
+        setShowAssignModal(false);
+        setSelectedRoutine(null);
+        return;
       }
+
+      const assignmentData = response.data.data?.assignment;
+      if (!assignmentData) {
+        toast({
+          title: 'Error',
+          description: 'Failed to assign routine. Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const newAssignment: RoutineAssignment = {
+        id: assignmentData.id,
+        routine_id: assignmentData.routine_id,
+        client_id: assignmentData.client_id,
+        professional_id: assignmentData.professional_id,
+        is_active: assignmentData.is_active,
+        notes: assignmentData.notes || undefined,
+        assigned_at: assignmentData.assigned_at,
+        created_at: assignmentData.created_at,
+        updated_at: assignmentData.updated_at,
+      };
 
       // Update local state
       setAssignments(prev => [...prev.filter(a => a.id !== newAssignment.id), newAssignment]);

@@ -13,7 +13,8 @@ import {
   Calendar,
   Settings2,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { CustomSelect } from '@/components/ui/custom-select';
@@ -270,28 +271,27 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   // Fetch gamification data
   useEffect(() => {
     const fetchGamificationData = async () => {
-      if (!user?.id) {
+      const token = getAuthToken();
+      if (!token) {
         setLoadingGamification(false);
         return;
       }
 
       try {
         setLoadingGamification(true);
-        const { data, error } = await supabase
-          .from('user_gamification')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
+        apiClient.setAuthToken(token);
+        
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { gamification: UserGamification | null };
+          error?: string;
+        }>('/client/gamification');
 
-        if (error) {
-          if (error.code === 'PGRST116') {
-            console.log('No gamification record found for user, using defaults');
-          } else {
-            console.error('Error fetching gamification data:', error);
-          }
+        if (!response.data.success) {
+          console.error('Error fetching gamification data:', response.data.error);
           setGamificationData(null);
         } else {
-          setGamificationData(data);
+          setGamificationData(response.data.data?.gamification || null);
         }
       } catch (err) {
         console.error('Error fetching gamification data:', err);
@@ -307,25 +307,28 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   // Fetch badges from database
   useEffect(() => {
     const fetchBadges = async () => {
-      if (!user?.id) {
+      const token = getAuthToken();
+      if (!token) {
         setLoadingBadges(false);
         return;
       }
 
       try {
         setLoadingBadges(true);
-        const { data, error } = await supabase
-          .from('user_badges')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('earned_at', { ascending: false });
+        apiClient.setAuthToken(token);
+        
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { badges: UserBadge[] };
+          error?: string;
+        }>('/client/badges');
 
-        if (error) {
-          console.error('Error fetching badges:', error);
+        if (!response.data.success) {
+          console.error('Error fetching badges:', response.data.error);
           setBadges([]);
-        } else if (data) {
+        } else if (response.data.data?.badges) {
           // Convert database badges to Badge interface
-          const mappedBadges: Badge[] = data.map((badge: UserBadge) => ({
+          const mappedBadges: Badge[] = response.data.data.badges.map((badge: UserBadge) => ({
             id: badge.id,
             name: badge.badge_name,
             image: badge.badge_icon || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(badge.badge_name) + '&background=CFAFA3&color=2D2A3E',
@@ -356,19 +359,28 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   }, [user?.id]);
 
   const fetchRoutines = async () => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     setLoading(true);
     try {
-      // Get all routine assignments for this client
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('client_routine_assignments')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('is_active', true);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          routines: Array<DBRoutineTemplate & {
+            assigned_at: string;
+            assignment_notes: string | null;
+            steps: Array<DBRoutineStep & { products: Array<{ id: string; routine_step_id: string; product_id: string; name: string; brand: string | null; image_url: string | null; purchase_url: string | null }> }>;
+          }>;
+          professionals: Array<{ id: string; name: string; email: string; avatarUrl: string | null }>;
+        };
+        error?: string;
+      }>('/client/routines');
 
-      if (assignmentsError) {
-        console.error('Error fetching assignments:', assignmentsError);
+      if (!response.data.success) {
+        console.error('Error fetching routines:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to fetch routine assignments',
@@ -378,143 +390,54 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
         return;
       }
 
-      if (!assignmentsData || assignmentsData.length === 0) {
+      const routinesData = response.data.data?.routines || [];
+      const professionalsData = response.data.data?.professionals || [];
+
+      if (routinesData.length === 0) {
         setRoutines([]);
         setProfessionals([]);
         setLoading(false);
         return;
       }
 
-      const assignments = assignmentsData as DBClientRoutineAssignment[];
-
-      // Get routine templates
-      const routineIds = [...new Set(assignments.map(a => a.routine_id))];
-      const { data: routinesData, error: routinesError } = await supabase
-        .from('routine_templates')
-        .select('*')
-        .in('id', routineIds)
-        .eq('is_active', true);
-
-      if (routinesError) {
-        console.error('Error fetching routines:', routinesError);
-        setLoading(false);
-        return;
-      }
-
-      const routinesDataTyped = routinesData as DBRoutineTemplate[];
-
-      // Get professionals
-      const professionalIds = [...new Set(routinesDataTyped.map(r => r.professional_id))];
-      const { data: professionalsData, error: professionalsError } = await supabase
-        .from('user_profiles')
-        .select('id, email, full_name, avatar_url, role')
-        .in('id', professionalIds);
-
-      if (professionalsError) {
-        console.error('Error fetching professionals:', professionalsError);
-        setLoading(false);
-        return;
-      }
-
+      // Build professionals map
       const professionalsMap = new Map<string, Professional>();
-      (professionalsData as DBUserProfile[]).forEach(p => {
+      professionalsData.forEach(p => {
         professionalsMap.set(p.id, {
           id: p.id,
-          name: p.full_name || p.email,
+          name: p.name,
           email: p.email,
-          avatarUrl: p.avatar_url,
+          avatarUrl: p.avatarUrl,
         });
       });
 
-      // Get routine steps
-      const { data: stepsData, error: stepsError } = await supabase
-        .from('routine_steps')
-        .select('*')
-        .in('routine_id', routineIds)
-        .order('step_order', { ascending: true });
+      // Map routines to frontend format
+      const mappedRoutines: Routine[] = routinesData.map(routine => {
+        const stepProductsMap = new Map<string, StepProduct[]>();
+        
+        routine.steps.forEach(step => {
+          if (step.products && step.products.length > 0) {
+            const products: StepProduct[] = step.products.map(p => ({
+              id: `${step.id}-${p.product_id}`,
+              productId: p.product_id,
+              name: p.name,
+              brand: p.brand,
+              imageUrl: p.image_url,
+              purchaseUrl: p.purchase_url,
+            }));
+            stepProductsMap.set(step.id, products);
+          }
+        });
 
-      if (stepsError) {
-        console.error('Error fetching steps:', stepsError);
-        setLoading(false);
-        return;
-      }
-
-      // Get step products
-      const stepIds = (stepsData as DBRoutineStep[]).map(s => s.id);
-      let stepProductsMap = new Map<string, StepProduct[]>();
-
-      if (stepIds.length > 0) {
-        const { data: stepProductsData, error: stepProductsError } = await supabase
-          .from('routine_step_products')
-          .select(`
-            routine_step_id,
-            product_id,
-            notes,
-            products:product_id (
-              id,
-              name,
-              brand,
-              image_url,
-              purchase_url
-            )
-          `)
-          .in('routine_step_id', stepIds);
-
-        if (!stepProductsError && stepProductsData) {
-          stepProductsData.forEach((sp: any) => {
-            const stepId = sp.routine_step_id;
-            const product = sp.products;
-            
-            if (product) {
-              const stepProduct: StepProduct = {
-                id: `${sp.routine_step_id}-${sp.product_id}`,
-                productId: product.id,
-                name: product.name,
-                brand: product.brand,
-                imageUrl: product.image_url,
-                purchaseUrl: product.purchase_url,
-              };
-              
-              const existing = stepProductsMap.get(stepId) || [];
-              existing.push(stepProduct);
-              stepProductsMap.set(stepId, existing);
-            }
-          });
-        }
-      }
-
-      // Build routines structure
-      const stepsMap = new Map<string, DBRoutineStep[]>();
-      (stepsData as DBRoutineStep[]).forEach(step => {
-        const existing = stepsMap.get(step.routine_id) || [];
-        existing.push(step);
-        stepsMap.set(step.routine_id, existing);
-      });
-
-      const routinesMap = new Map<string, DBRoutineTemplate>();
-      (routinesData as DBRoutineTemplate[]).forEach(r => {
-        routinesMap.set(r.id, r);
-      });
-
-      const addedRoutineIds = new Set<string>();
-      const mappedRoutines: Routine[] = [];
-
-      assignments.forEach(assignment => {
-        const routine = routinesMap.get(assignment.routine_id);
-        if (!routine || addedRoutineIds.has(routine.id)) return;
-        addedRoutineIds.add(routine.id);
-
-        const steps = stepsMap.get(routine.id) || [];
-
-        const mappedRoutine: Routine = {
+        return {
           id: routine.id,
           name: routine.name,
           description: routine.description || '',
           scheduleType: routine.schedule_type,
           scheduleDays: routine.schedule_days || [],
           professionalId: routine.professional_id,
-          assignedAt: assignment.assigned_at,
-          steps: steps.map((step) => {
+          assignedAt: routine.assigned_at,
+          steps: routine.steps.map((step) => {
             const stepProducts = stepProductsMap.get(step.id) || [];
             const firstProductImage = stepProducts.length > 0 ? stepProducts[0].imageUrl : null;
             
@@ -533,8 +456,6 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
             };
           }),
         };
-
-        mappedRoutines.push(mappedRoutine);
       });
 
       setRoutines(mappedRoutines);
@@ -558,34 +479,30 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   };
 
   const fetchTodayCompletions = async () => {
-    if (!user?.id) return;
-
-    const today = new Date().toISOString().split('T')[0];
+    const token = getAuthToken();
+    if (!token) return;
 
     try {
-      // Fetch today's routine completions
-      const { data: routineCompletions, error: routineError } = await supabase
-        .from('routine_completions')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('completion_date', today);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          completedRoutineTypes: string[];
+          completedStepIds: string[];
+        };
+        error?: string;
+      }>('/client/completions/today');
 
-      if (!routineError && routineCompletions) {
-        const completedTypes = new Set(routineCompletions.map((rc: DBRoutineCompletion) => rc.routine_type));
-        setTodayCompletedRoutines(completedTypes);
+      if (!response.data.success) {
+        console.error('Error fetching completions:', response.data.error);
+        return;
       }
 
-      // Fetch today's step completions
-      const { data: stepCompletions, error: stepError } = await supabase
-        .from('routine_step_completions')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('completion_date', today);
-
-      if (!stepError && stepCompletions) {
-        const completedStepIds = new Set(stepCompletions.map((sc: DBStepCompletion) => sc.routine_step_id));
-        setCompletedSteps(completedStepIds);
-      }
+      const { completedRoutineTypes, completedStepIds } = response.data.data || { completedRoutineTypes: [], completedStepIds: [] };
+      
+      setTodayCompletedRoutines(new Set(completedRoutineTypes));
+      setCompletedSteps(new Set(completedStepIds));
     } catch (error) {
       console.error('Error fetching today completions:', error);
     }
@@ -699,9 +616,9 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   };
 
   const onToggleRoutineStep = async (stepId: string) => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
-    const today = new Date().toISOString().split('T')[0];
     const isCurrentlyCompleted = completedSteps.has(stepId);
 
     // Optimistic update
@@ -716,25 +633,14 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
     });
 
     try {
+      apiClient.setAuthToken(token);
+      
       if (isCurrentlyCompleted) {
         // Remove completion
-        await supabase
-          .from('routine_step_completions')
-          .delete()
-          .eq('client_id', user.id)
-          .eq('routine_step_id', stepId)
-          .eq('completion_date', today);
+        await apiClient.delete(`/client/step-completions/${stepId}`);
       } else {
         // Add completion
-        await supabase
-          .from('routine_step_completions')
-          .upsert({
-            client_id: user.id,
-            routine_step_id: stepId,
-            completion_date: today,
-          }, {
-            onConflict: 'client_id,routine_step_id,completion_date'
-          });
+        await apiClient.post('/client/step-completions', { step_id: stepId });
       }
     } catch (error) {
       console.error('Error toggling step completion:', error);
@@ -752,41 +658,25 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   };
 
   const onConfirmRoutine = async (type: ScheduleType) => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     setCompletingRoutine(true);
-    const today = new Date().toISOString().split('T')[0];
 
     try {
+      apiClient.setAuthToken(token);
+      
       // Mark all steps as completed
       const targetSteps = getStepsByType(type);
       const stepIds = targetSteps.map(s => s.id);
 
-      // Insert step completions
-      const stepCompletions = stepIds.map(stepId => ({
-        client_id: user.id,
-        routine_step_id: stepId,
-        completion_date: today,
-      }));
-
-      if (stepCompletions.length > 0) {
-        await supabase
-          .from('routine_step_completions')
-          .upsert(stepCompletions, {
-            onConflict: 'client_id,routine_step_id,completion_date'
-          });
+      // Insert step completions in batch
+      if (stepIds.length > 0) {
+        await apiClient.post('/client/step-completions/batch', { step_ids: stepIds });
       }
 
       // Insert routine completion
-      await supabase
-        .from('routine_completions')
-        .upsert({
-          client_id: user.id,
-          completion_date: today,
-          routine_type: type,
-        }, {
-          onConflict: 'client_id,completion_date,routine_type'
-        });
+      await apiClient.post('/client/routine-completions', { routine_type: type });
 
       // Update local state
       setCompletedSteps(prev => {
@@ -822,23 +712,22 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   };
 
   const updateGamification = async () => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
     try {
+      apiClient.setAuthToken(token);
+      
       // Get current gamification data
-      const { data: currentData, error: fetchError } = await supabase
-        .from('user_gamification')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+      const fetchResponse = await apiClient.get<{
+        success: boolean;
+        data?: { gamification: UserGamification | null };
+      }>('/client/gamification');
 
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('Error fetching gamification:', fetchError);
-        return;
-      }
+      const currentData = fetchResponse.data.data?.gamification;
 
       let newStreak = 1;
       let longestStreak = 1;
@@ -870,30 +759,27 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       else if (totalPoints >= 500) level = 'Silver';
 
       // Upsert gamification data
-      const { error: upsertError } = await supabase
-        .from('user_gamification')
-        .upsert({
-          user_id: user.id,
-          current_streak: newStreak,
-          longest_streak: longestStreak,
-          points: totalPoints,
-          total_routines_completed: totalRoutines,
-          level: level,
-          last_completion_date: today,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'user_id'
-        });
+      const updateResponse = await apiClient.patch<{
+        success: boolean;
+        data?: { gamification: UserGamification };
+      }>('/client/gamification', {
+        current_streak: newStreak,
+        longest_streak: longestStreak,
+        points: totalPoints,
+        total_routines_completed: totalRoutines,
+        level: level,
+        last_completion_date: today,
+      });
 
-      if (upsertError) {
-        console.error('Error updating gamification:', upsertError);
+      if (!updateResponse.data.success) {
+        console.error('Error updating gamification');
         return;
       }
 
       // Refresh gamification data
       setGamificationData({
         id: currentData?.id || '',
-        user_id: user.id,
+        user_id: user?.id || '',
         current_streak: newStreak,
         longest_streak: longestStreak,
         points: totalPoints,

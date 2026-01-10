@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import authRouter from './auth.js';
-import uploadRouter from './upload.js';
+import imageRouter from './image.js';
 import professionalRouter from './professional.js';
+import clientRouter from './client.js';
+import routineRouter from './routine.js';
+import treatmentPlanRouter from './treatmentPlan.js';
+import productRouter from './product.js';
 
 const router = Router();
 
@@ -15,10 +19,22 @@ router.get('/', (req, res) => {
 // Auth routes (with encrypted request handling)
 router.use('/auth', authRouter);
 
-// Upload routes (for avatars and other files)
-router.use('/upload', uploadRouter);
+// Image routes (generic encrypted image upload/serve)
+router.use('/images', imageRouter);
 
 // Professional routes (clients, notifications, etc.)
 router.use('/professional', professionalRouter);
+
+// Client routes (routines, gamification, completions)
+router.use('/client', clientRouter);
+
+// Routine routes (templates, steps, assignments for professionals)
+router.use('/routines', routineRouter);
+
+// Treatment plan routes (plans, milestones, products, routines, appointments)
+router.use('/treatment-plans', treatmentPlanRouter);
+
+// Product routes (product library management)
+router.use('/products', productRouter);
 
 export default router;

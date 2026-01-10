@@ -51,7 +51,6 @@ const ProfessionalPage: React.FC = () => {
   const { user, profile, initialized, loading, isAuthenticated, clearAuth } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Client Profile Modal state
   const [showClientProfileModal, setShowClientProfileModal] = useState(false);
@@ -90,44 +89,6 @@ const ProfessionalPage: React.FC = () => {
   useEffect(() => {
     fetchClientCount();
   }, [fetchClientCount]);
-
-  // Fetch unread notifications count from backend API
-  const fetchUnreadCount = useCallback(async () => {
-    const authSession = getAuthSession();
-    const token = authSession?.token || getAuthToken();
-    
-    if (!token) return;
-
-    try {
-      // Set auth token for API client
-      apiClient.setAuthToken(token);
-      
-      const response = await apiClient.get<{
-        success: boolean;
-        data?: { count: number };
-        error?: string;
-      }>('/api/professional/notifications/unread-count');
-
-      if (response.data.success && response.data.data) {
-        setUnreadNotifications(response.data.data.count);
-      } else {
-        console.error('Error fetching unread count:', response.data.error);
-      }
-    } catch (err) {
-      console.error('Error fetching unread notifications:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUnreadCount();
-
-    // Poll for updates every 30 seconds (alternative to real-time subscriptions)
-    const pollInterval = setInterval(fetchUnreadCount, 30000);
-
-    return () => {
-      clearInterval(pollInterval);
-    };
-  }, [fetchUnreadCount]);
 
 
 
@@ -364,7 +325,7 @@ const ProfessionalPage: React.FC = () => {
           userDisplayName={userDisplayName}
           userAvatar={userAvatar}
           totalClients={totalClients}
-          unreadNotifications={unreadNotifications}
+          unreadNotifications={0}
         />
 
 

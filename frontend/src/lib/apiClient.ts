@@ -1,8 +1,10 @@
 /**
  * API Client for HTTP requests
+ * Supports optional request body encryption using AES-256-GCM
  */
 
 import { API_CONFIG } from '../config/api';
+import { encryptData, isEncryptionEnabled } from './encryption';
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -74,6 +76,32 @@ class ApiClient {
   }
 
   /**
+   * Prepare request body (encrypt if enabled)
+   */
+  private async prepareBody(body: unknown): Promise<{ body: string; headers: Record<string, string> }> {
+    if (!body) {
+      return { body: '', headers: {} };
+    }
+
+    // Check if encryption is enabled
+    if (isEncryptionEnabled()) {
+      try {
+        const { encrypted, iv } = await encryptData(body);
+        return {
+          body: JSON.stringify({ encrypted, iv }),
+          headers: { 'X-Encrypted': 'true' },
+        };
+      } catch (error) {
+        console.error('Failed to encrypt request body:', error);
+        // Fall back to unencrypted if encryption fails
+        return { body: JSON.stringify(body), headers: {} };
+      }
+    }
+
+    return { body: JSON.stringify(body), headers: {} };
+  }
+
+  /**
    * Make an API request
    */
   async request<T = unknown>(
@@ -89,13 +117,19 @@ class ApiClient {
     );
 
     try {
+      // Prepare body (potentially encrypted)
+      const { body: preparedBody, headers: encryptionHeaders } = options.body 
+        ? await this.prepareBody(options.body)
+        : { body: undefined as string | undefined, headers: {} };
+
       const response = await fetch(url, {
         method: options.method || 'GET',
         headers: {
           ...this.defaultHeaders,
           ...options.headers,
+          ...encryptionHeaders,
         },
-        body: options.body ? JSON.stringify(options.body) : undefined,
+        body: preparedBody || undefined,
         signal: options.signal || controller.signal,
         credentials: 'include', // Include cookies for auth
       });
