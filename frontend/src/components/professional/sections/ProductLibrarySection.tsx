@@ -203,6 +203,7 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
         ingredients: productData.ingredients || [],
         skin_types: productData.skin_types || [],
         concerns: productData.concerns || [],
+        usage_instructions: productData.usage_instructions || null,
       });
 
       if (response.data.success && response.data.data?.product) {
@@ -275,6 +276,7 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
         ingredients: data.ingredients || [],
         skin_types: data.skin_types || [],
         concerns: data.concerns || [],
+        usage_instructions: data.usage_instructions || null,
       });
 
       if (response.data.success) {
@@ -491,7 +493,7 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
                 onChange={(value) => setCategoryFilter(value)}
                 options={[
                   { value: 'all', label: 'All Categories' },
-                  ...createOptions(PRODUCT_CATEGORIES)
+                  ...createOptions([...PRODUCT_CATEGORIES])
                 ]}
                 placeholder="All Categories"
                 className="min-w-[180px]"

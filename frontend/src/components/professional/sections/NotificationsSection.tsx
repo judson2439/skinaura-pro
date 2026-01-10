@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import {
   Bell,
   MessageSquare,
@@ -10,24 +11,13 @@ import {
   Inbox,
   Eye,
   User,
+  RefreshCw,
 } from 'lucide-react';
 import ClientChatModal from '../modals/ClientChatModal';
 
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface RoutineNote {
-  id: string;
-  client_id: string;
-  professional_id: string;
-  content: string;
-  sender_type: 'client' | 'professional';
-  read_status: boolean;
-  client_deleted: boolean;
-  professional_deleted: boolean;
-  created_at: string;
-}
 
 interface ClientGroup {
   client_id: string;
@@ -44,6 +34,9 @@ interface NotificationsSectionProps {
   onNavigateToView?: (viewId: string) => void;
 }
 
+// Polling interval in milliseconds (30 seconds)
+const POLLING_INTERVAL = 30000;
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -54,6 +47,7 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   const { user } = useAuth();
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClient, setSelectedClient] = useState<{
     id: string;
@@ -62,147 +56,92 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   } | null>(null);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
 
+  // Get auth token helper
+  const getToken = useCallback(() => {
+    const authSession = getAuthSession();
+    return authSession?.token || getAuthToken();
+  }, []);
+
   // Fetch all notifications and group by client
-  const fetchNotifications = async (showLoading = true) => {
-    if (!user?.id) return;
+  const fetchNotifications = useCallback(async (showLoading = true) => {
+    const token = getToken();
+    if (!token || !user?.id) return;
 
     if (showLoading) {
       setLoading(true);
+    } else {
+      setRefreshing(true);
     }
+
     try {
-      // Fetch all notes for this professional
-      const { data: notes, error } = await supabase
-        .from('routine_notes')
-        .select('*')
-        .eq('professional_id', user.id)
-        .eq('professional_deleted', false)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { clientGroups: ClientGroup[] };
+        error?: string;
+      }>('/api/notifications');
 
-      if (error) {
-        console.error('Error fetching notifications:', error);
-        return;
-      }
-
-      if (notes && notes.length > 0) {
-        // Get unique client IDs
-        const clientIds = [...new Set(notes.map(note => note.client_id))];
-
-        // Fetch client profiles
-        const { data: clientProfiles, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', clientIds);
-
-        if (profileError) {
-          console.error('Error fetching client profiles:', profileError);
-        }
-
-        // Group notes by client
-        const groupedByClient: { [clientId: string]: RoutineNote[] } = {};
-        notes.forEach(note => {
-          if (!groupedByClient[note.client_id]) {
-            groupedByClient[note.client_id] = [];
-          }
-          groupedByClient[note.client_id].push(note);
-        });
-
-        // Create client groups with stats
-        const groups: ClientGroup[] = Object.entries(groupedByClient).map(([clientId, clientNotes]) => {
-          const clientProfile = clientProfiles?.find(p => p.id === clientId);
-          const unreadCount = clientNotes.filter(
-            n => !n.read_status && (n.sender_type === 'client' || !n.sender_type)
-          ).length;
-          const lastNote = clientNotes[0]; // Already sorted by created_at desc
-
-          return {
-            client_id: clientId,
-            client_name: clientProfile?.full_name || 'Unknown Client',
-            client_avatar: clientProfile?.avatar_url || null,
-            unread_count: unreadCount,
-            total_count: clientNotes.length,
-            last_message: lastNote.content,
-            last_message_time: lastNote.created_at,
-            last_sender_type: lastNote.sender_type || 'client',
-          };
-        });
-
-        // Sort by unread count (desc) then by last message time (desc)
-        groups.sort((a, b) => {
-          if (b.unread_count !== a.unread_count) {
-            return b.unread_count - a.unread_count;
-          }
-          return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime();
-        });
-
-        setClientGroups(groups);
+      if (response.data.success && response.data.data) {
+        setClientGroups(response.data.data.clientGroups);
       } else {
-        setClientGroups([]);
+        console.error('Error fetching notifications:', response.data.error);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
-      if (showLoading) {
-        setLoading(false);
-      }
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [user?.id, getToken]);
 
-
-  // Set up real-time subscription for INSERT events
+  // Set up polling for real-time updates
   useEffect(() => {
     if (!user?.id) return;
 
     // Initial fetch with loading
     fetchNotifications(true);
 
-    // Subscribe to real-time INSERT events on routine_notes table
-    const channel = supabase
-      .channel('notifications_section_inserts')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'routine_notes',
-          filter: `professional_id=eq.${user.id}`,
-        },
-        async (payload) => {
-          console.log('New notification received:', payload);
-          // Refetch to update groups WITHOUT showing loading spinner
-          fetchNotifications(false);
-        }
-      )
-      .subscribe();
+    // Set up polling interval
+    const pollInterval = setInterval(() => {
+      fetchNotifications(false); // Fetch without loading spinner
+    }, POLLING_INTERVAL);
 
+    // Cleanup
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [user?.id]);
-
+  }, [user?.id, fetchNotifications]);
 
   // Mark all as read
   const markAllAsRead = async () => {
-    if (!user?.id) return;
+    const token = getToken();
+    if (!token || !user?.id) return;
 
     try {
-      const { error } = await supabase
-        .from('routine_notes')
-        .update({ read_status: true })
-        .eq('professional_id', user.id)
-        .eq('read_status', false);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        error?: string;
+      }>('/api/notifications/mark-all-read', {});
 
-      if (error) {
-        console.error('Error marking all as read:', error);
-        return;
+      if (response.data.success) {
+        // Update local state
+        setClientGroups(prev =>
+          prev.map(group => ({ ...group, unread_count: 0 }))
+        );
+      } else {
+        console.error('Error marking all as read:', response.data.error);
       }
-
-      // Update local state
-      setClientGroups(prev =>
-        prev.map(group => ({ ...group, unread_count: 0 }))
-      );
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
+  };
+
+  // Manual refresh
+  const handleRefresh = () => {
+    fetchNotifications(false);
   };
 
   // Handle opening chat modal
@@ -227,6 +166,14 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
         )
       );
     }
+  };
+
+  // Handle chat modal close - refresh to get latest messages
+  const handleChatModalClose = () => {
+    setIsChatModalOpen(false);
+    setSelectedClient(null);
+    // Refresh notifications to update last message
+    fetchNotifications(false);
   };
 
   // Format time ago
@@ -296,15 +243,27 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
           </p>
         </div>
 
-        {totalUnreadCount > 0 && (
+        <div className="flex items-center gap-2">
+          {/* Refresh Button */}
           <button
-            onClick={markAllAsRead}
-            className="flex items-center gap-2 px-4 py-2 bg-[#5a4a3f] text-white rounded-lg hover:bg-[#4a3a2f] transition-colors"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+            title="Refresh notifications"
           >
-            <CheckCheck className="w-4 h-4" />
-            Mark all as read
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
-        )}
+          
+          {totalUnreadCount > 0 && (
+            <button
+              onClick={markAllAsRead}
+              className="flex items-center gap-2 px-4 py-2 bg-[#5a4a3f] text-white rounded-lg hover:bg-[#4a3a2f] transition-colors"
+            >
+              <CheckCheck className="w-4 h-4" />
+              Mark all as read
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search */}
@@ -410,10 +369,7 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
       {selectedClient && (
         <ClientChatModal
           isOpen={isChatModalOpen}
-          onClose={() => {
-            setIsChatModalOpen(false);
-            setSelectedClient(null);
-          }}
+          onClose={handleChatModalClose}
           client={selectedClient}
           onMessagesRead={handleMessagesRead}
         />

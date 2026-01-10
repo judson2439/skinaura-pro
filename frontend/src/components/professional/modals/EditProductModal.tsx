@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Loader2, DollarSign, Camera, Link, Check } from 'lucide-react';
 import { Product, PRODUCT_CATEGORIES, SKIN_TYPES } from './productLibraryTypes';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -45,6 +46,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
   // Photo states
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isLocalPreview, setIsLocalPreview] = useState(false); // true if preview is from local file selection
   const [uploading, setUploading] = useState(false);
 
   // Initialize form with product data
@@ -60,6 +62,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
       setProductSkinTypes(product.skin_types);
       setProductInstructions(product.usage_instructions || '');
       setPhotoPreview(product.image_url || null);
+      setIsLocalPreview(false); // Reset - this is an existing encrypted image
     }
   }, [product]);
 
@@ -75,6 +78,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
     setProductInstructions('');
     setPhotoPreview(null);
     setSelectedFile(null);
+    setIsLocalPreview(false);
     setUploading(false);
   };
 
@@ -87,6 +91,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
+      setIsLocalPreview(true); // Mark as local file preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoPreview(reader.result as string);
@@ -121,6 +126,7 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
             .filter(Boolean),
           skin_types: productSkinTypes,
           usage_instructions: productInstructions.trim() || undefined,
+          image_url: isLocalPreview ? undefined : product.image_url,
         },
         selectedFile || undefined
       );
@@ -155,7 +161,19 @@ const EditProductModal: React.FC<EditProductModalProps> = ({
         <div className="mb-6">
           {photoPreview ? (
             <div className="relative rounded-xl overflow-hidden">
-              <img src={photoPreview} alt="Product" className="w-full h-48 object-cover" />
+              {isLocalPreview ? (
+                // Local file preview - use regular img tag
+                <img src={photoPreview} alt="Product" className="w-full h-48 object-cover" />
+              ) : (
+                // Existing encrypted image - use EncryptedImage component
+                <EncryptedImage
+                  src={photoPreview}
+                  alt="Product"
+                  className="w-full h-48 object-cover"
+                  fallbackIcon="package"
+                  showFallback={true}
+                />
+              )}
               <div className="absolute bottom-2 right-2 flex gap-2">
                 <button
                   onClick={() => fileInputRef.current?.click()}

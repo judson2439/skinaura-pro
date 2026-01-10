@@ -9,7 +9,7 @@ const isProd = NODE_ENV === 'production';
 
 export const env = {
   // Server
-  PORT: parseInt(process.env.PORT || '3000', 10),
+  PORT: parseInt(process.env.PORT || '5505', 10),
   NODE_ENV,
   isDev,
   isProd,
@@ -54,6 +54,9 @@ export const env = {
   TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
   TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
   TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER || '',
+
+  // AI Gateway API Key for product recognition
+  GATEWAY_API_KEY: process.env.GATEWAY_API_KEY || '',
 } as const;
 
 // Validate required environment variables in production

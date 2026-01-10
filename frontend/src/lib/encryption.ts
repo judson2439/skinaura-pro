@@ -217,7 +217,7 @@ export type ImageCategory = 'avatars' | 'products' | 'photos' | 'treatments';
 
 // Get API base URL
 const getApiBaseUrl = (): string => {
-  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+  return import.meta.env.VITE_API_BASE_URL || 'http://localhost:5505';
 };
 
 /**

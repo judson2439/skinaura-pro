@@ -44,6 +44,7 @@ interface Product {
   ingredients: string[] | null;
   skin_types: string[] | null;
   concerns: string[] | null;
+  usage_instructions: string | null;
   is_active: boolean;
   is_global: boolean;
   created_at: string;
@@ -134,6 +135,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       ingredients,
       skin_types,
       concerns,
+      usage_instructions,
     } = req.body;
 
     if (!name) {
@@ -145,8 +147,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       `INSERT INTO products (
         professional_id, name, brand, category, description, price,
         image_url, purchase_url, ingredients, skin_types, concerns,
-        is_active, is_global, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, false, NOW())
+        usage_instructions, is_active, is_global, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, false, NOW())
       RETURNING *`,
       [
         professionalId,
@@ -160,6 +162,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         ingredients || [],
         skin_types || [],
         concerns || [],
+        usage_instructions || null,
       ]
     );
 
@@ -195,6 +198,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       ingredients,
       skin_types,
       concerns,
+      usage_instructions,
     } = req.body;
 
     const product = await queryOne<Product>(
@@ -209,8 +213,9 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         ingredients = COALESCE($8, ingredients),
         skin_types = COALESCE($9, skin_types),
         concerns = COALESCE($10, concerns),
+        usage_instructions = COALESCE($11, usage_instructions),
         updated_at = NOW()
-      WHERE id = $11 AND professional_id = $12
+      WHERE id = $12 AND professional_id = $13
       RETURNING *`,
       [
         name,
@@ -223,6 +228,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         ingredients,
         skin_types,
         concerns,
+        usage_instructions || null,
         productId,
         professionalId,
       ]
@@ -432,7 +438,7 @@ router.post('/bulk-import', async (req: Request, res: Response): Promise<void> =
           `INSERT INTO products (
             professional_id, name, brand, category, description, price,
             image_url, purchase_url, ingredients, skin_types, concerns,
-            is_active, is_global, created_at
+            usage_instructions, is_active, is_global, created_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, false, NOW())
           RETURNING *`,
           [
@@ -447,6 +453,7 @@ router.post('/bulk-import', async (req: Request, res: Response): Promise<void> =
             productData.ingredients || [],
             productData.skin_types || [],
             productData.concerns || [],
+            productData.usage_instructions || null,
           ]
         );
         

@@ -14,6 +14,7 @@ export interface Product {
   image_url?: string;
   purchase_url?: string;
   ingredients: string[];
+  usage_instructions?: string;
   skin_types: string[];
   concerns?: string[];
   is_active?: boolean;
@@ -31,6 +32,7 @@ export interface AIProductResult {
   description?: string;
   ingredients?: string[];
   skinTypes?: string[];
+  usageInstructions?: string;
   confidence: 'high' | 'medium' | 'low';
 }
 

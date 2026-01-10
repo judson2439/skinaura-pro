@@ -6,6 +6,8 @@ import clientRouter from './client.js';
 import routineRouter from './routine.js';
 import treatmentPlanRouter from './treatmentPlan.js';
 import productRouter from './product.js';
+import aiRouter from './ai.js';
+import notificationRouter from './notification.js';
 
 const router = Router();
 
@@ -36,5 +38,11 @@ router.use('/treatment-plans', treatmentPlanRouter);
 
 // Product routes (product library management)
 router.use('/products', productRouter);
+
+// AI routes (product recognition, etc.)
+router.use('/ai', aiRouter);
+
+// Notification routes (routine notes/messages)
+router.use('/notifications', notificationRouter);
 
 export default router;

@@ -13,6 +13,7 @@ import {
   Bell,
   LucideIcon,
 } from 'lucide-react';
+import EncryptedImage from '../ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -147,10 +148,11 @@ const ProfessionalSidebar: React.FC<ProfessionalSidebarProps> = ({
         <div className="p-4 border-t border-white/10">
           <div className="flex items-center gap-3">
             {userAvatar ? (
-              <img 
-                src={userAvatar} 
-                alt={userDisplayName} 
+              <EncryptedImage
+                src={userAvatar}
+                alt={userDisplayName}
                 className="w-10 h-10 rounded-full object-cover border-2 border-[#CFAFA3]/30" 
+                fallbackClassName="w-9 h-9 rounded-full border-2 border-gray-100"
               />
             ) : (
               <div className="w-10 h-10 rounded-full bg-[#CFAFA3] flex items-center justify-center text-[#2D2A3E] font-semibold text-sm">

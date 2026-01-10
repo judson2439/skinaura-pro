@@ -69,6 +69,8 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
   // Use profile avatar if available
   const avatarUrl = profile?.avatar_url || userAvatar || null;
 
+  console.log('🔐 Avatar URL:', avatarUrl);
+
   // Fetch unread notes from routine_notes table (only client messages)
   const fetchUnreadNotes = async () => {
     if (!user?.id) return;

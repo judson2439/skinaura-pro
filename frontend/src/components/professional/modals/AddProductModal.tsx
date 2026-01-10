@@ -55,7 +55,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   // Category options for select
   const categoryOptions = [
     { value: '', label: 'Select category...' },
-    ...createOptions(PRODUCT_CATEGORIES)
+    ...createOptions([...PRODUCT_CATEGORIES])
   ];
 
   const resetForm = () => {

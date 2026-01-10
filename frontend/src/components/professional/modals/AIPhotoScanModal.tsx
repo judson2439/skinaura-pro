@@ -10,6 +10,7 @@ import {
   CheckCircle,
   AlertCircle,
   Check,
+  Link,
 } from 'lucide-react';
 import {
   PRODUCT_CATEGORIES,
@@ -17,7 +18,8 @@ import {
   AIProductResult,
   getConfidenceBadge,
 } from './productLibraryTypes';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 
 // ============================================================================
 // TYPES
@@ -33,8 +35,10 @@ interface AIPhotoScanModalProps {
     description?: string;
     price?: number;
     image_url?: string;
+    purchase_url?: string;
     ingredients: string[];
     skin_types: string[];
+    usage_instructions?: string;
   }, imageFile?: File) => Promise<void>;
   saving?: boolean;
 }
@@ -68,6 +72,8 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
   const [productPrice, setProductPrice] = useState('');
   const [productIngredients, setProductIngredients] = useState('');
   const [productSkinTypes, setProductSkinTypes] = useState<string[]>([]);
+  const [productInstructions, setProductInstructions] = useState('');
+  const [productUrl, setProductUrl] = useState('');
 
   const resetForm = () => {
     setPhotoPreview(null);
@@ -83,6 +89,8 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
     setProductPrice('');
     setProductIngredients('');
     setProductSkinTypes([]);
+    setProductInstructions('');
+    setProductUrl('');
   };
 
   const handleClose = () => {
@@ -126,53 +134,54 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
     setAiError(null);
 
     try {
+      // Get auth token
+      const authSession = getAuthSession();
+      const token = authSession?.token || getAuthToken();
+      
+      if (!token) {
+        throw new Error('Please log in to use AI product recognition');
+      }
+
       // Convert the image file to base64
       const base64Image = await fileToBase64(selectedFile);
 
-      // Call the ai-product-recognition edge function
-      // The edge function expects { imageBase64: string }
-      let data, error;
-      try {
-        const response = await supabase.functions.invoke('ai-product-recognition', {
-          body: {
-            imageBase64: base64Image,
-          },
-        });
-        data = response.data;
-        error = response.error;
-      } catch (fetchError: any) {
-        // Handle network errors like "fetch failed"
-        console.error('Network error calling AI function:', fetchError);
-        throw new Error('AI service is currently unavailable. Please enter product details manually.');
-      }
+      // Call backend AI product recognition endpoint
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        product?: {
+          name?: string;
+          brand?: string;
+          category?: string;
+          description?: string;
+          ingredients?: string[];
+          skinTypes?: string[];
+          usageInstructions?: string;
+          confidence?: string;
+        };
+        error?: string;
+      }>('/api/ai/product-recognition', {
+        imageBase64: base64Image,
+      }, {
+        timeout: 60000, // 60 seconds timeout for AI processing
+      });
 
-      if (error) {
-        // Check if error message contains HTML (indicates function doesn't exist)
-        const errorMsg = error.message || '';
-        if (errorMsg.includes('<html') || errorMsg.includes('<!DOCTYPE') || 
-            errorMsg.includes('Unexpected token') || errorMsg.includes('is not valid JSON')) {
-          throw new Error('AI service is currently unavailable. Please enter product details manually.');
-        }
-        throw new Error(error.message || 'Failed to analyze image');
-      }
+      const data = response.data;
+      console.log('AI product recognition response:', data);
 
-      if (!data) {
-        throw new Error('No response from AI service');
-      }
-
-      // Check if the response indicates success
       if (!data.success) {
         throw new Error(data.error || 'AI analysis failed');
       }
 
-      // The product data is nested under data.product
       const productData = data.product;
+      console.log('Product data from AI:', productData);
 
       if (!productData) {
         throw new Error('No product data in AI response');
       }
 
-      // Parse the response from the edge function
+      // Parse the response from the backend
       const result: AIProductResult = {
         name: productData.name || undefined,
         brand: productData.brand || undefined,
@@ -180,9 +189,11 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
         description: productData.description || undefined,
         ingredients: productData.ingredients || [],
         skinTypes: productData.skinTypes || [],
-        confidence: productData.confidence || 'medium',
+        usageInstructions: productData.usageInstructions || undefined,
+        confidence: (productData.confidence as 'high' | 'medium' | 'low') || 'medium',
       };
 
+      console.log('Parsed AI result:', result);
       setAiResult(result);
 
       // Pre-fill form with AI results
@@ -200,16 +211,35 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
         setProductIngredients(result.ingredients.join(', '));
       }
       if (result.skinTypes && result.skinTypes.length > 0) {
+        console.log('AI returned skinTypes:', result.skinTypes);
         // Map AI skin types to our predefined skin types
-        const mappedSkinTypes = result.skinTypes
-          .map(type => {
-            const matched = SKIN_TYPES.find(
-              st => st.toLowerCase() === type.toLowerCase()
+        const mappedSkinTypes: string[] = [];
+        result.skinTypes.forEach(type => {
+          // Try exact match first (case-insensitive)
+          const exactMatch = SKIN_TYPES.find(
+            st => st.toLowerCase() === type.toLowerCase()
+          );
+          if (exactMatch) {
+            mappedSkinTypes.push(exactMatch);
+          } else {
+            // Try partial match
+            const partialMatch = SKIN_TYPES.find(
+              st => st.toLowerCase().includes(type.toLowerCase()) || 
+                    type.toLowerCase().includes(st.toLowerCase())
             );
-            return matched || type;
-          })
-          .filter(type => SKIN_TYPES.includes(type as any));
-        setProductSkinTypes(mappedSkinTypes);
+            if (partialMatch) {
+              mappedSkinTypes.push(partialMatch);
+            }
+          }
+        });
+        console.log('Mapped skinTypes:', mappedSkinTypes);
+        if (mappedSkinTypes.length > 0) {
+          setProductSkinTypes(mappedSkinTypes);
+        }
+      }
+      if (result.usageInstructions) {
+        console.log('AI returned usageInstructions:', result.usageInstructions);
+        setProductInstructions(result.usageInstructions);
       }
     } catch (error) {
       console.error('AI analysis error:', error);
@@ -247,11 +277,13 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
           category: productCategory,
           description: productDescription.trim() || undefined,
           price: productPrice ? parseFloat(productPrice) : undefined,
+          purchase_url: productUrl.trim() || undefined,
           ingredients: productIngredients
             .split(',')
             .map(i => i.trim())
             .filter(Boolean),
           skin_types: productSkinTypes,
+          usage_instructions: productInstructions.trim() || undefined,
         },
         selectedFile || undefined
       );
@@ -534,6 +566,38 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
                 {type}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Usage Instructions
+            {aiResult?.usageInstructions && (
+              <span className="ml-2 text-xs text-purple-500">(AI detected)</span>
+            )}
+          </label>
+          <textarea
+            value={productInstructions}
+            onChange={(e) => setProductInstructions(e.target.value)}
+            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none resize-none ${
+              aiResult?.usageInstructions ? 'border-purple-200 bg-purple-50/50' : 'border-gray-200'
+            }`}
+            rows={2}
+            placeholder="e.g., Apply 3-4 drops to clean skin morning and evening..."
+          />
+        </div>
+
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Purchase URL (Optional)</label>
+          <div className="relative">
+            <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="url"
+              value={productUrl}
+              onChange={(e) => setProductUrl(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all"
+              placeholder="https://..."
+            />
           </div>
         </div>
 

@@ -136,7 +136,7 @@ export const EncryptedImage: React.FC<EncryptedImageProps> = ({
 
     if (isEncryptedImage) {
       // Construct full URL if needed
-      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5505';
       const fullUrl = src.startsWith('http') ? src : 
                       src.startsWith('/') ? `${apiBaseUrl}${src}` : `${apiBaseUrl}/${src}`;
       
@@ -146,7 +146,7 @@ export const EncryptedImage: React.FC<EncryptedImageProps> = ({
       if (src.startsWith('http://') || src.startsWith('https://')) {
         setImageSrc(src);
       } else {
-        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+        const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5505';
         setImageSrc(src.startsWith('/') ? `${apiBaseUrl}${src}` : `${apiBaseUrl}/${src}`);
       }
       setLoading(false);
