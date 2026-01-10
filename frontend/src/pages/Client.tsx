@@ -37,7 +37,6 @@ interface UserGamification {
   current_streak: number;
   longest_streak: number;
   total_routines_completed: number;
-  badges_earned: number;
   last_activity_date: string | null;
 }
 

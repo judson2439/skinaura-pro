@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Send, Loader2, MessageSquare, User } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 
 interface ChatMessage {
@@ -33,7 +33,6 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
   professional,
   onMessagesRead,
 }) => {
-  const { user } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,47 +47,48 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
   };
 
   // Fetch chat history
-  const fetchMessages = async () => {
-    if (!user?.id || !professional.id) return;
+  const fetchMessages = useCallback(async () => {
+    const token = getAuthToken();
+    if (!token || !professional.id) return;
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('routine_notes')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('professional_id', professional.id)
-        .eq('client_deleted', false)
-        .order('created_at', { ascending: true });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { messages: ChatMessage[] };
+        error?: string;
+      }>(`/api/client/conversations/${professional.id}/messages`);
 
-      if (error) {
-        console.error('Error fetching messages:', error);
+      if (!response.data.success) {
+        console.error('Error fetching messages:', response.data.error);
         return;
       }
 
-      setMessages(data || []);
+      setMessages(response.data.data?.messages || []);
     } catch (error) {
       console.error('Error fetching messages:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [professional.id]);
 
   // Mark all unread messages from this professional as read
-  const markMessagesAsRead = async () => {
-    if (!user?.id || !professional.id) return;
+  const markMessagesAsRead = useCallback(async () => {
+    const token = getAuthToken();
+    if (!token || !professional.id) return;
 
     try {
-      const { error } = await supabase
-        .from('routine_notes')
-        .update({ read_status: true })
-        .eq('client_id', user.id)
-        .eq('professional_id', professional.id)
-        .eq('sender_type', 'professional')
-        .eq('read_status', false);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        error?: string;
+      }>(`/api/client/conversations/${professional.id}/mark-read`);
 
-      if (error) {
-        console.error('Error marking messages as read:', error);
+      if (!response.data.success) {
+        console.error('Error marking messages as read:', response.data.error);
         return;
       }
 
@@ -104,32 +104,29 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
-  };
+  }, [professional.id, onMessagesRead]);
 
   // Send a new message
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!newMessage.trim() || !user?.id || !professional.id) return;
+    const token = getAuthToken();
+    if (!newMessage.trim() || !token || !professional.id) return;
 
     setSending(true);
     try {
-      const { data, error } = await supabase
-        .from('routine_notes')
-        .insert({
-          client_id: user.id,
-          professional_id: professional.id,
-          content: newMessage.trim(),
-          sender_type: 'client',
-          read_status: false,
-          client_deleted: false,
-          professional_deleted: false,
-        })
-        .select()
-        .single();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { message: ChatMessage };
+        error?: string;
+      }>(`/api/client/conversations/${professional.id}/messages`, {
+        content: newMessage.trim(),
+      });
 
-      if (error) {
-        console.error('Error sending message:', error);
+      if (!response.data.success) {
+        console.error('Error sending message:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to send message. Please try again.',
@@ -139,7 +136,9 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
       }
 
       // Add the new message to the list
-      setMessages(prev => [...prev, data]);
+      if (response.data.data?.message) {
+        setMessages(prev => [...prev, response.data.data!.message]);
+      }
       setNewMessage('');
 
       toast({
@@ -212,7 +211,7 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
     if (isOpen && professional.id) {
       fetchMessages();
     }
-  }, [isOpen, professional.id]);
+  }, [isOpen, professional.id, fetchMessages]);
 
   useEffect(() => {
     if (!loading && messages.length > 0) {
@@ -220,7 +219,7 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
       // Mark messages as read when modal opens
       markMessagesAsRead();
     }
-  }, [loading, messages.length]);
+  }, [loading, messages.length, markMessagesAsRead]);
 
   useEffect(() => {
     if (isOpen) {
@@ -228,48 +227,53 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
     }
   }, [isOpen]);
 
-  // Set up real-time subscription for new messages
+  // Poll for new messages (replaces real-time subscription)
   useEffect(() => {
-    if (!isOpen || !user?.id || !professional.id) return;
+    const token = getAuthToken();
+    if (!isOpen || !token || !professional.id) return;
 
-    const channel = supabase
-      .channel(`client_chat_${user.id}_${professional.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'routine_notes',
-          filter: `client_id=eq.${user.id}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as ChatMessage;
-          if (newMsg.professional_id === professional.id) {
-            setMessages(prev => {
-              // Avoid duplicates
-              if (prev.some(m => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
-            
-            // If it's from professional, mark as read immediately
-            if (newMsg.sender_type === 'professional') {
-              supabase
-                .from('routine_notes')
-                .update({ read_status: true })
-                .eq('id', newMsg.id)
-                .then(() => {
-                  onMessagesRead();
-                });
+    const pollInterval = setInterval(async () => {
+      try {
+        apiClient.setAuthToken(token);
+        
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { messages: ChatMessage[] };
+        }>(`/api/client/conversations/${professional.id}/messages`);
+
+        if (response.data.success && response.data.data?.messages) {
+          const newMessages = response.data.data.messages;
+          setMessages(prev => {
+            // Only update if there are new messages
+            if (newMessages.length > prev.length) {
+              // Mark any new professional messages as read
+              const hasNewProfessionalMessages = newMessages.some(
+                (msg, idx) => 
+                  idx >= prev.length && 
+                  msg.sender_type === 'professional' && 
+                  !msg.read_status
+              );
+              
+              if (hasNewProfessionalMessages) {
+                // Mark messages as read in background
+                apiClient.patch(`/client/conversations/${professional.id}/mark-read`);
+                onMessagesRead();
+              }
+              
+              return newMessages;
             }
-          }
+            return prev;
+          });
         }
-      )
-      .subscribe();
+      } catch (error) {
+        console.error('Error polling messages:', error);
+      }
+    }, 5000); // Poll every 5 seconds
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [isOpen, user?.id, professional.id]);
+  }, [isOpen, professional.id, onMessagesRead]);
 
   if (!isOpen) return null;
 

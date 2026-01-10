@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
@@ -34,8 +34,8 @@ interface NotificationsSectionProps {
   onNavigateToView?: (viewId: string) => void;
 }
 
-// Polling interval in milliseconds (30 seconds)
-const POLLING_INTERVAL = 30000;
+// Polling interval in milliseconds (5 seconds)
+const POLLING_INTERVAL = 5000;
 
 // ============================================================================
 // COMPONENT
@@ -47,7 +47,6 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   const { user } = useAuth();
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClient, setSelectedClient] = useState<{
     id: string;
@@ -55,22 +54,30 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
     avatar_url: string | null;
   } | null>(null);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  
+  // Ref to track if component is mounted (for polling cleanup)
+  const isMountedRef = useRef(true);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get auth token helper
+  // Get auth token
   const getToken = useCallback(() => {
     const authSession = getAuthSession();
     return authSession?.token || getAuthToken();
   }, []);
 
-  // Fetch all notifications and group by client
+  // Fetch all notifications grouped by client
   const fetchNotifications = useCallback(async (showLoading = true) => {
     const token = getToken();
-    if (!token || !user?.id) return;
+    
+    if (!user?.id || !token) {
+      if (showLoading) {
+        setLoading(false);
+      }
+      return;
+    }
 
     if (showLoading) {
       setLoading(true);
-    } else {
-      setRefreshing(true);
     }
 
     try {
@@ -78,45 +85,59 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
       
       const response = await apiClient.get<{
         success: boolean;
-        data?: { clientGroups: ClientGroup[] };
+        data?: { groups: ClientGroup[] };
         error?: string;
-      }>('/api/notifications');
+      }>('/api/professional/notifications/grouped');
+
+      if (!isMountedRef.current) return;
 
       if (response.data.success && response.data.data) {
-        setClientGroups(response.data.data.clientGroups);
+        setClientGroups(response.data.data.groups || []);
       } else {
         console.error('Error fetching notifications:', response.data.error);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isMountedRef.current && showLoading) {
+        setLoading(false);
+      }
     }
   }, [user?.id, getToken]);
 
   // Set up polling for real-time updates
   useEffect(() => {
-    if (!user?.id) return;
+    isMountedRef.current = true;
+
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
     // Initial fetch with loading
     fetchNotifications(true);
 
     // Set up polling interval
-    const pollInterval = setInterval(() => {
-      fetchNotifications(false); // Fetch without loading spinner
+    pollingRef.current = setInterval(() => {
+      if (isMountedRef.current && !isChatModalOpen) {
+        fetchNotifications(false);
+      }
     }, POLLING_INTERVAL);
 
-    // Cleanup
     return () => {
-      clearInterval(pollInterval);
+      isMountedRef.current = false;
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
-  }, [user?.id, fetchNotifications]);
+  }, [user?.id, fetchNotifications, isChatModalOpen]);
 
   // Mark all as read
   const markAllAsRead = async () => {
+    if (!user?.id) return;
+
     const token = getToken();
-    if (!token || !user?.id) return;
+    if (!token) return;
 
     try {
       apiClient.setAuthToken(token);
@@ -124,7 +145,7 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
       const response = await apiClient.patch<{
         success: boolean;
         error?: string;
-      }>('/api/notifications/mark-all-read', {});
+      }>('/api/professional/notifications/read-all', {});
 
       if (response.data.success) {
         // Update local state
@@ -137,11 +158,6 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
-  };
-
-  // Manual refresh
-  const handleRefresh = () => {
-    fetchNotifications(false);
   };
 
   // Handle opening chat modal
@@ -168,12 +184,17 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
     }
   };
 
-  // Handle chat modal close - refresh to get latest messages
+  // Handle chat modal close
   const handleChatModalClose = () => {
     setIsChatModalOpen(false);
     setSelectedClient(null);
-    // Refresh notifications to update last message
+    // Refresh notifications after closing chat
     fetchNotifications(false);
+  };
+
+  // Manual refresh
+  const handleRefresh = () => {
+    fetchNotifications(true);
   };
 
   // Format time ago
@@ -244,16 +265,13 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Refresh Button */}
           <button
             onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-            title="Refresh notifications"
+            className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            title="Refresh"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className="w-4 h-4" />
           </button>
-          
           {totalUnreadCount > 0 && (
             <button
               onClick={markAllAsRead}

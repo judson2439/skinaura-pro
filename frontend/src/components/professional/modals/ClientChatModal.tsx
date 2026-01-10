@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Send, Loader2, MessageSquare, User, RefreshCw } from 'lucide-react';
+import { X, Send, Loader2, MessageSquare, User } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,8 +28,8 @@ interface ClientChatModalProps {
   onMessagesRead: () => void;
 }
 
-// Polling interval for chat (10 seconds for more responsive chat)
-const CHAT_POLLING_INTERVAL = 10000;
+// Polling interval for new messages (2 seconds for more responsive chat)
+const POLLING_INTERVAL = 2000;
 
 const ClientChatModal: React.FC<ClientChatModalProps> = ({
   isOpen,
@@ -45,8 +45,11 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isMountedRef = useRef(true);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const lastMessageIdRef = useRef<string | null>(null);
 
-  // Get auth token helper
+  // Get auth token
   const getToken = useCallback(() => {
     const authSession = getAuthSession();
     return authSession?.token || getAuthToken();
@@ -59,8 +62,10 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
 
   // Fetch chat history
   const fetchMessages = useCallback(async (showLoading = true) => {
+    if (!user?.id || !client.id) return;
+
     const token = getToken();
-    if (!token || !user?.id || !client.id) return;
+    if (!token) return;
 
     if (showLoading) {
       setLoading(true);
@@ -73,25 +78,35 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
         success: boolean;
         data?: { messages: ChatMessage[] };
         error?: string;
-      }>(`/api/notifications/messages/${client.id}`);
+      }>(`/api/professional/chat/${client.id}`);
+
+      if (!isMountedRef.current) return;
 
       if (response.data.success && response.data.data) {
-        const newMessages = response.data.data.messages;
-        // Only update if there are new messages
-        setMessages(prev => {
-          if (prev.length !== newMessages.length || 
-              (prev.length > 0 && newMessages.length > 0 && prev[prev.length - 1].id !== newMessages[newMessages.length - 1].id)) {
-            return newMessages;
+        const newMessages = response.data.data.messages || [];
+        
+        // Check if there are new messages
+        const lastNewMessageId = newMessages.length > 0 ? newMessages[newMessages.length - 1].id : null;
+        
+        if (lastNewMessageId !== lastMessageIdRef.current) {
+          setMessages(newMessages);
+          lastMessageIdRef.current = lastNewMessageId;
+          
+          // If there are new messages from client, scroll to bottom
+          if (newMessages.length > 0) {
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (lastMessage.sender_type === 'client') {
+              setTimeout(scrollToBottom, 100);
+            }
           }
-          return prev;
-        });
+        }
       } else {
         console.error('Error fetching messages:', response.data.error);
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
     } finally {
-      if (showLoading) {
+      if (isMountedRef.current && showLoading) {
         setLoading(false);
       }
     }
@@ -99,26 +114,32 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
 
   // Mark all unread messages from this client as read
   const markMessagesAsRead = useCallback(async () => {
+    if (!user?.id || !client.id) return;
+
     const token = getToken();
-    if (!token || !user?.id || !client.id) return;
+    if (!token) return;
 
     try {
       apiClient.setAuthToken(token);
       
-      await apiClient.patch<{
+      const response = await apiClient.patch<{
         success: boolean;
         error?: string;
-      }>(`/api/notifications/mark-read/${client.id}`, {});
+      }>(`/api/professional/chat/${client.id}/mark-read`, {});
 
-      // Update local state
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.sender_type === 'client' ? { ...msg, read_status: true } : msg
-        )
-      );
+      if (response.data.success) {
+        // Update local state
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.sender_type === 'client' ? { ...msg, read_status: true } : msg
+          )
+        );
 
-      // Notify parent component
-      onMessagesRead();
+        // Notify parent component
+        onMessagesRead();
+      } else {
+        console.error('Error marking messages as read:', response.data.error);
+      }
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
@@ -128,8 +149,10 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!newMessage.trim() || !user?.id || !client.id) return;
+
     const token = getToken();
-    if (!newMessage.trim() || !token || !user?.id || !client.id) return;
+    if (!token) return;
 
     setSending(true);
     try {
@@ -139,7 +162,7 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
         success: boolean;
         data?: { message: ChatMessage };
         error?: string;
-      }>(`/api/notifications/messages/${client.id}`, {
+      }>(`/api/professional/chat/${client.id}`, {
         content: newMessage.trim(),
       });
 
@@ -147,11 +170,14 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
         // Add the new message to the list
         setMessages(prev => [...prev, response.data.data!.message]);
         setNewMessage('');
+        lastMessageIdRef.current = response.data.data.message.id;
 
         toast({
           title: 'Message Sent',
           description: 'Your message has been sent to the client.',
         });
+
+        setTimeout(scrollToBottom, 100);
       } else {
         console.error('Error sending message:', response.data.error);
         toast({
@@ -221,27 +247,39 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
     return groups;
   };
 
-  // Initial fetch and mark as read
+  // Effects - Initial fetch and setup
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (isOpen && client.id) {
+      lastMessageIdRef.current = null;
       fetchMessages(true);
     }
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [isOpen, client.id, fetchMessages]);
 
-  // Set up polling for new messages
+  // Setup polling for new messages
   useEffect(() => {
     if (!isOpen || !user?.id || !client.id) return;
 
-    const pollInterval = setInterval(() => {
-      fetchMessages(false);
-    }, CHAT_POLLING_INTERVAL);
+    // Set up polling interval
+    pollingRef.current = setInterval(() => {
+      if (isMountedRef.current) {
+        fetchMessages(false);
+      }
+    }, POLLING_INTERVAL);
 
     return () => {
-      clearInterval(pollInterval);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
   }, [isOpen, user?.id, client.id, fetchMessages]);
 
-  // Scroll to bottom and mark as read when messages load
+  // Scroll and mark as read when messages load
   useEffect(() => {
     if (!loading && messages.length > 0) {
       scrollToBottom();
@@ -290,21 +328,12 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
               <p className="text-sm text-gray-500">Chat History</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => fetchMessages(false)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Refresh messages"
-            >
-              <RefreshCw className="w-4 h-4 text-gray-500" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
         </div>
 
         {/* Messages Area */}

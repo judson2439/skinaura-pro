@@ -637,10 +637,10 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       
       if (isCurrentlyCompleted) {
         // Remove completion
-        await apiClient.delete(`/client/step-completions/${stepId}`);
+        await apiClient.delete(`/api/client/step-completions/${stepId}`);
       } else {
         // Add completion
-        await apiClient.post('/client/step-completions', { step_id: stepId });
+        await apiClient.post('/api/client/step-completions', { step_id: stepId });
       }
     } catch (error) {
       console.error('Error toggling step completion:', error);
@@ -672,7 +672,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
 
       // Insert step completions in batch
       if (stepIds.length > 0) {
-        await apiClient.post('/client/step-completions/batch', { step_ids: stepIds });
+        await apiClient.post('/api/client/step-completions/batch', { step_ids: stepIds });
       }
 
       // Insert routine completion
@@ -725,7 +725,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       const fetchResponse = await apiClient.get<{
         success: boolean;
         data?: { gamification: UserGamification | null };
-      }>('/client/gamification');
+      }>('/api/client/gamification');
 
       const currentData = fetchResponse.data.data?.gamification;
 

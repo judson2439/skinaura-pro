@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import React, { useState, useEffect, useCallback } from 'react';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import {
   Bell,
   CheckCheck,
@@ -15,18 +15,6 @@ import ProfessionalChatModal from '../modals/ProfessionalChatModal';
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface RoutineNote {
-  id: string;
-  client_id: string;
-  professional_id: string;
-  content: string;
-  sender_type: 'client' | 'professional';
-  read_status: boolean;
-  client_deleted: boolean;
-  professional_deleted: boolean;
-  created_at: string;
-}
 
 interface ProfessionalGroup {
   professional_id: string;
@@ -52,7 +40,6 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   onNavigateToView,
   onUnreadCountChange,
 }) => {
-  const { user } = useAuth();
   const [professionalGroups, setProfessionalGroups] = useState<ProfessionalGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,147 +50,83 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   } | null>(null);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
 
-  // Fetch all notifications and group by professional
-  const fetchNotifications = async (showLoading = true) => {
-    if (!user?.id) return;
+  // Fetch all conversations grouped by professional
+  const fetchConversations = useCallback(async (showLoading = true) => {
+    const token = getAuthToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     if (showLoading) {
       setLoading(true);
     }
-    try {
-      // Fetch all notes for this client
-      const { data: notes, error } = await supabase
-        .from('routine_notes')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('client_deleted', false)
-        .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching notifications:', error);
+    try {
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { conversations: ProfessionalGroup[] };
+        error?: string;
+      }>('/api/client/conversations');
+
+      if (!response.data.success) {
+        console.error('Error fetching conversations:', response.data.error);
         return;
       }
 
-      if (notes && notes.length > 0) {
-        // Get unique professional IDs
-        const professionalIds = [...new Set(notes.map(note => note.professional_id))];
-
-        // Fetch professional profiles
-        const { data: professionalProfiles, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', professionalIds);
-
-        if (profileError) {
-          console.error('Error fetching professional profiles:', profileError);
-        }
-
-        // Group notes by professional
-        const groupedByProfessional: { [professionalId: string]: RoutineNote[] } = {};
-        notes.forEach(note => {
-          if (!groupedByProfessional[note.professional_id]) {
-            groupedByProfessional[note.professional_id] = [];
-          }
-          groupedByProfessional[note.professional_id].push(note);
-        });
-
-        // Create professional groups with stats
-        const groups: ProfessionalGroup[] = Object.entries(groupedByProfessional).map(([professionalId, professionalNotes]) => {
-          const professionalProfile = professionalProfiles?.find(p => p.id === professionalId);
-          const unreadCount = professionalNotes.filter(
-            n => !n.read_status && n.sender_type === 'professional'
-          ).length;
-          const lastNote = professionalNotes[0]; // Already sorted by created_at desc
-
-          return {
-            professional_id: professionalId,
-            professional_name: professionalProfile?.full_name || 'Your Professional',
-            professional_avatar: professionalProfile?.avatar_url || null,
-            unread_count: unreadCount,
-            total_count: professionalNotes.length,
-            last_message: lastNote.content,
-            last_message_time: lastNote.created_at,
-            last_sender_type: lastNote.sender_type || 'professional',
-          };
-        });
-
-        // Sort by unread count (desc) then by last message time (desc)
-        groups.sort((a, b) => {
-          if (b.unread_count !== a.unread_count) {
-            return b.unread_count - a.unread_count;
-          }
-          return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime();
-        });
-
-        setProfessionalGroups(groups);
-        
-        // Notify parent of unread count change
-        const totalUnread = groups.reduce((sum, g) => sum + g.unread_count, 0);
-        if (onUnreadCountChange) {
-          onUnreadCountChange(totalUnread);
-        }
-      } else {
-        setProfessionalGroups([]);
-        if (onUnreadCountChange) {
-          onUnreadCountChange(0);
-        }
+      const conversations = response.data.data?.conversations || [];
+      setProfessionalGroups(conversations);
+      
+      // Notify parent of unread count change
+      const totalUnread = conversations.reduce((sum, g) => sum + g.unread_count, 0);
+      if (onUnreadCountChange) {
+        onUnreadCountChange(totalUnread);
       }
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      console.error('Error fetching conversations:', error);
     } finally {
       if (showLoading) {
         setLoading(false);
       }
     }
-  };
+  }, [onUnreadCountChange]);
 
-
-  // Set up real-time subscription for INSERT events
+  // Initial fetch
   useEffect(() => {
-    if (!user?.id) return;
+    fetchConversations(true);
+  }, [fetchConversations]);
 
-    // Initial fetch with loading
-    fetchNotifications(true);
+  // Poll for new messages (replaces real-time subscription)
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
 
-    // Subscribe to real-time INSERT events on routine_notes table
-    const channel = supabase
-      .channel('client_notifications_section_inserts')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'routine_notes',
-          filter: `client_id=eq.${user.id}`,
-        },
-        async (payload) => {
-          console.log('New notification received:', payload);
-          // Refetch to update groups WITHOUT showing loading spinner
-          fetchNotifications(false);
-        }
-      )
-      .subscribe();
+    const pollInterval = setInterval(() => {
+      fetchConversations(false);
+    }, 15000); // Poll every 15 seconds
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [user?.id]);
-
+  }, [fetchConversations]);
 
   // Mark all as read
   const markAllAsRead = async () => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     try {
-      const { error } = await supabase
-        .from('routine_notes')
-        .update({ read_status: true })
-        .eq('client_id', user.id)
-        .eq('sender_type', 'professional')
-        .eq('read_status', false);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        error?: string;
+      }>('/api/client/notifications/mark-all-read');
 
-      if (error) {
-        console.error('Error marking all as read:', error);
+      if (!response.data.success) {
+        console.error('Error marking all as read:', response.data.error);
         return;
       }
 
@@ -247,6 +170,14 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
         return updated;
       });
     }
+  };
+
+  // Handle chat modal close - refresh conversations
+  const handleChatModalClose = () => {
+    setIsChatModalOpen(false);
+    setSelectedProfessional(null);
+    // Refresh conversations to get updated last message
+    fetchConversations(false);
   };
 
   // Format time ago
@@ -430,10 +361,7 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
       {selectedProfessional && (
         <ProfessionalChatModal
           isOpen={isChatModalOpen}
-          onClose={() => {
-            setIsChatModalOpen(false);
-            setSelectedProfessional(null);
-          }}
+          onClose={handleChatModalClose}
           professional={selectedProfessional}
           onMessagesRead={handleMessagesRead}
         />

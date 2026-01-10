@@ -432,7 +432,6 @@ router.get('/clients/:clientId/gamification', async (req: Request, res: Response
       current_streak: number;
       longest_streak: number;
       total_routines_completed: number;
-      badges_earned: number;
       last_activity_date: string | null;
     }>(
       `SELECT * FROM user_gamification WHERE user_id = $1`,
@@ -714,6 +713,258 @@ router.post('/sms/send', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to send SMS',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// GET NOTIFICATIONS GROUPED BY CLIENT
+// ============================================================================
+
+/**
+ * GET /professional/notifications/grouped
+ * Get all notifications grouped by client for the notifications section
+ */
+router.get('/notifications/grouped', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`📊 Fetching grouped notifications for professional: ${professionalId}`);
+
+    // Get all notes for this professional, grouped by client
+    const notes = await query<{
+      id: string;
+      client_id: string;
+      content: string;
+      sender_type: string;
+      read_status: boolean;
+      created_at: string;
+    }>(
+      `SELECT id, client_id, content, sender_type, read_status, created_at
+       FROM routine_notes
+       WHERE professional_id = $1
+         AND professional_deleted = false
+       ORDER BY created_at DESC`,
+      [professionalId]
+    );
+
+    if (!notes || notes.length === 0) {
+      res.status(200).json({
+        success: true,
+        data: { groups: [] },
+      } as ApiResponse);
+      return;
+    }
+
+    // Get unique client IDs
+    const clientIds = [...new Set(notes.map(note => note.client_id))];
+
+    // Fetch client profiles
+    const clientProfiles = await query<{
+      id: string;
+      full_name: string;
+      avatar_url: string | null;
+    }>(
+      `SELECT id, full_name, avatar_url
+       FROM user_profiles
+       WHERE id = ANY($1)`,
+      [clientIds]
+    );
+
+    // Group notes by client
+    const groupedByClient: { [clientId: string]: typeof notes } = {};
+    notes.forEach(note => {
+      if (!groupedByClient[note.client_id]) {
+        groupedByClient[note.client_id] = [];
+      }
+      groupedByClient[note.client_id].push(note);
+    });
+
+    // Create client groups with stats
+    const groups = Object.entries(groupedByClient).map(([clientId, clientNotes]) => {
+      const clientProfile = clientProfiles?.find(p => p.id === clientId);
+      const unreadCount = clientNotes.filter(
+        n => !n.read_status && (n.sender_type === 'client' || !n.sender_type)
+      ).length;
+      const lastNote = clientNotes[0]; // Already sorted by created_at desc
+
+      return {
+        client_id: clientId,
+        client_name: clientProfile?.full_name || 'Unknown Client',
+        client_avatar: clientProfile?.avatar_url || null,
+        unread_count: unreadCount,
+        total_count: clientNotes.length,
+        last_message: lastNote.content,
+        last_message_time: lastNote.created_at,
+        last_sender_type: lastNote.sender_type || 'client',
+      };
+    });
+
+    // Sort by unread count (desc) then by last message time (desc)
+    groups.sort((a, b) => {
+      if (b.unread_count !== a.unread_count) {
+        return b.unread_count - a.unread_count;
+      }
+      return new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime();
+    });
+
+    console.log(`✅ Found ${groups.length} client groups`);
+
+    res.status(200).json({
+      success: true,
+      data: { groups },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching grouped notifications:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch notifications',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// GET CHAT MESSAGES WITH A CLIENT
+// ============================================================================
+
+/**
+ * GET /professional/chat/:clientId
+ * Get all chat messages with a specific client
+ */
+router.get('/chat/:clientId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+
+    console.log(`💬 Fetching chat messages between professional ${professionalId} and client ${clientId}`);
+
+    const messages = await query<{
+      id: string;
+      client_id: string;
+      professional_id: string;
+      content: string;
+      sender_type: string;
+      read_status: boolean;
+      created_at: string;
+    }>(
+      `SELECT id, client_id, professional_id, content, sender_type, read_status, created_at
+       FROM routine_notes
+       WHERE client_id = $1
+         AND professional_id = $2
+         AND professional_deleted = false
+       ORDER BY created_at ASC`,
+      [clientId, professionalId]
+    );
+
+    console.log(`✅ Found ${messages.length} messages`);
+
+    res.status(200).json({
+      success: true,
+      data: { messages },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching chat messages:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch chat messages',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// SEND MESSAGE TO CLIENT
+// ============================================================================
+
+/**
+ * POST /professional/chat/:clientId
+ * Send a message to a client
+ */
+router.post('/chat/:clientId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'Message content is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📤 Sending message from professional ${professionalId} to client ${clientId}`);
+
+    const message = await queryOne<{
+      id: string;
+      client_id: string;
+      professional_id: string;
+      content: string;
+      sender_type: string;
+      read_status: boolean;
+      created_at: string;
+    }>(
+      `INSERT INTO routine_notes (client_id, professional_id, content, sender_type, read_status, client_deleted, professional_deleted)
+       VALUES ($1, $2, $3, 'professional', false, false, false)
+       RETURNING id, client_id, professional_id, content, sender_type, read_status, created_at`,
+      [clientId, professionalId, content.trim()]
+    );
+
+    console.log(`✅ Message sent: ${message?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { message },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error sending message:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to send message',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// MARK CLIENT MESSAGES AS READ
+// ============================================================================
+
+/**
+ * PATCH /professional/chat/:clientId/mark-read
+ * Mark all messages from a specific client as read
+ */
+router.patch('/chat/:clientId/mark-read', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+
+    console.log(`✅ Marking messages from client ${clientId} as read`);
+
+    await query(
+      `UPDATE routine_notes
+       SET read_status = true
+       WHERE client_id = $1
+         AND professional_id = $2
+         AND sender_type = 'client'
+         AND read_status = false`,
+      [clientId, professionalId]
+    );
+
+    console.log(`✅ Messages marked as read`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Messages marked as read',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error marking messages as read:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to mark messages as read',
     } as ApiResponse);
   }
 });

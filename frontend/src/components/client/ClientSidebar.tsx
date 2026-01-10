@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   Sparkles,
   LayoutDashboard,
@@ -105,7 +106,6 @@ const ClientSidebar: React.FC<ClientSidebarProps> = ({
   clientStats,
   unreadNotifications = 0,
 }) => {
-  const [avatarError, setAvatarError] = useState(false);
   const levelInfo = getLevelInfo(clientStats.points);
   const pointsToNextLevel = levelInfo.next 
     ? levelInfo.next.minPoints - clientStats.points 
@@ -115,11 +115,6 @@ const ClientSidebar: React.FC<ClientSidebarProps> = ({
   const progressPercentage = levelInfo.next 
     ? Math.min(100, Math.max(0, ((clientStats.points - levelInfo.current.minPoints) / (levelInfo.next.minPoints - levelInfo.current.minPoints)) * 100))
     : 100;
-
-  const defaultAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(userDisplayName)}&background=CFAFA3&color=2D2A3E&size=100`;
-
-  // Use avatar URL if valid, otherwise use default
-  const displayAvatar = (userAvatar && !avatarError) ? userAvatar : defaultAvatar;
 
   return (
     <aside 
@@ -198,11 +193,11 @@ const ClientSidebar: React.FC<ClientSidebarProps> = ({
         {/* User Profile */}
         <div className="p-4 border-t border-white/10">
           <div className="flex items-center gap-3">
-            <img 
-              src={displayAvatar} 
-              alt={userDisplayName} 
-              className="w-10 h-10 rounded-full object-cover border-2 border-[#CFAFA3]/50" 
-              onError={() => setAvatarError(true)}
+            <EncryptedImage
+              src={userAvatar}
+              alt={userDisplayName}
+              className="w-10 h-10 rounded-full object-cover border-2 border-[#CFAFA3]/50"
+              fallbackClassName="w-10 h-10 rounded-full border-2 border-[#CFAFA3]/50"
             />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{userDisplayName}</p>
