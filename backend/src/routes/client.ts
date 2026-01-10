@@ -1127,4 +1127,215 @@ router.patch('/messages/:messageId/read', async (req: Request, res: Response): P
   }
 });
 
+// ============================================================================
+// CLIENT PRODUCTS ROUTES
+// ============================================================================
+
+interface ClientProduct {
+  id: string;
+  client_id: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  description: string | null;
+  notes: string | null;
+  image_url: string | null;
+  purchase_date: string | null;
+  expiry_date: string | null;
+  is_active: boolean;
+  rating: number | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+// GET /client/products - Get all products for the client
+router.get('/products', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`📦 Fetching products for client: ${userId}`);
+
+    const products = await query<ClientProduct>(
+      `SELECT * FROM client_products 
+       WHERE client_id = $1 AND is_active = true 
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    console.log(`✅ Found ${products.length} products`);
+
+    res.status(200).json({
+      success: true,
+      data: { products },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch products',
+    } as ApiResponse);
+  }
+});
+
+// POST /client/products - Add a new product
+router.post('/products', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const { name, brand, category, description, notes, image_url, purchase_date, expiry_date, rating } = req.body;
+
+    if (!name || !name.trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'Product name is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`➕ Adding product for client: ${userId}, name: ${name}`);
+
+    const product = await queryOne<ClientProduct>(
+      `INSERT INTO client_products 
+       (client_id, name, brand, category, description, notes, image_url, purchase_date, expiry_date, rating, is_active, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NOW()) 
+       RETURNING *`,
+      [
+        userId,
+        name.trim(),
+        brand?.trim() || null,
+        category || null,
+        description?.trim() || null,
+        notes?.trim() || null,
+        image_url || null,
+        purchase_date || null,
+        expiry_date || null,
+        rating || null,
+      ]
+    );
+
+    console.log(`✅ Product added: ${product?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { product },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error adding product:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add product',
+    } as ApiResponse);
+  }
+});
+
+// PUT /client/products/:productId - Update a product
+router.put('/products/:productId', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const productId = req.params.productId;
+    const { name, brand, category, description, notes, image_url, purchase_date, expiry_date, rating } = req.body;
+
+    if (!name || !name.trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'Product name is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✏️ Updating product ${productId} for client: ${userId}`);
+
+    const product = await queryOne<ClientProduct>(
+      `UPDATE client_products 
+       SET name = $1, brand = $2, category = $3, description = $4, notes = $5, 
+           image_url = $6, purchase_date = $7, expiry_date = $8, rating = $9, updated_at = NOW() 
+       WHERE id = $10 AND client_id = $11 
+       RETURNING *`,
+      [
+        name.trim(),
+        brand?.trim() || null,
+        category || null,
+        description?.trim() || null,
+        notes?.trim() || null,
+        image_url || null,
+        purchase_date || null,
+        expiry_date || null,
+        rating || null,
+        productId,
+        userId,
+      ]
+    );
+
+    if (!product) {
+      res.status(404).json({
+        success: false,
+        error: 'Product not found',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Product updated: ${productId}`);
+
+    res.status(200).json({
+      success: true,
+      data: { product },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error updating product:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update product',
+    } as ApiResponse);
+  }
+});
+
+// DELETE /client/products/:productId - Soft delete a product
+router.delete('/products/:productId', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const productId = req.params.productId;
+
+    console.log(`🗑️ Deleting product ${productId} for client: ${userId}`);
+
+    // Get the product first to check ownership and get image_url
+    const existingProduct = await queryOne<ClientProduct>(
+      `SELECT * FROM client_products WHERE id = $1 AND client_id = $2`,
+      [productId, userId]
+    );
+
+    if (!existingProduct) {
+      res.status(404).json({
+        success: false,
+        error: 'Product not found',
+      } as ApiResponse);
+      return;
+    }
+
+    // Soft delete (set is_active to false)
+    await query(
+      `UPDATE client_products 
+       SET is_active = false, updated_at = NOW() 
+       WHERE id = $1 AND client_id = $2`,
+      [productId, userId]
+    );
+
+    console.log(`✅ Product soft-deleted: ${productId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Product deleted successfully',
+      data: { image_url: existingProduct.image_url },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting product:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete product',
+    } as ApiResponse);
+  }
+});
+
 export default router;

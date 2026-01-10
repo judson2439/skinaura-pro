@@ -14,8 +14,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
-import { getAuthToken } from '@/lib/authStorage';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 import { CustomSelect } from '@/components/ui/custom-select';
 
@@ -239,8 +238,10 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
   userDisplayName,
   onNavigateToView 
 }) => {
-  const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Get auth token - this works for both custom auth and Supabase
+  const authToken = getAuthToken();
   
   // Data state
   const [routines, setRoutines] = useState<Routine[]>([]);
@@ -285,7 +286,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
           success: boolean;
           data?: { gamification: UserGamification | null };
           error?: string;
-        }>('/client/gamification');
+        }>('/api/client/gamification');
 
         if (!response.data.success) {
           console.error('Error fetching gamification data:', response.data.error);
@@ -302,7 +303,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
     };
 
     fetchGamificationData();
-  }, [user?.id]);
+  }, [authToken]);
 
   // Fetch badges from database
   useEffect(() => {
@@ -321,7 +322,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
           success: boolean;
           data?: { badges: UserBadge[] };
           error?: string;
-        }>('/client/badges');
+        }>('/api/client/badges');
 
         if (!response.data.success) {
           console.error('Error fetching badges:', response.data.error);
@@ -346,17 +347,17 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
     };
 
     fetchBadges();
-  }, [user?.id]);
+  }, [authToken]);
 
 
 
   // Fetch routines
   useEffect(() => {
-    if (user?.id) {
+    if (authToken) {
       fetchRoutines();
       fetchTodayCompletions();
     }
-  }, [user?.id]);
+  }, [authToken]);
 
   const fetchRoutines = async () => {
     const token = getAuthToken();
@@ -377,8 +378,10 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
           professionals: Array<{ id: string; name: string; email: string; avatarUrl: string | null }>;
         };
         error?: string;
-      }>('/client/routines');
+      }>('/api/client/routines');
 
+      console.log('response', response);
+      
       if (!response.data.success) {
         console.error('Error fetching routines:', response.data.error);
         toast({
@@ -492,7 +495,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
           completedStepIds: string[];
         };
         error?: string;
-      }>('/client/completions/today');
+      }>('/api/client/completions/today');
 
       if (!response.data.success) {
         console.error('Error fetching completions:', response.data.error);
@@ -676,7 +679,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       }
 
       // Insert routine completion
-      await apiClient.post('/client/routine-completions', { routine_type: type });
+      await apiClient.post('/api/client/routine-completions', { routine_type: type });
 
       // Update local state
       setCompletedSteps(prev => {
@@ -762,7 +765,7 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       const updateResponse = await apiClient.patch<{
         success: boolean;
         data?: { gamification: UserGamification };
-      }>('/client/gamification', {
+      }>('/api/client/gamification', {
         current_streak: newStreak,
         longest_streak: longestStreak,
         points: totalPoints,
@@ -777,9 +780,10 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       }
 
       // Refresh gamification data
+      const authSession = getAuthSession();
       setGamificationData({
         id: currentData?.id || '',
-        user_id: user?.id || '',
+        user_id: authSession?.user?.id || '',
         current_streak: newStreak,
         longest_streak: longestStreak,
         points: totalPoints,

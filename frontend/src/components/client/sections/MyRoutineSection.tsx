@@ -13,8 +13,8 @@ import {
   Settings,
   MessageSquare,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 import { CustomSelect } from '@/components/ui/custom-select';
 import SendNoteModal from '@/components/client/modals/SendNoteModal';
@@ -230,8 +230,10 @@ const getTodayDateString = (): string => {
 // ============================================================================
 
 const MyRoutineSection: React.FC = () => {
-  const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Get auth token for API calls
+  const authToken = getAuthToken();
 
   // Data state
   const [groupedRoutines, setGroupedRoutines] = useState<GroupedRoutines[]>([]);
@@ -258,35 +260,37 @@ const MyRoutineSection: React.FC = () => {
   // ============================================================================
 
   const fetchTodayCompletions = useCallback(async () => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     try {
-      const todayDate = getTodayDateString();
-      console.log('Fetching completions for date:', todayDate, 'client:', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          stepCompletions: Array<{ id: string; routine_step_id: string; completion_date: string }>;
+          completedStepIds: string[];
+        };
+        error?: string;
+      }>('/api/client/completions/today');
 
-      const { data: completionsData, error: completionsError } = await supabase
-        .from('routine_step_completions')
-        .select('id, routine_step_id, completion_date')
-        .eq('client_id', user.id)
-        .eq('completion_date', todayDate);
-
-      if (completionsError) {
-        console.error('Error fetching completions:', completionsError);
+      if (!response.data.success) {
+        console.error('Error fetching completions:', response.data.error);
         return;
       }
 
-      console.log('Today\'s completions:', completionsData);
+      const { stepCompletions, completedStepIds } = response.data.data || { stepCompletions: [], completedStepIds: [] };
 
-      if (completionsData && completionsData.length > 0) {
-        const completedStepIds = new Set<string>();
+      if (stepCompletions && stepCompletions.length > 0) {
+        const completedStepIdsSet = new Set<string>(completedStepIds);
         const recordIdMap = new Map<string, string>();
 
-        completionsData.forEach((completion: DBRoutineStepCompletion) => {
-          completedStepIds.add(completion.routine_step_id);
+        stepCompletions.forEach((completion) => {
           recordIdMap.set(completion.routine_step_id, completion.id);
         });
 
-        setCompletedSteps(completedStepIds);
+        setCompletedSteps(completedStepIdsSet);
         setCompletionRecordIds(recordIdMap);
       } else {
         setCompletedSteps(new Set());
@@ -295,36 +299,51 @@ const MyRoutineSection: React.FC = () => {
     } catch (error) {
       console.error('Unexpected error fetching completions:', error);
     }
-  }, [user?.id]);
+  }, []);
 
   // ============================================================================
   // DATA FETCHING
   // ============================================================================
 
   useEffect(() => {
-    if (user?.id) {
+    if (authToken) {
       fetchRoutines();
     }
-  }, [user?.id]);
+  }, [authToken]);
 
   const fetchRoutines = async () => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     setLoading(true);
     try {
-      console.log('Fetching routines for client:', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          routines: Array<DBRoutineTemplate & {
+            assigned_at: string;
+            assignment_notes: string | null;
+            steps: Array<DBRoutineStep & { 
+              products: Array<{ 
+                id: string; 
+                routine_step_id: string; 
+                product_id: string; 
+                name: string; 
+                brand: string | null; 
+                image_url: string | null; 
+                purchase_url: string | null 
+              }> 
+            }>;
+          }>;
+          professionals: Array<{ id: string; name: string; email: string; avatarUrl: string | null }>;
+        };
+        error?: string;
+      }>('/api/client/routines');
 
-      // ========================================================================
-      // STEP 1: Get all routine assignments for this client
-      // ========================================================================
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('client_routine_assignments')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('is_active', true);
-
-      if (assignmentsError) {
-        console.error('Error fetching assignments:', assignmentsError);
+      if (!response.data.success) {
+        console.error('Error fetching routines:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to fetch routine assignments',
@@ -334,189 +353,55 @@ const MyRoutineSection: React.FC = () => {
         return;
       }
 
-      console.log('Assignments data:', assignmentsData);
+      const routinesData = response.data.data?.routines || [];
+      const professionalsData = response.data.data?.professionals || [];
 
-      if (!assignmentsData || assignmentsData.length === 0) {
-        console.log('No routine assignments found');
+      if (routinesData.length === 0) {
         setGroupedRoutines([]);
         setProfessionals([]);
         setLoading(false);
         return;
       }
 
-      const assignments = assignmentsData as DBClientRoutineAssignment[];
-
-      // ========================================================================
-      // STEP 2: Get routine templates for all assigned routines
-      // ========================================================================
-      const routineIds = [...new Set(assignments.map(a => a.routine_id))];
-      console.log('Routine IDs:', routineIds);
-
-      const { data: routinesData, error: routinesError } = await supabase
-        .from('routine_templates')
-        .select('*')
-        .in('id', routineIds)
-        .eq('is_active', true);
-
-      if (routinesError) {
-        console.error('Error fetching routines:', routinesError);
-        toast({
-          title: 'Error',
-          description: 'Failed to fetch routine templates',
-          variant: 'destructive',
-        });
-        setLoading(false);
-        return;
-      }
-
-      console.log('Routines data:', routinesData);
-
-      const routinesDataTyped = routinesData as DBRoutineTemplate[];
-
-      // ========================================================================
-      // STEP 3: Get unique professional IDs from routine_templates and fetch their profiles
-      // ========================================================================
-      const professionalIds = [...new Set(routinesDataTyped.map(r => r.professional_id))];
-      console.log('Professional IDs from routine_templates:', professionalIds);
-
-      const { data: professionalsData, error: professionalsError } = await supabase
-        .from('user_profiles')
-        .select('id, email, full_name, avatar_url, role')
-        .in('id', professionalIds);
-
-      if (professionalsError) {
-        console.error('Error fetching professionals:', professionalsError);
-        toast({
-          title: 'Error',
-          description: 'Failed to fetch professional details',
-          variant: 'destructive',
-        });
-        setLoading(false);
-        return;
-      }
-
-      console.log('Professionals data:', professionalsData);
-
+      // Build professionals map
       const professionalsMap = new Map<string, Professional>();
-      (professionalsData as DBUserProfile[]).forEach(p => {
+      professionalsData.forEach(p => {
         professionalsMap.set(p.id, {
           id: p.id,
-          name: p.full_name || p.email,
+          name: p.name,
           email: p.email,
-          avatarUrl: p.avatar_url,
+          avatarUrl: p.avatarUrl,
         });
       });
 
-
-      // ========================================================================
-      // STEP 4: Get all steps for these routines
-      // ========================================================================
-
-      const { data: stepsData, error: stepsError } = await supabase
-        .from('routine_steps')
-        .select('*')
-        .in('routine_id', routineIds)
-        .order('step_order', { ascending: true });
-
-      if (stepsError) {
-        console.error('Error fetching steps:', stepsError);
-        toast({
-          title: 'Error',
-          description: 'Failed to fetch routine steps',
-          variant: 'destructive',
+      // Build step products map
+      const stepProductsMap = new Map<string, StepProduct[]>();
+      routinesData.forEach(routine => {
+        routine.steps.forEach(step => {
+          if (step.products && step.products.length > 0) {
+            const products: StepProduct[] = step.products.map(p => ({
+              id: `${step.id}-${p.product_id}`,
+              productId: p.product_id,
+              name: p.name,
+              brand: p.brand,
+              imageUrl: p.image_url,
+              purchaseUrl: p.purchase_url,
+            }));
+            stepProductsMap.set(step.id, products);
+          }
         });
-        setLoading(false);
-        return;
-      }
-
-      console.log('Steps data:', stepsData);
-
-      // ========================================================================
-      // STEP 5: Get all step products from routine_step_products table
-      // ========================================================================
-      const stepIds = (stepsData as DBRoutineStep[]).map(s => s.id);
-      let stepProductsMap = new Map<string, StepProduct[]>();
-
-      if (stepIds.length > 0) {
-        const { data: stepProductsData, error: stepProductsError } = await supabase
-          .from('routine_step_products')
-          .select(`
-            routine_step_id,
-            product_id,
-            notes,
-            products:product_id (
-              id,
-              name,
-              brand,
-              image_url,
-              purchase_url
-            )
-          `)
-          .in('routine_step_id', stepIds);
-
-
-        if (stepProductsError) {
-          console.error('Error fetching step products:', stepProductsError);
-          // Continue without products - don't fail the whole request
-        } else if (stepProductsData) {
-          console.log('Step products data:', stepProductsData);
-          
-          // Group products by step ID
-          // Group products by step ID
-          stepProductsData.forEach((sp: any) => {
-            const stepId = sp.routine_step_id;
-            const product = sp.products;
-            
-            if (product) {
-              const stepProduct: StepProduct = {
-                id: `${sp.routine_step_id}-${sp.product_id}`, // Create composite ID since table may not have id field
-                productId: product.id,
-                name: product.name,
-                brand: product.brand,
-                imageUrl: product.image_url,
-                purchaseUrl: product.purchase_url,
-              };
-              
-              const existing = stepProductsMap.get(stepId) || [];
-              existing.push(stepProduct);
-              stepProductsMap.set(stepId, existing);
-            }
-          });
-
-        }
-      }
-
-      console.log('Step products map:', stepProductsMap);
-
-      // ========================================================================
-      // STEP 6: Build the grouped routines structure
-      // ========================================================================
-      const stepsMap = new Map<string, DBRoutineStep[]>();
-      (stepsData as DBRoutineStep[]).forEach(step => {
-        const existing = stepsMap.get(step.routine_id) || [];
-        existing.push(step);
-        stepsMap.set(step.routine_id, existing);
       });
 
-      const routinesMap = new Map<string, DBRoutineTemplate>();
-      (routinesData as DBRoutineTemplate[]).forEach(r => {
-        routinesMap.set(r.id, r);
-      });
-
-      // Group assignments by professional, deduplicating routines
+      // Group routines by professional
       const groupedByProfessional = new Map<string, Routine[]>();
-      // Track which routines we've already added (by routine.id) to prevent duplicates
       const addedRoutineIds = new Set<string>();
 
-      assignments.forEach(assignment => {
-        const routine = routinesMap.get(assignment.routine_id);
-        if (!routine) return;
-
-        // Skip if we've already added this routine (prevents duplicates from multiple assignments)
+      routinesData.forEach(routine => {
+        // Skip if we've already added this routine
         if (addedRoutineIds.has(routine.id)) return;
         addedRoutineIds.add(routine.id);
 
-        const steps = stepsMap.get(routine.id) || [];
+        const stepProducts = stepProductsMap;
 
         const mappedRoutine: Routine = {
           id: routine.id,
@@ -524,14 +409,11 @@ const MyRoutineSection: React.FC = () => {
           description: routine.description || '',
           scheduleType: routine.schedule_type,
           scheduleDays: routine.schedule_days || [],
-          // Use professional_id from routine_templates table, not from assignment
           professionalId: routine.professional_id,
-          assignedAt: assignment.assigned_at,
-          steps: steps.map((step, index) => {
-            // Get products for this step
-            const stepProducts = stepProductsMap.get(step.id) || [];
-            // Get first product image if available
-            const firstProductImage = stepProducts.length > 0 ? stepProducts[0].imageUrl : null;
+          assignedAt: routine.assigned_at,
+          steps: routine.steps.map((step) => {
+            const products = stepProducts.get(step.id) || [];
+            const firstProductImage = products.length > 0 ? products[0].imageUrl : null;
             
             return {
               id: step.id,
@@ -539,22 +421,20 @@ const MyRoutineSection: React.FC = () => {
               product: step.step_name,
               productImage: firstProductImage || '',
               notes: step.description || '',
-              completed: false, // Will be updated after fetching completions
-              daysUsed: Math.floor(Math.random() * 30), // Placeholder - would come from tracking table
+              completed: false,
+              daysUsed: Math.floor(Math.random() * 30),
               tips: step.tips || undefined,
               isOptional: step.is_optional,
               productCategory: step.product_category || undefined,
-              products: stepProducts,
+              products: products,
             };
           }),
         };
 
-        // Group by routine's professional_id (from routine_templates table)
         const existing = groupedByProfessional.get(routine.professional_id) || [];
         existing.push(mappedRoutine);
         groupedByProfessional.set(routine.professional_id, existing);
       });
-
 
       // Build final grouped structure
       const grouped: GroupedRoutines[] = [];
@@ -568,14 +448,10 @@ const MyRoutineSection: React.FC = () => {
         }
       });
 
-      console.log('Grouped routines:', grouped);
-
       setGroupedRoutines(grouped);
       setProfessionals(Array.from(professionalsMap.values()));
 
-      // ========================================================================
-      // STEP 7: Fetch today's completions AFTER routines are loaded
-      // ========================================================================
+      // Fetch today's completions AFTER routines are loaded
       await fetchTodayCompletions();
 
     } catch (error) {
@@ -754,58 +630,23 @@ const MyRoutineSection: React.FC = () => {
   // ============================================================================
 
   const onToggleRoutineStep = async (stepId: string) => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
     
     // Prevent multiple clicks while processing
     if (togglingStepId === stepId) return;
     setTogglingStepId(stepId);
 
     const isCurrentlyCompleted = completedSteps.has(stepId);
-    const todayDate = getTodayDateString();
 
     try {
+      apiClient.setAuthToken(token);
+
       if (isCurrentlyCompleted) {
         // ====================================================================
         // UNCOMPLETE: Delete the completion record
         // ====================================================================
-        const recordId = completionRecordIds.get(stepId);
-        
-        if (recordId) {
-          const { error: deleteError } = await supabase
-            .from('routine_step_completions')
-            .delete()
-            .eq('id', recordId);
-
-          if (deleteError) {
-            console.error('Error deleting completion:', deleteError);
-            toast({
-              title: 'Error',
-              description: 'Failed to unmark step as complete',
-              variant: 'destructive',
-            });
-            setTogglingStepId(null);
-            return;
-          }
-        } else {
-          // Fallback: delete by client_id, routine_step_id, and completion_date
-          const { error: deleteError } = await supabase
-            .from('routine_step_completions')
-            .delete()
-            .eq('client_id', user.id)
-            .eq('routine_step_id', stepId)
-            .eq('completion_date', todayDate);
-
-          if (deleteError) {
-            console.error('Error deleting completion:', deleteError);
-            toast({
-              title: 'Error',
-              description: 'Failed to unmark step as complete',
-              variant: 'destructive',
-            });
-            setTogglingStepId(null);
-            return;
-          }
-        }
+        await apiClient.delete(`/api/client/step-completions/${stepId}`);
 
         // Update local state
         setCompletedSteps(prev => {
@@ -825,18 +666,14 @@ const MyRoutineSection: React.FC = () => {
         // ====================================================================
         // COMPLETE: Insert a new completion record
         // ====================================================================
-        const { data: insertData, error: insertError } = await supabase
-          .from('routine_step_completions')
-          .insert({
-            client_id: user.id,
-            routine_step_id: stepId,
-            completion_date: todayDate,
-          })
-          .select('id')
-          .single();
+        const response = await apiClient.post<{
+          success: boolean;
+          data?: { completion: { id: string } };
+          error?: string;
+        }>('/api/client/step-completions', { step_id: stepId });
 
-        if (insertError) {
-          console.error('Error inserting completion:', insertError);
+        if (!response.data.success) {
+          console.error('Error inserting completion:', response.data.error);
           toast({
             title: 'Error',
             description: 'Failed to mark step as complete',
@@ -853,15 +690,16 @@ const MyRoutineSection: React.FC = () => {
           return newSet;
         });
         
-        if (insertData?.id) {
+        const completionId = response.data.data?.completion?.id;
+        if (completionId) {
           setCompletionRecordIds(prev => {
             const newMap = new Map(prev);
-            newMap.set(stepId, insertData.id);
+            newMap.set(stepId, completionId);
             return newMap;
           });
         }
 
-        console.log('Step completed:', stepId, 'Record ID:', insertData?.id);
+        console.log('Step completed:', stepId, 'Record ID:', completionId);
 
         // Show success feedback
         toast({
@@ -883,26 +721,25 @@ const MyRoutineSection: React.FC = () => {
 
   // Handle sending note to professional
   const handleSendNote = async (professionalId: string, note: string) => {
-    if (!user?.id) {
+    const token = getAuthToken();
+    if (!token) {
       throw new Error('User not authenticated');
     }
 
-    // Insert the note into the routine_notes table with sender_type = 'client'
-    const { error } = await supabase
-      .from('routine_notes')
-      .insert({
-        client_id: user.id,
-        professional_id: professionalId,
-        content: note,
-        sender_type: 'client',
-        read_status: false,
-        client_deleted: false,
-        professional_deleted: false,
-      });
+    apiClient.setAuthToken(token);
 
-    if (error) {
-      console.error('Error inserting note:', error);
-      throw error;
+    // Send the note via the conversations API
+    const response = await apiClient.post<{
+      success: boolean;
+      data?: { message: unknown };
+      error?: string;
+    }>(`/api/client/conversations/${professionalId}/messages`, {
+      content: note,
+    });
+
+    if (!response.data.success) {
+      console.error('Error sending note:', response.data.error);
+      throw new Error(response.data.error || 'Failed to send note');
     }
 
     console.log('Note sent successfully to professional:', professionalId);

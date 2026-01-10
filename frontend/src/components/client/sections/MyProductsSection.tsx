@@ -14,9 +14,10 @@ import {
 import AddProductModal, { PRODUCT_CATEGORIES } from '../modals/AddProductModal';
 import AddProductPhotoModal from '../modals/AddProductPhotoModal';
 import EditProductModal from '../modals/EditProductModal';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
+import { uploadImage } from '@/lib/encryption';
 
 // ============================================================================
 // TYPES
@@ -37,6 +38,7 @@ interface Product {
   rating?: number;
   created_at: string;
   updated_at?: string;
+  added_via: 'manual' | 'photo';
 }
 
 interface DeleteConfirmation {
@@ -49,8 +51,10 @@ interface DeleteConfirmation {
 // ============================================================================
 
 const MyProductsSection: React.FC = () => {
-  const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Get auth token for API calls
+  const authToken = getAuthToken();
 
   // State
   const [products, setProducts] = useState<Product[]>([]);
@@ -83,19 +87,21 @@ const MyProductsSection: React.FC = () => {
   // ============================================================================
 
   const fetchProducts = async () => {
-    if (!user) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('client_products')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { products: Product[] };
+        error?: string;
+      }>('/api/client/products');
 
-      if (error) {
-        console.error('Error fetching products:', error);
+      if (!response.data.success) {
+        console.error('Error fetching products:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to load products. Please try again.',
@@ -104,7 +110,7 @@ const MyProductsSection: React.FC = () => {
         return;
       }
 
-      setProducts(data || []);
+      setProducts(response.data.data?.products || []);
     } catch (error) {
       console.error('Error fetching products:', error);
       toast({
@@ -119,37 +125,26 @@ const MyProductsSection: React.FC = () => {
 
   useEffect(() => {
     fetchProducts();
-  }, [user]);
+  }, [authToken]);
 
   // ============================================================================
   // UPLOAD IMAGE
   // ============================================================================
 
   const uploadProductImage = async (file: File): Promise<string | null> => {
-    if (!user) return null;
+    const token = getAuthToken();
+    if (!token) return null;
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `client-products/${user.id}/${Date.now()}.${fileExt}`;
+      // Use the uploadImage utility from encryption.ts
+      const response = await uploadImage(file, 'products', token);
 
-      const { error: uploadError } = await supabase.storage
-        .from('progress-photos')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
+      if (!response.success || !response.data?.image_url) {
+        console.error('Upload error:', response.error);
         return null;
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('progress-photos')
-        .getPublicUrl(fileName);
-
-      return urlData.publicUrl;
+      return response.data.image_url;
     } catch (error) {
       console.error('Upload error:', error);
       return null;
@@ -161,12 +156,18 @@ const MyProductsSection: React.FC = () => {
   // ============================================================================
 
   const deleteProductImage = async (imageUrl: string): Promise<void> => {
-    try {
-      const urlParts = imageUrl.split('/progress-photos/');
-      if (urlParts.length < 2) return;
+    const token = getAuthToken();
+    if (!token) return;
 
-      const filePath = urlParts[1];
-      await supabase.storage.from('progress-photos').remove([filePath]);
+    try {
+      // Extract category and filename from URL like /api/images/products/filename.enc
+      const match = imageUrl.match(/\/api\/images\/(\w+)\/([^/]+)$/);
+      if (!match) return;
+
+      const [, category, filename] = match;
+      
+      apiClient.setAuthToken(token);
+      await apiClient.delete(`/api/images/${category}/${filename}`);
     } catch (error) {
       console.error('Image delete error:', error);
     }
@@ -195,26 +196,27 @@ const MyProductsSection: React.FC = () => {
   // ============================================================================
 
   const handleAddProduct = async () => {
-    if (!productName.trim() || !user) return;
+    const token = getAuthToken();
+    if (!productName.trim() || !token) return;
     setSaving(true);
 
     try {
-      const { data, error } = await supabase
-        .from('client_products')
-        .insert({
-          client_id: user.id,
-          name: productName.trim(),
-          brand: productBrand.trim() || null,
-          category: productCategory || null,
-          notes: productNotes.trim() || null,
-          image_url: null,
-          is_active: true,
-        })
-        .select()
-        .single();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { product: Product };
+        error?: string;
+      }>('/api/client/products', {
+        name: productName.trim(),
+        brand: productBrand.trim() || null,
+        category: productCategory || null,
+        notes: productNotes.trim() || null,
+        image_url: null,
+      });
 
-      if (error) {
-        console.error('Error adding product:', error);
+      if (!response.data.success || !response.data.data?.product) {
+        console.error('Error adding product:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to add product. Please try again.',
@@ -224,7 +226,7 @@ const MyProductsSection: React.FC = () => {
       }
 
       // Add to local state
-      setProducts(prev => [data, ...prev]);
+      setProducts(prev => [response.data.data!.product, ...prev]);
       setShowAddModal(false);
       resetForm();
 
@@ -249,7 +251,8 @@ const MyProductsSection: React.FC = () => {
   // ============================================================================
 
   const handleAddProductFromPhoto = async () => {
-    if (!productName.trim() || !selectedFile || !user) return;
+    const token = getAuthToken();
+    if (!productName.trim() || !selectedFile || !token) return;
     setSaving(true);
     setUploading(true);
 
@@ -271,22 +274,22 @@ const MyProductsSection: React.FC = () => {
       setUploading(false);
 
       // Step 2: Insert product with image URL
-      const { data, error } = await supabase
-        .from('client_products')
-        .insert({
-          client_id: user.id,
-          name: productName.trim(),
-          brand: productBrand.trim() || null,
-          category: productCategory || null,
-          notes: productNotes.trim() || null,
-          image_url: imageUrl,
-          is_active: true,
-        })
-        .select()
-        .single();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { product: Product };
+        error?: string;
+      }>('/api/client/products', {
+        name: productName.trim(),
+        brand: productBrand.trim() || null,
+        category: productCategory || null,
+        notes: productNotes.trim() || null,
+        image_url: imageUrl,
+      });
 
-      if (error) {
-        console.error('Error adding product:', error);
+      if (!response.data.success || !response.data.data?.product) {
+        console.error('Error adding product:', response.data.error);
         // Delete uploaded image if product insert fails
         await deleteProductImage(imageUrl);
         toast({
@@ -298,7 +301,7 @@ const MyProductsSection: React.FC = () => {
       }
 
       // Add to local state
-      setProducts(prev => [data, ...prev]);
+      setProducts(prev => [response.data.data!.product, ...prev]);
       setShowPhotoModal(false);
       resetForm();
 
@@ -353,23 +356,26 @@ const MyProductsSection: React.FC = () => {
   // ============================================================================
 
   const handleUpdateProduct = async () => {
-    if (!selectedProduct || !productName.trim()) return;
+    const token = getAuthToken();
+    if (!selectedProduct || !productName.trim() || !token) return;
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('client_products')
-        .update({
-          name: productName.trim(),
-          brand: productBrand.trim() || null,
-          category: productCategory || null,
-          notes: productNotes.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedProduct.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.put<{
+        success: boolean;
+        data?: { product: Product };
+        error?: string;
+      }>(`/api/client/products/${selectedProduct.id}`, {
+        name: productName.trim(),
+        brand: productBrand.trim() || null,
+        category: productCategory || null,
+        notes: productNotes.trim() || null,
+      });
 
-      if (error) {
-        console.error('Error updating product:', error);
+      if (!response.data.success) {
+        console.error('Error updating product:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to update product. Please try again.',
@@ -427,22 +433,23 @@ const MyProductsSection: React.FC = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteConfirmation) return;
+    const token = getAuthToken();
+    if (!deleteConfirmation || !token) return;
 
     setIsDeleting(true);
 
     try {
-      // Find the product to get image URL
-      const productToDelete = products.find(p => p.id === deleteConfirmation.id);
+      apiClient.setAuthToken(token);
 
       // Soft delete from database (set is_active to false)
-      const { error } = await supabase
-        .from('client_products')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', deleteConfirmation.id);
+      const response = await apiClient.delete<{
+        success: boolean;
+        data?: { image_url: string | null };
+        error?: string;
+      }>(`/api/client/products/${deleteConfirmation.id}`);
 
-      if (error) {
-        console.error('Error deleting product:', error);
+      if (!response.data.success) {
+        console.error('Error deleting product:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to delete product. Please try again.',
@@ -452,8 +459,9 @@ const MyProductsSection: React.FC = () => {
       }
 
       // Delete image from storage if exists
-      if (productToDelete?.image_url && productToDelete.image_url.includes('progress-photos')) {
-        await deleteProductImage(productToDelete.image_url);
+      const imageUrl = response.data.data?.image_url;
+      if (imageUrl && imageUrl.includes('/api/images/')) {
+        await deleteProductImage(imageUrl);
       }
 
       // Update local state

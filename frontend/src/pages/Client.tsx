@@ -161,7 +161,7 @@ const ClientPage: React.FC = () => {
           success: boolean;
           data?: { gamification: UserGamification | null };
           error?: string;
-        }>('/client/gamification');
+        }>('/api/client/gamification');
 
         if (!response.data.success) {
           console.error('Error fetching gamification stats:', response.data.error);
@@ -176,7 +176,7 @@ const ClientPage: React.FC = () => {
           const createResponse = await apiClient.post<{
             success: boolean;
             data?: { gamification: UserGamification };
-          }>('/client/gamification');
+          }>('/api/client/gamification');
 
           if (createResponse.data.success && createResponse.data.data?.gamification) {
             const newData = createResponse.data.data.gamification;
@@ -198,7 +198,7 @@ const ClientPage: React.FC = () => {
 
           // Update level in database if it's different
           if (calculatedLevel !== gamificationData.level) {
-            await apiClient.patch('/client/gamification', { level: calculatedLevel });
+            await apiClient.patch('/api/client/gamification', { level: calculatedLevel });
           }
         }
       } catch (err) {
@@ -226,7 +226,7 @@ const ClientPage: React.FC = () => {
           success: boolean;
           data?: { count: number };
           error?: string;
-        }>('/client/notifications/unread-count');
+        }>('/api/client/notifications/unread-count');
 
         if (!response.data.success) {
           console.error('Error fetching unread count:', response.data.error);
@@ -256,7 +256,7 @@ const ClientPage: React.FC = () => {
         const response = await apiClient.get<{
           success: boolean;
           data?: { count: number };
-        }>('/client/notifications/unread-count');
+        }>('/api/client/notifications/unread-count');
 
         if (response.data.success) {
           setUnreadNotifications(response.data.data?.count || 0);

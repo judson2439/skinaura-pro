@@ -13,7 +13,7 @@ interface Product {
   category?: string;
   notes?: string;
   image_url?: string;
-  added_via: 'manual' | 'photo';
+  added_via?: 'manual' | 'photo';
   created_at: string;
 }
 

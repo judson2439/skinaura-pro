@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -314,14 +315,11 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
                     : 'bg-red-50 border-red-100'
                 }`}
               >
-                <img
+                <EncryptedImage
                   src={client.image}
                   alt={client.name}
                   className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(client.name)}&background=CFAFA3&color=fff`;
-                  }}
+                  fallbackClassName="w-12 h-12 rounded-full border-2 border-white shadow-sm"
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
@@ -407,14 +405,11 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
                   >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <img
+                        <EncryptedImage
                           src={client.image}
                           alt={client.name}
                           className="w-8 h-8 rounded-full object-cover border border-gray-200"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(client.name)}&background=CFAFA3&color=fff`;
-                          }}
+                          fallbackClassName="w-8 h-8 rounded-full border border-gray-200"
                         />
                         <span className="font-medium">{client.name}</span>
                       </div>

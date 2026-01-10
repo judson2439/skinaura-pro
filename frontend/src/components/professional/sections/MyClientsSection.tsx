@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import ClientProfileModal, { ClientProfile } from '@/components/professional/modals/ClientProfileModal';
 import AddClientModal from '@/components/professional/modals/AddClientModal';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useAuth } from '@/contexts/AuthContext';
@@ -352,10 +353,11 @@ const MyClientsSection: React.FC<MyClientsSectionProps> = () => {
                 </div>
               )}
               <div className="flex items-start gap-4 mb-4">
-                <img
+                <EncryptedImage
                   src={client.image}
                   alt={client.name}
                   className="w-16 h-16 rounded-xl object-cover"
+                  fallbackClassName="w-16 h-16 rounded-xl"
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
