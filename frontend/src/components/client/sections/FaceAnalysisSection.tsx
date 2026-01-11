@@ -30,10 +30,11 @@ import {
   Save,
   FileDown,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { exportHistoryEntryPDF, exportCurrentAnalysisPDF } from '@/lib/pdfExport';
-
+import { EncryptedImage } from '@/components/ui/encrypted-image';
+import { uploadImage } from '@/lib/encryption';
 // TYPES
 // ============================================================================
 
@@ -267,7 +268,7 @@ const RadarChart: React.FC<RadarChartProps> = ({ data, size = 320 }) => {
     const x = centerX + labelRadius * Math.cos(angle);
     const y = centerY + labelRadius * Math.sin(angle);
     
-    let textAnchor = 'middle';
+    let textAnchor: 'start' | 'middle' | 'end' = 'middle';
     if (x < centerX - 10) textAnchor = 'end';
     else if (x > centerX + 10) textAnchor = 'start';
     
@@ -457,10 +458,11 @@ const HistoryDetailModal: React.FC<HistoryDetailModalProps> = ({ entry, isOpen, 
               {/* Photo */}
               {entry.photo_url && (
                 <div className="rounded-xl overflow-hidden border border-gray-200">
-                  <img
+                  <EncryptedImage
                     src={entry.photo_url}
                     alt="Analysis photo"
                     className="w-full h-56 object-cover"
+                    fallbackClassName="w-8 h-8 text-gray-400"
                   />
                 </div>
               )}
@@ -624,7 +626,8 @@ const HistoryDetailModal: React.FC<HistoryDetailModalProps> = ({ entry, isOpen, 
 // ============================================================================
 
 const FaceAnalysisSection: React.FC = () => {
-  const { profile, user } = useAuth();
+  // Use auth token for API calls
+  const authToken = getAuthToken();
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -730,28 +733,30 @@ const FaceAnalysisSection: React.FC = () => {
 
   // Fetch history from database
   const fetchHistory = useCallback(async () => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
     
     setLoadingHistory(true);
     try {
-      const { data, error } = await supabase
-        .from('client_skin_analysis')
-        .select('*')
-        .eq('client_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { analyses: HistoryEntry[] };
+        error?: string;
+      }>('/api/client/skin-analysis');
 
-      if (error) {
-        console.error('Error fetching history:', error);
+      if (!response.data.success) {
+        console.error('Error fetching history:', response.data.error);
       } else {
-        setHistoryEntries(data || []);
+        setHistoryEntries(response.data.data?.analyses || []);
       }
     } catch (err) {
       console.error('Error fetching history:', err);
     } finally {
       setLoadingHistory(false);
     }
-  }, [user?.id]);
+  }, []);
 
   // Initialize models and check permissions on mount
   useEffect(() => {
@@ -776,10 +781,10 @@ const FaceAnalysisSection: React.FC = () => {
 
   // Fetch history when tab changes to history or on mount
   useEffect(() => {
-    if (activeTab === 'history' && user?.id) {
+    if (activeTab === 'history' && authToken) {
       fetchHistory();
     }
-  }, [activeTab, user?.id, fetchHistory]);
+  }, [activeTab, authToken, fetchHistory]);
 
   // Freeze the current video frame
   const freezeVideoFrame = useCallback(() => {
@@ -1304,47 +1309,40 @@ const FaceAnalysisSection: React.FC = () => {
     setSaveError(null);
   };
 
-  // Upload photo to storage bucket
+  // Upload photo to storage bucket using encrypted upload
   const uploadPhotoToStorage = async (imageData: string): Promise<string | null> => {
-    if (!user?.id) return null;
+    const token = getAuthToken();
+    if (!token) return null;
 
     try {
-      // Convert base64/data URL to blob
+      // Convert image data (data URL or blob URL) to File object
       let blob: Blob;
       
       if (imageData.startsWith('data:')) {
-        // It's a data URL (from camera)
+        // It's a data URL - convert to blob
         const response = await fetch(imageData);
         blob = await response.blob();
       } else if (imageData.startsWith('blob:')) {
-        // It's a blob URL (from file upload)
+        // It's a blob URL - fetch the blob
         const response = await fetch(imageData);
         blob = await response.blob();
       } else {
         return null;
       }
 
-      const fileName = `face-analysis/${user.id}/${Date.now()}.jpg`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('progress-photos')
-        .upload(fileName, blob, {
-          contentType: 'image/jpeg',
-          cacheControl: '3600',
-          upsert: false,
-        });
+      // Create a File object from the blob
+      const fileName = `skin-analysis-${Date.now()}.jpg`;
+      const file = new File([blob], fileName, { type: 'image/jpeg' });
 
-      if (uploadError) {
-        console.error('Error uploading photo:', uploadError);
+      // Use the existing encrypted upload function
+      const response = await uploadImage(file, 'photos', token);
+
+      if (!response.success) {
+        console.error('Error uploading photo:', response.error);
         return null;
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('progress-photos')
-        .getPublicUrl(fileName);
-
-      return urlData.publicUrl;
+      return response.data?.image_url || null;
     } catch (err) {
       console.error('Error uploading photo:', err);
       return null;
@@ -1367,7 +1365,8 @@ const FaceAnalysisSection: React.FC = () => {
 
   // Save analysis to database
   const saveAnalysisToDatabase = async () => {
-    if (!currentMetrics || !user?.id) {
+    const token = getAuthToken();
+    if (!currentMetrics || !token) {
       setSaveError('Unable to save. Please ensure you are logged in and have completed an analysis.');
       return;
     }
@@ -1395,7 +1394,6 @@ const FaceAnalysisSection: React.FC = () => {
 
       // Prepare data for database
       const analysisData = {
-        client_id: user.id,
         photo_url: photoUrl,
         age: currentMetrics.estimatedAge,
         gender: currentMetrics.gender,
@@ -1428,13 +1426,16 @@ const FaceAnalysisSection: React.FC = () => {
         sagginess_tips: SKIN_TIPS.sagginess?.join('; ') || null,
       };
 
-      // Insert into database
-      const { error: insertError } = await supabase
-        .from('client_skin_analysis')
-        .insert(analysisData);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { analysis: HistoryEntry };
+        error?: string;
+      }>('/api/client/skin-analysis', analysisData);
 
-      if (insertError) {
-        console.error('Error saving analysis:', insertError);
+      if (!response.data.success) {
+        console.error('Error saving analysis:', response.data.error);
         setSaveError('Failed to save analysis. Please try again.');
         return;
       }
@@ -2268,10 +2269,11 @@ const FaceAnalysisSection: React.FC = () => {
                             {/* Thumbnail */}
                             {entry.photo_url && (
                               <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                                <img
+                                <EncryptedImage
                                   src={entry.photo_url}
                                   alt="Analysis"
                                   className="w-full h-full object-cover"
+                                  fallbackClassName="w-8 h-8 text-gray-400"
                                 />
                               </div>
                             )}
@@ -2313,7 +2315,8 @@ const FaceAnalysisSection: React.FC = () => {
                                     e.stopPropagation();
                                     setExportingHistoryId(entry.id);
                                     try {
-                                      await exportHistoryEntryPDF(entry, user?.id);
+                                      const session = getAuthSession();
+                                      await exportHistoryEntryPDF(entry, session?.user?.id);
                                     } catch (err) {
                                       console.error('Error exporting PDF:', err);
                                     } finally {

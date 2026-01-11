@@ -6,6 +6,8 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
@@ -2125,6 +2127,214 @@ router.get('/leaderboard', authMiddleware, async (req: Request, res: Response): 
     res.status(500).json({
       success: false,
       error: 'Failed to fetch leaderboard',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// SKIN ANALYSIS ROUTES
+// ============================================================================
+
+interface SkinAnalysisEntry {
+  id: string;
+  client_id: string;
+  photo_url: string | null;
+  age: number;
+  gender: string;
+  expression: string;
+  hydration: string;
+  elasticity: string;
+  evenness: string;
+  radiance: string;
+  fine_wrinkles: string;
+  eye_wrinkles: string;
+  deep_wrinkles: string;
+  dark_circle: string;
+  eye_bag: string;
+  pores: string;
+  pigment: string;
+  redness: string;
+  oiliness: string;
+  dryness: string;
+  sagginess: string;
+  fine_wrinkles_tips: string | null;
+  eye_wrinkles_tips: string | null;
+  deep_wrinkles_tips: string | null;
+  dark_circle_tips: string | null;
+  eye_bag_tips: string | null;
+  pores_tips: string | null;
+  pigment_tips: string | null;
+  redness_tips: string | null;
+  oiliness_tips: string | null;
+  dryness_tips: string | null;
+  sagginess_tips: string | null;
+  created_at: string;
+}
+
+// GET /client/skin-analysis - Get skin analysis history
+router.get('/skin-analysis', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`🔬 Fetching skin analysis history for client: ${userId}`);
+
+    const analyses = await query<SkinAnalysisEntry>(
+      `SELECT * FROM client_skin_analysis 
+       WHERE client_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 20`,
+      [userId]
+    );
+
+    console.log(`✅ Found ${analyses.length} skin analysis entries`);
+
+    res.status(200).json({
+      success: true,
+      data: { analyses },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching skin analysis history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch skin analysis history',
+    } as ApiResponse);
+  }
+});
+
+// POST /client/skin-analysis - Save a new skin analysis
+router.post('/skin-analysis', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const {
+      photo_url,
+      age,
+      gender,
+      expression,
+      hydration,
+      elasticity,
+      evenness,
+      radiance,
+      fine_wrinkles,
+      eye_wrinkles,
+      deep_wrinkles,
+      dark_circle,
+      eye_bag,
+      pores,
+      pigment,
+      redness,
+      oiliness,
+      dryness,
+      sagginess,
+      fine_wrinkles_tips,
+      eye_wrinkles_tips,
+      deep_wrinkles_tips,
+      dark_circle_tips,
+      eye_bag_tips,
+      pores_tips,
+      pigment_tips,
+      redness_tips,
+      oiliness_tips,
+      dryness_tips,
+      sagginess_tips,
+    } = req.body;
+
+    console.log(`🔬 Saving skin analysis for client: ${userId}`);
+
+    const result = await queryOne<SkinAnalysisEntry>(
+      `INSERT INTO client_skin_analysis (
+        client_id, photo_url, age, gender, expression,
+        hydration, elasticity, evenness, radiance,
+        fine_wrinkles, eye_wrinkles, deep_wrinkles, dark_circle, eye_bag,
+        pores, pigment, redness, oiliness, dryness, sagginess,
+        fine_wrinkles_tips, eye_wrinkles_tips, deep_wrinkles_tips,
+        dark_circle_tips, eye_bag_tips, pores_tips, pigment_tips,
+        redness_tips, oiliness_tips, dryness_tips, sagginess_tips,
+        created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $12, $13, $14,
+        $15, $16, $17, $18, $19, $20,
+        $21, $22, $23, $24, $25, $26, $27,
+        $28, $29, $30, $31,
+        NOW()
+      ) RETURNING *`,
+      [
+        userId, photo_url || null, age, gender, expression,
+        hydration, elasticity, evenness, radiance,
+        fine_wrinkles, eye_wrinkles, deep_wrinkles, dark_circle, eye_bag,
+        pores, pigment, redness, oiliness, dryness, sagginess,
+        fine_wrinkles_tips || null, eye_wrinkles_tips || null, deep_wrinkles_tips || null,
+        dark_circle_tips || null, eye_bag_tips || null, pores_tips || null, pigment_tips || null,
+        redness_tips || null, oiliness_tips || null, dryness_tips || null, sagginess_tips || null,
+      ]
+    );
+
+    console.log(`✅ Skin analysis saved: ${result?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { analysis: result },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error saving skin analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save skin analysis',
+    } as ApiResponse);
+  }
+});
+
+// POST /client/skin-analysis/upload-photo - Upload skin analysis photo
+router.post('/skin-analysis/upload-photo', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const { imageData } = req.body; // Base64 image data
+
+    if (!imageData) {
+      res.status(400).json({
+        success: false,
+        error: 'Image data is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📸 Uploading skin analysis photo for client: ${userId}`);
+
+    // Extract base64 data (remove data URL prefix if present)
+    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Generate unique filename
+    const fileName = `enc_skin_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+    const uploadDir = path.join(__dirname, '../../uploads/photos');
+    const filePath = path.join(uploadDir, fileName);
+
+    // Ensure upload directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Write file
+    fs.writeFileSync(filePath, buffer);
+
+    // Generate URL
+    const photoUrl = `/uploads/photos/${fileName}`;
+
+    console.log(`✅ Photo uploaded: ${photoUrl}`);
+
+    res.status(201).json({
+      success: true,
+      data: { photo_url: photoUrl },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error uploading skin analysis photo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload photo',
     } as ApiResponse);
   }
 });
