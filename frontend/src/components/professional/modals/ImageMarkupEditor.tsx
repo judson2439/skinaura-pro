@@ -28,6 +28,8 @@ import {
   AnnotationPoint,
   generateAnnotationId
 } from '@/hooks/usePhotoAnnotations';
+import { decryptFileToBlob } from '@/lib/encryption';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 
 // ============================================================================
 // TYPES
@@ -95,28 +97,93 @@ const ImageMarkupEditor: React.FC<ImageMarkupEditorProps> = ({
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [showColorPicker, setShowColorPicker] = useState(false);
 
-  // Load image and set canvas size
+  // Load image and set canvas size (handles encrypted images)
   useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      imageRef.current = img;
-      
-      // Calculate canvas size to fit container while maintaining aspect ratio
-      const container = containerRef.current;
-      if (container) {
-        const maxWidth = container.clientWidth - 40;
-        const maxHeight = window.innerHeight - 300;
-        const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+    const loadImage = async () => {
+      try {
+        let imageSrc = imageUrl;
         
-        setCanvasSize({
-          width: img.width * scale,
-          height: img.height * scale,
-        });
+        // Check if this is an encrypted image URL (from our backend)
+        const isEncryptedImage = imageUrl.includes('/api/products/image/') || 
+                                 imageUrl.includes('/api/images/') ||
+                                 imageUrl.includes('/api/photos/');
+
+        if (isEncryptedImage) {
+          // Fetch and decrypt the image
+          const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5505';
+          const fullUrl = imageUrl.startsWith('http') ? imageUrl : 
+                          imageUrl.startsWith('/') ? `${apiBaseUrl}${imageUrl}` : `${apiBaseUrl}/${imageUrl}`;
+          
+          const authSession = getAuthSession();
+          const token = authSession?.token || getAuthToken();
+          
+          const response = await fetch(fullUrl, {
+            method: 'GET',
+            headers: token ? {
+              'Authorization': `Bearer ${token}`,
+            } : {},
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.status}`);
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          
+          if (contentType.includes('application/json')) {
+            // Encrypted image data - decrypt client-side
+            const encryptedData = await response.json();
+            
+            if (!encryptedData.encrypted || !encryptedData.iv) {
+              throw new Error('Invalid encrypted image data');
+            }
+
+            const decryptedBlob = await decryptFileToBlob(
+              encryptedData.encrypted,
+              encryptedData.iv,
+              encryptedData.mimeType || 'image/jpeg'
+            );
+
+            imageSrc = URL.createObjectURL(decryptedBlob);
+          } else {
+            // Legacy format: direct binary image
+            const blob = await response.blob();
+            imageSrc = URL.createObjectURL(blob);
+          }
+        }
+
+        // Now load the image
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          imageRef.current = img;
+          
+          // Calculate canvas size to fit container while maintaining aspect ratio
+          const container = containerRef.current;
+          if (container) {
+            const maxWidth = container.clientWidth - 40;
+            const maxHeight = window.innerHeight - 300;
+            const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+            
+            setCanvasSize({
+              width: img.width * scale,
+              height: img.height * scale,
+            });
+          }
+          setImageLoaded(true);
+        };
+        img.onerror = (e) => {
+          console.error('Failed to load image:', e);
+          setImageLoaded(false);
+        };
+        img.src = imageSrc;
+      } catch (error) {
+        console.error('Error loading image for markup editor:', error);
+        setImageLoaded(false);
       }
-      setImageLoaded(true);
     };
-    img.src = imageUrl;
+
+    loadImage();
   }, [imageUrl]);
 
   // Draw everything on canvas

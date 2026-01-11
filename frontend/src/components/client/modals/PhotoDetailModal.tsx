@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Loader2, MessageSquare, Trash2, Edit, User } from 'lucide-react';
 import { ProgressPhoto, PhotoAnnotation, PhotoComment } from './progressPhotosTypes';
 import AnnotationViewer from './AnnotationViewer';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -68,10 +69,12 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <img
+                  <EncryptedImage
                     src={photo.photo_url}
                     alt={photo.title || 'Progress photo'}
                     className="max-w-full max-h-[550px] object-contain"
+                    fallbackIcon="user"
+                    showFallback={true}
                   />
                 </div>
               )}
@@ -174,10 +177,12 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
                       <div key={comment.id} className="p-3 bg-gray-50 rounded-xl">
                         <div className="flex items-center gap-2 mb-2">
                           {comment.professional_avatar ? (
-                            <img 
+                            <EncryptedImage 
                               src={comment.professional_avatar} 
                               alt={comment.professional_name || 'Professional'}
                               className="w-6 h-6 rounded-full object-cover"
+                              fallbackIcon="user"
+                              showFallback={true}
                             />
                           ) : (
                             <div className="w-6 h-6 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center">

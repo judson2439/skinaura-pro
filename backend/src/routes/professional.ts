@@ -969,4 +969,451 @@ router.patch('/chat/:clientId/mark-read', async (req: Request, res: Response): P
   }
 });
 
+// ============================================================================
+// CLIENT PHOTOS ENDPOINTS
+// ============================================================================
+
+interface ProgressPhoto {
+  id: string;
+  client_id: string;
+  photo_url: string;
+  thumbnail_url: string | null;
+  notes: string | null;
+  skin_analysis: Record<string, unknown> | null;
+  tags: string[] | null;
+  taken_at: string | null;
+  created_at: string;
+  updated_at: string;
+  photo_type: string | null;
+  title: string | null;
+}
+
+interface PhotoComment {
+  id: string;
+  photo_id: string;
+  professional_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  professional_name?: string;
+}
+
+interface PhotoAnnotation {
+  id: string;
+  photo_id: string;
+  professional_id: string;
+  markup_image: string;
+  created_at: string;
+  updated_at: string;
+  professional_name?: string;
+}
+
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: string | null;
+}
+
+/**
+ * GET /professional/client-photos
+ * Get all progress photos from clients linked to this professional
+ */
+router.get('/client-photos', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`📸 Fetching client photos for professional: ${professionalId}`);
+
+    // Step 1: Get all client IDs from relationships
+    const relationships = await query<{ client_id: string }>(
+      `SELECT DISTINCT client_id FROM client_professional_relationships WHERE professional_id = $1`,
+      [professionalId]
+    );
+
+    const clientIds = relationships.map(r => r.client_id);
+
+    if (clientIds.length === 0) {
+      console.log('No clients found for professional');
+      res.status(200).json({
+        success: true,
+        data: { photos: [], clients: [] },
+      } as ApiResponse);
+      return;
+    }
+
+    // Step 2: Get client profiles
+    const clients = await query<UserProfile>(
+      `SELECT id, email, full_name, avatar_url, role FROM user_profiles WHERE id = ANY($1)`,
+      [clientIds]
+    );
+
+    // Step 3: Get progress photos for all clients
+    const photos = await query<ProgressPhoto>(
+      `SELECT * FROM progress_photos 
+       WHERE client_id = ANY($1) 
+       ORDER BY created_at DESC`,
+      [clientIds]
+    );
+
+    console.log(`✅ Found ${photos.length} photos from ${clients.length} clients`);
+
+    res.status(200).json({
+      success: true,
+      data: { photos, clients },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching client photos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch client photos',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/photos/:photoId/comments
+ * Get all comments for a photo
+ */
+router.get('/photos/:photoId/comments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const photoId = req.params.photoId;
+
+    console.log(`💬 Fetching comments for photo: ${photoId}`);
+
+    // Verify the photo belongs to one of the professional's clients
+    const photo = await queryOne<{ client_id: string }>(
+      `SELECT p.client_id FROM progress_photos p
+       JOIN client_professional_relationships cpr ON p.client_id = cpr.client_id
+       WHERE p.id = $1 AND cpr.professional_id = $2`,
+      [photoId, professionalId]
+    );
+
+    if (!photo) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Get comments with professional names
+    const comments = await query<PhotoComment & { full_name: string | null }>(
+      `SELECT pc.*, up.full_name 
+       FROM photo_comments pc
+       LEFT JOIN user_profiles up ON pc.professional_id = up.id
+       WHERE pc.photo_id = $1
+       ORDER BY pc.created_at ASC`,
+      [photoId]
+    );
+
+    const commentsWithNames = comments.map(c => ({
+      id: c.id,
+      photo_id: c.photo_id,
+      professional_id: c.professional_id,
+      content: c.content,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+      professional_name: c.professional_id === professionalId ? 'You' : (c.full_name || 'Professional'),
+    }));
+
+    console.log(`✅ Found ${comments.length} comments`);
+
+    res.status(200).json({
+      success: true,
+      data: { comments: commentsWithNames },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching comments:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch comments',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/photos/:photoId/annotations
+ * Get all annotations for a photo
+ */
+router.get('/photos/:photoId/annotations', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const photoId = req.params.photoId;
+
+    console.log(`📝 Fetching annotations for photo: ${photoId}`);
+
+    // Verify the photo belongs to one of the professional's clients
+    const photo = await queryOne<{ client_id: string }>(
+      `SELECT p.client_id FROM progress_photos p
+       JOIN client_professional_relationships cpr ON p.client_id = cpr.client_id
+       WHERE p.id = $1 AND cpr.professional_id = $2`,
+      [photoId, professionalId]
+    );
+
+    if (!photo) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Get annotations with professional names
+    const annotations = await query<PhotoAnnotation & { full_name: string | null }>(
+      `SELECT pa.*, up.full_name 
+       FROM photo_annotations pa
+       LEFT JOIN user_profiles up ON pa.professional_id = up.id
+       WHERE pa.photo_id = $1
+       ORDER BY pa.created_at DESC`,
+      [photoId]
+    );
+
+    const annotationsWithNames = annotations.map(a => ({
+      id: a.id,
+      photo_id: a.photo_id,
+      professional_id: a.professional_id,
+      markup_image: a.markup_image,
+      created_at: a.created_at,
+      updated_at: a.updated_at,
+      professional_name: a.professional_id === professionalId ? 'You' : (a.full_name || 'Professional'),
+    }));
+
+    console.log(`✅ Found ${annotations.length} annotations`);
+
+    res.status(200).json({
+      success: true,
+      data: { annotations: annotationsWithNames },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching annotations:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch annotations',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/photos/:photoId/comments
+ * Add a comment to a photo
+ */
+router.post('/photos/:photoId/comments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const photoId = req.params.photoId;
+    const { content } = req.body;
+
+    if (!content?.trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'Comment content is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`💬 Adding comment to photo: ${photoId}`);
+
+    // Verify the photo belongs to one of the professional's clients
+    const photo = await queryOne<{ client_id: string }>(
+      `SELECT p.client_id FROM progress_photos p
+       JOIN client_professional_relationships cpr ON p.client_id = cpr.client_id
+       WHERE p.id = $1 AND cpr.professional_id = $2`,
+      [photoId, professionalId]
+    );
+
+    if (!photo) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Insert comment
+    const comment = await queryOne<PhotoComment>(
+      `INSERT INTO photo_comments (photo_id, professional_id, content, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       RETURNING *`,
+      [photoId, professionalId, content.trim()]
+    );
+
+    console.log(`✅ Comment added: ${comment?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { 
+        comment: {
+          ...comment,
+          professional_name: 'You',
+        }
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error adding comment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add comment',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/photos/:photoId/comments/:commentId
+ * Delete a comment
+ */
+router.delete('/photos/:photoId/comments/:commentId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { photoId, commentId } = req.params;
+
+    console.log(`🗑️ Deleting comment: ${commentId}`);
+
+    // Delete comment (only if it belongs to this professional)
+    const result = await query(
+      `DELETE FROM photo_comments 
+       WHERE id = $1 AND photo_id = $2 AND professional_id = $3
+       RETURNING id`,
+      [commentId, photoId, professionalId]
+    );
+
+    if (result.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Comment not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Comment deleted: ${commentId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Comment deleted successfully',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting comment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete comment',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/photos/:photoId/annotations
+ * Save an annotation (markup) for a photo
+ */
+router.post('/photos/:photoId/annotations', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const photoId = req.params.photoId;
+    const { markup_image } = req.body;
+
+    if (!markup_image) {
+      res.status(400).json({
+        success: false,
+        error: 'Markup image URL is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📝 Adding annotation to photo: ${photoId}`);
+
+    // Verify the photo belongs to one of the professional's clients
+    const photo = await queryOne<{ client_id: string }>(
+      `SELECT p.client_id FROM progress_photos p
+       JOIN client_professional_relationships cpr ON p.client_id = cpr.client_id
+       WHERE p.id = $1 AND cpr.professional_id = $2`,
+      [photoId, professionalId]
+    );
+
+    if (!photo) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Insert annotation
+    const annotation = await queryOne<PhotoAnnotation>(
+      `INSERT INTO photo_annotations (photo_id, professional_id, markup_image, created_at, updated_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       RETURNING *`,
+      [photoId, professionalId, markup_image]
+    );
+
+    console.log(`✅ Annotation added: ${annotation?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { 
+        annotation: {
+          ...annotation,
+          professional_name: 'You',
+        }
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error adding annotation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add annotation',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/photos/:photoId/annotations/:annotationId
+ * Delete an annotation
+ */
+router.delete('/photos/:photoId/annotations/:annotationId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { photoId, annotationId } = req.params;
+
+    console.log(`🗑️ Deleting annotation: ${annotationId}`);
+
+    // Get annotation to return markup_image URL for cleanup
+    const annotation = await queryOne<{ markup_image: string }>(
+      `DELETE FROM photo_annotations 
+       WHERE id = $1 AND photo_id = $2 AND professional_id = $3
+       RETURNING markup_image`,
+      [annotationId, photoId, professionalId]
+    );
+
+    if (!annotation) {
+      res.status(404).json({
+        success: false,
+        error: 'Annotation not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Annotation deleted: ${annotationId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Annotation deleted successfully',
+      data: { markup_image: annotation.markup_image },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting annotation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete annotation',
+    } as ApiResponse);
+  }
+});
+
 export default router;

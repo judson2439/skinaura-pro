@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Plus, Loader2 } from 'lucide-react';
+import React, { useRef } from 'react';
+import { X, Plus, Loader2, Camera, Upload, Image as ImageIcon } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -27,8 +27,9 @@ export const PRODUCT_CATEGORIES = [
 interface AddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (imageFile?: File) => void;
   saving: boolean;
+  uploading?: boolean;
   productName: string;
   setProductName: (value: string) => void;
   productBrand: string;
@@ -48,6 +49,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   onClose,
   onSubmit,
   saving,
+  uploading = false,
   productName,
   setProductName,
   productBrand,
@@ -57,11 +59,66 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   productNotes,
   setProductNotes,
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  
+  // Local state for image
+  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
+
+  // Reset local state when modal closes
+  React.useEffect(() => {
+    if (!isOpen) {
+      setSelectedFile(null);
+      setPhotoPreview(null);
+    }
+  }, [isOpen]);
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setSelectedFile(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  const handleSubmit = () => {
+    onSubmit(selectedFile || undefined);
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md my-8">
+        {/* Hidden file inputs */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoSelect}
+          className="hidden"
+        />
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handlePhotoSelect}
+          className="hidden"
+        />
+
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-serif font-bold">Add Product</h3>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
@@ -70,6 +127,51 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
         </div>
 
         <div className="space-y-4">
+          {/* Image Upload Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Product Image (Optional)
+            </label>
+            {photoPreview ? (
+              <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                <img 
+                  src={photoPreview} 
+                  alt="Product preview" 
+                  className="w-full h-40 object-cover"
+                />
+                <button
+                  onClick={handleRemovePhoto}
+                  className="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-lg hover:bg-black/70 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center bg-gray-50/50">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                  <ImageIcon className="w-6 h-6 text-gray-400" />
+                </div>
+                <p className="text-sm text-gray-500 mb-3">Add a photo of your product</p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => photoInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-500 text-white text-sm rounded-lg font-medium hover:bg-teal-600 transition-colors"
+                  >
+                    <Camera className="w-4 h-4" /> Take Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  >
+                    <Upload className="w-4 h-4" /> Upload
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Product Name *</label>
             <input
@@ -126,12 +228,21 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
             Cancel
           </button>
           <button
-            onClick={onSubmit}
-            disabled={saving || !productName.trim()}
+            onClick={handleSubmit}
+            disabled={saving || uploading || !productName.trim()}
             className="flex-1 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Add Product
+            {saving || uploading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {uploading ? 'Uploading...' : 'Saving...'}
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4" />
+                Add Product
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -140,4 +251,3 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
 };
 
 export default AddProductModal;
-

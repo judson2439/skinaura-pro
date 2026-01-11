@@ -15,8 +15,8 @@ import {
   AlertCircle,
   User,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import {
   TreatmentPlan,
   TreatmentPlanMilestone,
@@ -43,7 +43,8 @@ interface ProfessionalInfo {
 // ============================================================================
 
 const TreatmentPlansSection: React.FC = () => {
-  const { user } = useAuth();
+  // Get auth token for API calls
+  const authToken = getAuthToken();
   
   // Data state
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
@@ -58,7 +59,8 @@ const TreatmentPlansSection: React.FC = () => {
   // ============================================================================
 
   const fetchTreatmentPlans = async () => {
-    if (!user?.id) {
+    const token = getAuthToken();
+    if (!token) {
       setLoading(false);
       return;
     }
@@ -67,186 +69,28 @@ const TreatmentPlansSection: React.FC = () => {
     setError(null);
 
     try {
-      // Fetch treatment plans where client_id matches the current user
-      const { data: plansData, error: plansError } = await supabase
-        .from('treatment_plans')
-        .select('*')
-        .eq('client_id', user.id)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          plans: TreatmentPlan[];
+          professionals: Record<string, ProfessionalInfo>;
+        };
+        error?: string;
+      }>('/api/client/treatment-plans');
 
-      if (plansError) {
-        console.error('Error fetching treatment plans:', plansError);
+      if (!response.data.success) {
+        console.error('Error fetching treatment plans:', response.data.error);
         setError('Failed to load treatment plans');
         setLoading(false);
         return;
       }
 
-      if (!plansData || plansData.length === 0) {
-        setPlans([]);
-        setLoading(false);
-        return;
+      if (response.data.data) {
+        setPlans(response.data.data.plans);
+        setProfessionals(response.data.data.professionals);
       }
-
-      // Get all plan IDs for fetching related data
-      const planIds = plansData.map(p => p.id);
-
-      // Initialize maps for related data
-      let milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
-      let productsMap: Record<string, TreatmentPlanProduct[]> = {};
-      let routinesMap: Record<string, TreatmentPlanRoutine[]> = {};
-      let appointmentsMap: Record<string, TreatmentPlanAppointment[]> = {};
-
-      // Fetch milestones from treatment_plan_milestones table
-      const { data: milestonesData, error: milestonesError } = await supabase
-        .from('treatment_plan_milestones')
-        .select('*')
-        .in('plan_id', planIds)
-        .order('order_index', { ascending: true });
-
-      if (milestonesError) {
-        console.error('Error fetching milestones:', milestonesError);
-      } else {
-        // Group milestones by plan_id
-        (milestonesData || []).forEach(milestone => {
-          if (!milestonesMap[milestone.plan_id]) {
-            milestonesMap[milestone.plan_id] = [];
-          }
-          milestonesMap[milestone.plan_id].push({
-            id: milestone.id,
-            plan_id: milestone.plan_id,
-            title: milestone.title,
-            description: milestone.description || undefined,
-            target_date: milestone.target_date,
-            completed: milestone.completed || false,
-            completed_at: milestone.completed_at || undefined,
-          });
-        });
-      }
-
-      // Fetch products from treatment_plan_products table
-      const { data: productsData, error: productsError } = await supabase
-        .from('treatment_plan_products')
-        .select('*')
-        .in('plan_id', planIds)
-        .order('created_at', { ascending: true });
-
-      if (productsError) {
-        console.error('Error fetching products:', productsError);
-      } else {
-        // Group products by plan_id
-        (productsData || []).forEach(product => {
-          if (!productsMap[product.plan_id]) {
-            productsMap[product.plan_id] = [];
-          }
-          productsMap[product.plan_id].push({
-            id: product.id,
-            plan_id: product.plan_id,
-            product_name: product.product_name,
-            product_brand: product.product_brand || undefined,
-            product_category: product.product_category || undefined,
-            usage_instructions: product.usage_instructions || undefined,
-            priority: product.priority || 'recommended',
-          });
-        });
-      }
-
-      // Fetch routines from treatment_plan_routines table
-      const { data: routinesData, error: routinesError } = await supabase
-        .from('treatment_plan_routines')
-        .select('*')
-        .in('plan_id', planIds)
-        .order('created_at', { ascending: true });
-
-      if (routinesError) {
-        console.error('Error fetching routines:', routinesError);
-      } else {
-        // Group routines by plan_id
-        (routinesData || []).forEach(routine => {
-          if (!routinesMap[routine.plan_id]) {
-            routinesMap[routine.plan_id] = [];
-          }
-          routinesMap[routine.plan_id].push({
-            id: routine.id,
-            plan_id: routine.plan_id,
-            routine_name: routine.routine_name,
-            routine_type: routine.routine_type || undefined,
-            notes: routine.notes || undefined,
-          });
-        });
-      }
-
-      // Fetch appointments from treatment_plan_appointments table
-      const { data: appointmentsData, error: appointmentsError } = await supabase
-        .from('treatment_plan_appointments')
-        .select('*')
-        .in('plan_id', planIds)
-        .order('scheduled_date', { ascending: true });
-
-      if (appointmentsError) {
-        console.error('Error fetching appointments:', appointmentsError);
-      } else {
-        // Group appointments by plan_id
-        (appointmentsData || []).forEach(appointment => {
-          if (!appointmentsMap[appointment.plan_id]) {
-            appointmentsMap[appointment.plan_id] = [];
-          }
-          appointmentsMap[appointment.plan_id].push({
-            id: appointment.id,
-            plan_id: appointment.plan_id,
-            appointment_type: appointment.appointment_type,
-            scheduled_date: appointment.scheduled_date,
-            scheduled_time: appointment.scheduled_time || undefined,
-            duration_minutes: appointment.duration_minutes || 60,
-            notes: appointment.notes || undefined,
-            completed: appointment.completed || false,
-          });
-        });
-      }
-
-      // Fetch professional info for each unique professional_id
-      const professionalIds = [...new Set(plansData.map(p => p.professional_id))];
-      if (professionalIds.length > 0) {
-        const { data: professionalsData, error: professionalsError } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', professionalIds);
-
-        if (professionalsError) {
-          console.error('Error fetching professionals:', professionalsError);
-        } else {
-          const professionalsMap: Record<string, ProfessionalInfo> = {};
-          (professionalsData || []).forEach(prof => {
-            professionalsMap[prof.id] = {
-              id: prof.id,
-              full_name: prof.full_name || 'Your Professional',
-              avatar_url: prof.avatar_url || undefined,
-            };
-          });
-          setProfessionals(professionalsMap);
-        }
-      }
-
-      // Map database data to TreatmentPlan interface
-      const mappedPlans: TreatmentPlan[] = plansData.map(plan => ({
-        id: plan.id,
-        client_id: plan.client_id,
-        professional_id: plan.professional_id,
-        title: plan.title,
-        description: plan.description || undefined,
-        goals: plan.goals || [],
-        start_date: plan.start_date,
-        end_date: plan.end_date,
-        status: plan.status || 'active',
-        milestones: milestonesMap[plan.id] || [],
-        products: productsMap[plan.id] || [],
-        routines: routinesMap[plan.id] || [],
-        appointments: appointmentsMap[plan.id] || [],
-        notes: plan.notes || undefined,
-        created_at: plan.created_at,
-        updated_at: plan.updated_at || undefined,
-      }));
-
-      setPlans(mappedPlans);
     } catch (err) {
       console.error('Error fetching treatment plans:', err);
       setError('An unexpected error occurred');
@@ -255,37 +99,46 @@ const TreatmentPlansSection: React.FC = () => {
     }
   };
 
-  // Fetch data on mount and when user changes
+  // Fetch data on mount and when auth token changes
   useEffect(() => {
     fetchTreatmentPlans();
-  }, [user?.id]);
+  }, [authToken]);
 
   // ============================================================================
   // TOGGLE MILESTONE COMPLETION
   // ============================================================================
 
   const handleToggleMilestone = async (milestoneId: string, currentStatus: boolean) => {
-    if (!selectedPlan) return;
+    const token = getAuthToken();
+    if (!selectedPlan || !token) return;
 
     setUpdatingMilestone(milestoneId);
 
     try {
       const newStatus = !currentStatus;
-      const completedAt = newStatus ? new Date().toISOString() : null;
 
-      // Update milestone in the database
-      const { error: updateError } = await supabase
-        .from('treatment_plan_milestones')
-        .update({
-          completed: newStatus,
-          completed_at: completedAt,
-        })
-        .eq('id', milestoneId);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { 
+          milestone: { 
+            id: string; 
+            completed: boolean; 
+            completed_at: string | null;
+          };
+        };
+        error?: string;
+      }>(`/api/client/treatment-plans/milestones/${milestoneId}`, {
+        completed: newStatus,
+      });
 
-      if (updateError) {
-        console.error('Error updating milestone:', updateError);
+      if (!response.data.success) {
+        console.error('Error updating milestone:', response.data.error);
         return;
       }
+
+      const completedAt = response.data.data?.milestone?.completed_at;
 
       // Update local state
       const updatedMilestones = selectedPlan.milestones.map(m =>

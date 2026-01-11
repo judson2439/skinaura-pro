@@ -1,31 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Crown, Flame, Loader2, Users, Trophy, Medal } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface UserGamification {
-  id: string;
-  user_id: string;
-  current_streak: number;
-  longest_streak: number;
-  points: number;
-  total_routines_completed: number;
-  level: string;
-  last_completion_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface UserProfile {
-  id: string;
-  email: string;
-  full_name: string | null;
-  avatar_url: string | null;
-}
 
 interface LeaderboardEntry {
   rank: number;
@@ -64,7 +45,7 @@ const LEVEL_BORDER_COLORS: Record<string, string> = {
 // ============================================================================
 
 const LeaderboardSection: React.FC = () => {
-  const { user } = useAuth();
+  const authToken = getAuthToken();
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,80 +54,36 @@ const LeaderboardSection: React.FC = () => {
   // Fetch leaderboard data
   useEffect(() => {
     const fetchLeaderboard = async () => {
+      const token = getAuthToken();
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
       try {
-        // Fetch all gamification data ordered by points
-        const { data: gamificationData, error: gamError } = await supabase
-          .from('user_gamification')
-          .select('*')
-          .order('points', { ascending: false });
-
-        if (gamError) {
-          console.error('Error fetching gamification data:', gamError);
-          setError('Failed to load leaderboard data');
-          setLoading(false);
-          return;
-        }
-
-        if (!gamificationData || gamificationData.length === 0) {
-          setLeaderboardData([]);
-          setLoading(false);
-          return;
-        }
-
-        // Get user IDs to fetch profiles
-        const userIds = gamificationData.map((g: UserGamification) => g.user_id);
-
-        // Fetch user profiles
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('user_profiles')
-          .select('id, email, full_name, avatar_url')
-          .in('id', userIds);
-
-        if (profilesError) {
-          console.error('Error fetching user profiles:', profilesError);
-          setError('Failed to load user profiles');
-          setLoading(false);
-          return;
-        }
-
-        // Create a map of user profiles
-        const profilesMap = new Map<string, UserProfile>();
-        (profilesData as UserProfile[]).forEach(profile => {
-          profilesMap.set(profile.id, profile);
-        });
-
-        // Build leaderboard entries
-        const entries: LeaderboardEntry[] = gamificationData.map((gam: UserGamification, index: number) => {
-          const profile = profilesMap.get(gam.user_id);
-          const isCurrentUser = user?.id === gam.user_id;
-          
-          // Track current user's rank
-          if (isCurrentUser) {
-            setCurrentUserRank(index + 1);
-          }
-
-          // Generate avatar URL if not available
-          const displayName = profile?.full_name || profile?.email?.split('@')[0] || 'Anonymous';
-          const avatarUrl = profile?.avatar_url || 
-            `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=CFAFA3&color=2D2A3E&size=100`;
-
-          return {
-            rank: index + 1,
-            userId: gam.user_id,
-            name: displayName,
-            avatar: avatarUrl,
-            points: gam.points || 0,
-            level: gam.level || 'Bronze',
-            streak: gam.current_streak || 0,
-            totalRoutines: gam.total_routines_completed || 0,
-            isCurrentUser,
+        apiClient.setAuthToken(token);
+        
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: {
+            leaderboard: LeaderboardEntry[];
+            currentUserRank: number | null;
           };
-        });
+          error?: string;
+        }>('/api/client/leaderboard');
 
-        setLeaderboardData(entries);
+        if (!response.data.success) {
+          console.error('Error fetching leaderboard:', response.data.error);
+          setError('Failed to load leaderboard data');
+          setLeaderboardData([]);
+          setCurrentUserRank(null);
+        } else if (response.data.data) {
+          setLeaderboardData(response.data.data.leaderboard || []);
+          setCurrentUserRank(response.data.data.currentUserRank);
+        }
       } catch (err) {
         console.error('Unexpected error fetching leaderboard:', err);
         setError('An unexpected error occurred');
@@ -156,7 +93,7 @@ const LeaderboardSection: React.FC = () => {
     };
 
     fetchLeaderboard();
-  }, [user?.id]);
+  }, [authToken]);
 
   // Get top 3 for podium
   const top3 = leaderboardData.slice(0, 3);
@@ -242,10 +179,11 @@ const LeaderboardSection: React.FC = () => {
             {/* 2nd Place */}
             <div className="text-center">
               <div className="relative">
-                <img 
+                <EncryptedImage 
                   src={top3[1].avatar} 
                   alt={top3[1].name} 
                   className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${LEVEL_BORDER_COLORS[top3[1].level] || 'border-gray-400'} object-cover`}
+                  fallbackIcon="user"
                 />
                 {top3[1].isCurrentUser && (
                   <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
@@ -265,10 +203,11 @@ const LeaderboardSection: React.FC = () => {
             {/* 1st Place */}
             <div className="text-center">
               <div className="relative">
-                <img 
+                <EncryptedImage 
                   src={top3[0].avatar} 
                   alt={top3[0].name} 
                   className={`w-20 h-20 rounded-full mx-auto mb-2 border-4 border-yellow-400 object-cover`}
+                  fallbackIcon="user"
                 />
                 <Crown className="w-6 h-6 text-yellow-400 absolute -top-2 left-1/2 -translate-x-1/2" />
                 {top3[0].isCurrentUser && (
@@ -289,10 +228,11 @@ const LeaderboardSection: React.FC = () => {
             {/* 3rd Place */}
             <div className="text-center">
               <div className="relative">
-                <img 
+                <EncryptedImage 
                   src={top3[2].avatar} 
                   alt={top3[2].name} 
                   className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 border-amber-600 object-cover`}
+                  fallbackIcon="user"
                 />
                 {top3[2].isCurrentUser && (
                   <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
@@ -320,12 +260,13 @@ const LeaderboardSection: React.FC = () => {
             {leaderboardData.map((entry, index) => (
               <div key={entry.userId} className="text-center">
                 <div className="relative">
-                  <img 
+                  <EncryptedImage 
                     src={entry.avatar} 
                     alt={entry.name} 
                     className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${
                       index === 0 ? 'border-yellow-400' : index === 1 ? 'border-gray-400' : 'border-amber-600'
                     } object-cover`}
+                    fallbackIcon="user"
                   />
                   {index === 0 && <Crown className="w-6 h-6 text-yellow-400 absolute -top-2 left-1/2 -translate-x-1/2" />}
                   {entry.isCurrentUser && (
@@ -375,10 +316,11 @@ const LeaderboardSection: React.FC = () => {
               }`}>
                 {entry.rank}
               </div>
-              <img 
+              <EncryptedImage 
                 src={entry.avatar} 
                 alt={entry.name} 
                 className={`w-10 h-10 rounded-full object-cover border-2 ${LEVEL_BORDER_COLORS[entry.level] || 'border-gray-200'}`}
+                fallbackIcon="user"
               />
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">

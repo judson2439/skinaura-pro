@@ -9,9 +9,11 @@ import {
 import { ProgressPhoto, PhotoAnnotation, PhotoComment } from '../modals/progressPhotosTypes';
 import UploadPhotoModal from '../modals/UploadPhotoModal';
 import PhotoDetailModal from '../modals/PhotoDetailModal';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
+import { uploadImage } from '@/lib/encryption';
 
 // ============================================================================
 // TYPES - Matching actual progress_photos table structure
@@ -56,8 +58,10 @@ const dbToProgressPhoto = (dbPhoto: DBProgressPhoto): ProgressPhoto => {
 // ============================================================================
 
 const ProgressPhotosSection: React.FC = () => {
-  const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Get auth token for API calls
+  const authToken = getAuthToken();
 
   // State
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
@@ -88,21 +92,27 @@ const ProgressPhotosSection: React.FC = () => {
   // ============================================================================
 
   const fetchPhotos = async () => {
-    if (!user) {
+    const token = getAuthToken();
+    if (!token) {
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('progress_photos')
-        .select('*')
-        .eq('client_id', user.id)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { 
+          photos: DBProgressPhoto[]; 
+          metadata: Record<string, { hasAnnotations: boolean; hasComments: boolean }>;
+        };
+        error?: string;
+      }>('/api/client/progress-photos');
 
-      if (error) {
-        console.error('Error fetching photos:', error);
+      if (!response.data.success) {
+        console.error('Error fetching photos:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to load progress photos. Please try again.',
@@ -111,12 +121,10 @@ const ProgressPhotosSection: React.FC = () => {
         return;
       }
 
-      if (data) {
-        const progressPhotos = (data as DBProgressPhoto[]).map(dbToProgressPhoto);
+      if (response.data.data) {
+        const progressPhotos = response.data.data.photos.map(dbToProgressPhoto);
         setPhotos(progressPhotos);
-        
-        // Fetch metadata for all photos (annotations and comments counts)
-        await fetchPhotoMetadata(progressPhotos.map(p => p.id));
+        setPhotoMetadata(response.data.data.metadata || {});
       }
     } catch (error) {
       console.error('Error fetching photos:', error);
@@ -130,80 +138,26 @@ const ProgressPhotosSection: React.FC = () => {
     }
   };
 
-  // Fetch metadata (has annotations/comments) for all photos
-  const fetchPhotoMetadata = async (photoIds: string[]) => {
-    if (photoIds.length === 0) return;
-
-    try {
-      // Fetch annotations count per photo
-      const { data: annotationsData } = await supabase
-        .from('photo_annotations')
-        .select('photo_id')
-        .in('photo_id', photoIds);
-
-      // Fetch comments count per photo
-      const { data: commentsData } = await supabase
-        .from('photo_comments')
-        .select('photo_id')
-        .in('photo_id', photoIds);
-
-      const metadata: Record<string, { hasAnnotations: boolean; hasComments: boolean }> = {};
-      
-      photoIds.forEach(id => {
-        metadata[id] = {
-          hasAnnotations: annotationsData?.some(a => a.photo_id === id) || false,
-          hasComments: commentsData?.some(c => c.photo_id === id) || false,
-        };
-      });
-
-      setPhotoMetadata(metadata);
-    } catch (error) {
-      console.error('Error fetching photo metadata:', error);
-    }
-  };
-
   // ============================================================================
   // FETCH ANNOTATIONS FOR SELECTED PHOTO
   // ============================================================================
 
   const fetchAnnotations = async (photoId: string) => {
+    const token = getAuthToken();
+    if (!token) return;
+
     setAnnotationsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('photo_annotations')
-        .select(`
-          id,
-          photo_id,
-          professional_id,
-          markup_image,
-          created_at,
-          updated_at
-        `)
-        .eq('photo_id', photoId)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { annotations: PhotoAnnotation[] };
+        error?: string;
+      }>(`/api/client/progress-photos/${photoId}/annotations`);
 
-      if (error) {
-        console.error('Error fetching annotations:', error);
-        setPhotoAnnotations([]);
-        return;
-      }
-
-      // Try to get professional names
-      if (data && data.length > 0) {
-        const professionalIds = [...new Set(data.map(a => a.professional_id))];
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', professionalIds);
-
-        const profileMap = new Map(profiles?.map(p => [p.id, p.full_name]) || []);
-
-        const annotationsWithNames: PhotoAnnotation[] = data.map(ann => ({
-          ...ann,
-          professional_name: profileMap.get(ann.professional_id) || undefined,
-        }));
-
-        setPhotoAnnotations(annotationsWithNames);
+      if (response.data.success && response.data.data) {
+        setPhotoAnnotations(response.data.data.annotations);
       } else {
         setPhotoAnnotations([]);
       }
@@ -220,44 +174,21 @@ const ProgressPhotosSection: React.FC = () => {
   // ============================================================================
 
   const fetchComments = async (photoId: string) => {
+    const token = getAuthToken();
+    if (!token) return;
+
     setCommentsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('photo_comments')
-        .select(`
-          id,
-          photo_id,
-          professional_id,
-          content,
-          created_at,
-          updated_at
-        `)
-        .eq('photo_id', photoId)
-        .order('created_at', { ascending: true });
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { comments: PhotoComment[] };
+        error?: string;
+      }>(`/api/client/progress-photos/${photoId}/comments`);
 
-      if (error) {
-        console.error('Error fetching comments:', error);
-        setPhotoComments([]);
-        return;
-      }
-
-      // Try to get professional names and avatars
-      if (data && data.length > 0) {
-        const professionalIds = [...new Set(data.map(c => c.professional_id))];
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', professionalIds);
-
-        const profileMap = new Map(profiles?.map(p => [p.id, { name: p.full_name, avatar: p.avatar_url }]) || []);
-
-        const commentsWithNames: PhotoComment[] = data.map(comment => ({
-          ...comment,
-          professional_name: profileMap.get(comment.professional_id)?.name || undefined,
-          professional_avatar: profileMap.get(comment.professional_id)?.avatar || undefined,
-        }));
-
-        setPhotoComments(commentsWithNames);
+      if (response.data.success && response.data.data) {
+        setPhotoComments(response.data.data.comments);
       } else {
         setPhotoComments([]);
       }
@@ -272,7 +203,7 @@ const ProgressPhotosSection: React.FC = () => {
   // Fetch photos on component mount
   useEffect(() => {
     fetchPhotos();
-  }, [user]);
+  }, [authToken]);
 
   // Group photos by month
   const photosByMonth = photos.reduce((acc, photo) => {
@@ -292,25 +223,17 @@ const ProgressPhotosSection: React.FC = () => {
 
   const handlePhotoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    const token = getAuthToken();
+    if (!file || !token) return;
 
     setUploading(true);
 
     try {
-      // Step 1: Generate unique file name
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      // Step 1: Upload photo to backend using encrypted image upload
+      const uploadResult = await uploadImage(file, 'photos', token);
 
-      // Step 2: Upload photo to Supabase Storage (progress-photos bucket)
-      const { error: uploadError } = await supabase.storage
-        .from('progress-photos')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
+      if (!uploadResult.success || !uploadResult.data?.image_url) {
+        console.error('Upload error:', uploadResult.error);
         toast({
           title: 'Upload Failed',
           description: 'Failed to upload photo. Please try again.',
@@ -320,33 +243,35 @@ const ProgressPhotosSection: React.FC = () => {
         return;
       }
 
-      // Step 3: Get public URL for the uploaded photo
-      const { data: urlData } = supabase.storage
-        .from('progress-photos')
-        .getPublicUrl(fileName);
+      const photoUrl = uploadResult.data.image_url;
 
-      const photoUrl = urlData.publicUrl;
+      // Step 2: Create progress photo record
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { photo: DBProgressPhoto };
+        error?: string;
+      }>('/api/client/progress-photos', {
+        photo_url: photoUrl,
+        photo_type: uploadPhotoType,
+        title: uploadPhotoTitle || null,
+        notes: uploadPhotoNotes || null,
+      });
 
-      // Step 4: Insert record into progress_photos table using correct column names
-      const { data: insertedData, error: insertError } = await supabase
-        .from('progress_photos')
-        .insert({
-          client_id: user.id,
-          photo_url: photoUrl,
-          photo_type: uploadPhotoType,
-          title: uploadPhotoTitle || null,
-          notes: uploadPhotoNotes || null,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Database insert error:', insertError);
+      if (!response.data.success || !response.data.data?.photo) {
+        console.error('Database insert error:', response.data.error);
         
         // Clean up: Delete uploaded file if database insert fails
-        await supabase.storage
-          .from('progress-photos')
-          .remove([fileName]);
+        try {
+          const match = photoUrl.match(/\/api\/images\/(\w+)\/([^/]+)$/);
+          if (match) {
+            const [, category, filename] = match;
+            await apiClient.delete(`/api/images/${category}/${filename}`);
+          }
+        } catch (cleanupError) {
+          console.error('Cleanup error:', cleanupError);
+        }
 
         toast({
           title: 'Error',
@@ -357,19 +282,17 @@ const ProgressPhotosSection: React.FC = () => {
         return;
       }
 
-      // Step 5: Add new photo to state
-      if (insertedData) {
-        const newPhoto = dbToProgressPhoto(insertedData as DBProgressPhoto);
-        setPhotos(prev => [newPhoto, ...prev]);
-        
-        // Initialize metadata for new photo
-        setPhotoMetadata(prev => ({
-          ...prev,
-          [newPhoto.id]: { hasAnnotations: false, hasComments: false }
-        }));
-      }
+      // Step 3: Add new photo to state
+      const newPhoto = dbToProgressPhoto(response.data.data.photo);
+      setPhotos(prev => [newPhoto, ...prev]);
+      
+      // Initialize metadata for new photo
+      setPhotoMetadata(prev => ({
+        ...prev,
+        [newPhoto.id]: { hasAnnotations: false, hasComments: false }
+      }));
 
-      // Step 6: Show success message and close modal
+      // Step 4: Show success message and close modal
       toast({
         title: 'Photo Uploaded',
         description: 'Your progress photo has been uploaded successfully.',
@@ -407,21 +330,23 @@ const ProgressPhotosSection: React.FC = () => {
 
   // Handle photo delete
   const handleDeletePhoto = async (photoId: string) => {
-    if (!user) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     try {
       // Find the photo to get the URL for storage deletion
       const photoToDelete = photos.find(p => p.id === photoId);
       
-      // Delete from database using client_id
-      const { error } = await supabase
-        .from('progress_photos')
-        .delete()
-        .eq('id', photoId)
-        .eq('client_id', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        data?: { photo_url: string };
+        error?: string;
+      }>(`/api/client/progress-photos/${photoId}`);
 
-      if (error) {
-        console.error('Delete error:', error);
+      if (!response.data.success) {
+        console.error('Delete error:', response.data.error);
         toast({
           title: 'Error',
           description: 'Failed to delete photo. Please try again.',
@@ -431,16 +356,13 @@ const ProgressPhotosSection: React.FC = () => {
       }
 
       // Try to delete from storage if we have the URL
-      if (photoToDelete?.photo_url) {
+      const photoUrl = response.data.data?.photo_url || photoToDelete?.photo_url;
+      if (photoUrl) {
         try {
-          // Extract file path from URL
-          const url = new URL(photoToDelete.photo_url);
-          const pathParts = url.pathname.split('/progress-photos/');
-          if (pathParts.length > 1) {
-            const filePath = pathParts[1];
-            await supabase.storage
-              .from('progress-photos')
-              .remove([filePath]);
+          const match = photoUrl.match(/\/api\/images\/(\w+)\/([^/]+)$/);
+          if (match) {
+            const [, category, filename] = match;
+            await apiClient.delete(`/api/images/${category}/${filename}`);
           }
         } catch (storageError) {
           console.error('Storage delete error:', storageError);
@@ -542,10 +464,12 @@ const ProgressPhotosSection: React.FC = () => {
                         onClick={() => openPhotoDetail(photo)}
                         className="relative group cursor-pointer rounded-xl overflow-hidden aspect-square bg-gray-100"
                       >
-                        <img
+                        <EncryptedImage
                           src={photo.photo_url}
                           alt={photo.title || 'Progress photo'}
                           className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                          fallbackIcon="user"
+                          showFallback={true}
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                           <div className="absolute bottom-0 left-0 right-0 p-3">

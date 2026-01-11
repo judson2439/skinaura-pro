@@ -13,39 +13,20 @@ import {
   RefreshCw,
   Calendar,
   Tag,
-  ExternalLink,
   Trash2,
 } from 'lucide-react';
 import ImageMarkupEditor from '@/components/professional/modals/ImageMarkupEditor';
 import { AnnotationData } from '@/hooks/usePhotoAnnotations';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
+import { uploadImage } from '@/lib/encryption';
 import { useToast } from '@/hooks/use-toast';
 import { CustomSelect } from '@/components/ui/custom-select';
 
 // ============================================================================
 // TYPES
 // ============================================================================
-
-// Database type for photo_comments table
-interface DBPhotoComment {
-  id: string;
-  photo_id: string;
-  professional_id: string;
-  content: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// Database type for photo_annotations table
-interface DBPhotoAnnotation {
-  id: string;
-  photo_id: string;
-  professional_id: string;
-  markup_image: string;
-  created_at: string;
-  updated_at: string;
-}
 
 interface PhotoComment {
   id: string;
@@ -87,7 +68,7 @@ interface Client {
   isRegistered: boolean;
 }
 
-// Database types - Matching actual progress_photos table structure
+// Database types
 interface DBProgressPhoto {
   id: string;
   client_id: string;
@@ -103,34 +84,17 @@ interface DBProgressPhoto {
   title: string | null;
 }
 
-// Database type for user_profiles table
 interface DBUserProfile {
   id: string;
   email: string;
   full_name: string | null;
   avatar_url: string | null;
-  phone: string | null;
-  skin_type: string | null;
-  concerns: string[] | null;
-  role: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// Database type for client_professional_relationships table
-interface DBClientProfessionalRelationship {
-  id: string;
-  client_id: string;
-  professional_id: string;
-  created_at: string;
-  updated_at: string;
 }
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Convert database record to ProgressPhoto type
 const dbToProgressPhoto = (dbPhoto: DBProgressPhoto): ProgressPhoto => {
   return {
     id: dbPhoto.id,
@@ -148,7 +112,6 @@ const dbToProgressPhoto = (dbPhoto: DBProgressPhoto): ProgressPhoto => {
   };
 };
 
-// Convert database user profile to Client type
 const dbToClient = (dbProfile: DBUserProfile): Client => {
   return {
     id: dbProfile.id,
@@ -164,8 +127,12 @@ const dbToClient = (dbProfile: DBUserProfile): Client => {
 // ============================================================================
 
 const ClientPhotosSection: React.FC = () => {
-  const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Get auth token for API calls
+  const authToken = getAuthToken();
+  const session = getAuthSession();
+  const userId = session?.user?.id;
 
   // State
   const [loading, setLoading] = useState(true);
@@ -184,6 +151,7 @@ const ClientPhotosSection: React.FC = () => {
   const [savingAnnotation, setSavingAnnotation] = useState(false);
   const [loadingPhotoDetails, setLoadingPhotoDetails] = useState(false);
   const [viewingMarkup, setViewingMarkup] = useState<PhotoAnnotation | null>(null);
+  const [showingOriginalInViewer, setShowingOriginalInViewer] = useState(false);
   const [deletingAnnotation, setDeletingAnnotation] = useState<string | null>(null);
   const [deletingComment, setDeletingComment] = useState<string | null>(null);
 
@@ -192,7 +160,8 @@ const ClientPhotosSection: React.FC = () => {
   // ============================================================================
 
   const fetchData = async (showRefreshIndicator = false) => {
-    if (!user?.id) {
+    const token = getAuthToken();
+    if (!token) {
       setLoading(false);
       return;
     }
@@ -204,110 +173,34 @@ const ClientPhotosSection: React.FC = () => {
     }
 
     try {
-      // ========================================================================
-      // STEP 1: Get all client_ids from client_professional_relationships table
-      // where professional_id matches the current signed-in professional's id
-      // ========================================================================
-      console.log('Fetching client relationships for professional:', user.id);
+      apiClient.setAuthToken(token);
       
-      const { data: relationshipsData, error: relationshipsError } = await supabase
-        .from('client_professional_relationships')
-        .select('client_id, professional_id, created_at')
-        .eq('professional_id', user.id);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { 
+          photos: DBProgressPhoto[]; 
+          clients: DBUserProfile[];
+        };
+        error?: string;
+      }>('/api/professional/client-photos');
 
-      if (relationshipsError) {
-        console.error('Error fetching client_professional_relationships:', relationshipsError);
+      if (!response.data.success) {
+        console.error('Error fetching data:', response.data.error);
         toast({
           title: 'Error',
-          description: 'Failed to load client relationships. Please try again.',
+          description: 'Failed to load client photos. Please try again.',
           variant: 'destructive',
         });
         return;
       }
 
-      console.log('Relationships data:', relationshipsData);
-
-      // Extract unique client IDs from the relationships
-      const clientIds: string[] = [];
-      if (relationshipsData && relationshipsData.length > 0) {
-        relationshipsData.forEach((relationship: DBClientProfessionalRelationship) => {
-          if (relationship.client_id && !clientIds.includes(relationship.client_id)) {
-            clientIds.push(relationship.client_id);
-          }
-        });
+      if (response.data.data) {
+        const mappedPhotos = response.data.data.photos.map(dbToProgressPhoto);
+        const mappedClients = response.data.data.clients.map(dbToClient);
+        setPhotos(mappedPhotos);
+        setClients(mappedClients);
+        console.log(`Successfully loaded ${mappedClients.length} clients and ${mappedPhotos.length} photos`);
       }
-
-      console.log('Client IDs extracted:', clientIds);
-
-      if (clientIds.length === 0) {
-        // No clients found for this professional
-        console.log('No clients found for this professional');
-        setPhotos([]);
-        setClients([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      // ========================================================================
-      // STEP 2: Get client details from user_profiles table using the client_ids
-      // ========================================================================
-      console.log('Fetching client profiles for IDs:', clientIds);
-      
-      const { data: clientsData, error: clientsError } = await supabase
-        .from('user_profiles')
-        .select('id, email, full_name, avatar_url, phone, skin_type, concerns, role, created_at, updated_at')
-        .in('id', clientIds);
-
-      if (clientsError) {
-        console.error('Error fetching user_profiles:', clientsError);
-        toast({
-          title: 'Error',
-          description: 'Failed to load client details. Please try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      console.log('Clients data:', clientsData);
-
-      // Map database data to Client interface
-      const mappedClients: Client[] = (clientsData || []).map((profile: DBUserProfile) => 
-        dbToClient(profile)
-      );
-      setClients(mappedClients);
-
-      // ========================================================================
-      // STEP 3: Get progress_photos from progress_photos table
-      // where client_id matches any of the client_ids from step 1
-      // ========================================================================
-      console.log('Fetching progress photos for client IDs:', clientIds);
-      
-      const { data: photosData, error: photosError } = await supabase
-        .from('progress_photos')
-        .select('*')
-        .in('client_id', clientIds)
-        .order('created_at', { ascending: false });
-
-      if (photosError) {
-        console.error('Error fetching progress_photos:', photosError);
-        toast({
-          title: 'Error',
-          description: 'Failed to load progress photos. Please try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      console.log('Photos data:', photosData);
-
-      // Map database data to ProgressPhoto interface
-      const mappedPhotos: ProgressPhoto[] = (photosData || []).map((photo: DBProgressPhoto) => 
-        dbToProgressPhoto(photo)
-      );
-      setPhotos(mappedPhotos);
-
-      console.log('Successfully loaded', mappedClients.length, 'clients and', mappedPhotos.length, 'photos');
 
     } catch (error) {
       console.error('Unexpected error fetching data:', error);
@@ -324,106 +217,59 @@ const ClientPhotosSection: React.FC = () => {
 
   // Fetch comments and annotations for a specific photo
   const fetchPhotoDetails = async (photoId: string) => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token) return;
 
     setLoadingPhotoDetails(true);
     try {
-      // Fetch comments from photo_comments table
-      const { data: commentsData, error: commentsError } = await supabase
-        .from('photo_comments')
-        .select('*')
-        .eq('photo_id', photoId)
-        .order('created_at', { ascending: true });
+      apiClient.setAuthToken(token);
+      
+      // Fetch comments and annotations in parallel
+      const [commentsResponse, annotationsResponse] = await Promise.all([
+        apiClient.get<{
+          success: boolean;
+          data?: { comments: PhotoComment[] };
+          error?: string;
+        }>(`/api/professional/photos/${photoId}/comments`),
+        apiClient.get<{
+          success: boolean;
+          data?: { annotations: PhotoAnnotation[] };
+          error?: string;
+        }>(`/api/professional/photos/${photoId}/annotations`),
+      ]);
 
-      if (commentsError) {
-        console.error('Error fetching comments:', commentsError);
+      if (commentsResponse.data.success && commentsResponse.data.data) {
+        setComments(commentsResponse.data.data.comments);
       } else {
-        // Get professional names for comments
-        const professionalIds = [...new Set((commentsData || []).map((c: DBPhotoComment) => c.professional_id))];
-        let professionalNames: Record<string, string> = {};
-        
-        if (professionalIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from('user_profiles')
-            .select('id, full_name')
-            .in('id', professionalIds);
-          
-          if (profilesData) {
-            professionalNames = profilesData.reduce((acc: Record<string, string>, p: { id: string; full_name: string | null }) => {
-              acc[p.id] = p.full_name || 'Professional';
-              return acc;
-            }, {});
-          }
-        }
-
-        const mappedComments: PhotoComment[] = (commentsData || []).map((c: DBPhotoComment) => ({
-          id: c.id,
-          content: c.content,
-          created_at: c.created_at,
-          professional_id: c.professional_id,
-          professional_name: c.professional_id === user.id ? 'You' : (professionalNames[c.professional_id] || 'Professional'),
-        }));
-        setComments(mappedComments);
+        setComments([]);
       }
 
-      // Fetch annotations from photo_annotations table
-      const { data: annotationsData, error: annotationsError } = await supabase
-        .from('photo_annotations')
-        .select('*')
-        .eq('photo_id', photoId)
-        .order('created_at', { ascending: false });
-
-      if (annotationsError) {
-        console.error('Error fetching annotations:', annotationsError);
+      if (annotationsResponse.data.success && annotationsResponse.data.data) {
+        setAnnotations(annotationsResponse.data.data.annotations);
       } else {
-        // Get professional names for annotations
-        const professionalIds = [...new Set((annotationsData || []).map((a: DBPhotoAnnotation) => a.professional_id))];
-        let professionalNames: Record<string, string> = {};
-        
-        if (professionalIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from('user_profiles')
-            .select('id, full_name')
-            .in('id', professionalIds);
-          
-          if (profilesData) {
-            professionalNames = profilesData.reduce((acc: Record<string, string>, p: { id: string; full_name: string | null }) => {
-              acc[p.id] = p.full_name || 'Professional';
-              return acc;
-            }, {});
-          }
-        }
-
-        const mappedAnnotations: PhotoAnnotation[] = (annotationsData || []).map((a: DBPhotoAnnotation) => ({
-          id: a.id,
-          photo_id: a.photo_id,
-          professional_id: a.professional_id,
-          markup_image: a.markup_image,
-          created_at: a.created_at,
-          professional_name: a.professional_id === user.id ? 'You' : (professionalNames[a.professional_id] || 'Professional'),
-        }));
-        setAnnotations(mappedAnnotations);
+        setAnnotations([]);
       }
     } catch (error) {
       console.error('Error fetching photo details:', error);
+      setComments([]);
+      setAnnotations([]);
     } finally {
       setLoadingPhotoDetails(false);
     }
   };
 
-  // Fetch data on component mount and when user changes
+  // Fetch data on component mount and when auth token changes
   useEffect(() => {
-    if (user?.id) {
+    if (authToken) {
       fetchData();
     }
-  }, [user?.id]);
+  }, [authToken]);
 
   // Fetch photo details when a photo is selected
   useEffect(() => {
     if (selectedPhoto && showPhotoModal) {
       fetchPhotoDetails(selectedPhoto.id);
     } else {
-      // Clear comments and annotations when modal is closed
       setComments([]);
       setAnnotations([]);
     }
@@ -437,14 +283,12 @@ const ClientPhotosSection: React.FC = () => {
     const client = clientLookup.get(photo.client_id);
     const clientName = client?.name || '';
     
-    // Search filter - match against client name, photo title, notes, or tags
     const matchesSearch = !photoSearchQuery || 
       clientName.toLowerCase().includes(photoSearchQuery.toLowerCase()) ||
       (photo.title?.toLowerCase().includes(photoSearchQuery.toLowerCase())) ||
       (photo.notes?.toLowerCase().includes(photoSearchQuery.toLowerCase())) ||
       (photo.tags?.some(tag => tag.toLowerCase().includes(photoSearchQuery.toLowerCase())));
     
-    // Client filter - match against selected client
     const matchesClient = !selectedClientFilter || photo.client_id === selectedClientFilter;
     
     return matchesSearch && matchesClient;
@@ -471,36 +315,28 @@ const ClientPhotosSection: React.FC = () => {
   };
 
   const handleAddComment = async () => {
-    if (!selectedPhoto || !newComment.trim() || !user?.id) return;
+    const token = getAuthToken();
+    if (!selectedPhoto || !newComment.trim() || !token) return;
     
     setAddingComment(true);
     try {
-      // Save comment to photo_comments table
-      const { data: newCommentData, error: insertError } = await supabase
-        .from('photo_comments')
-        .insert({
-          photo_id: selectedPhoto.id,
-          professional_id: user.id,
-          content: newComment.trim(),
-        })
-        .select()
-        .single();
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { comment: PhotoComment };
+        error?: string;
+      }>(`/api/professional/photos/${selectedPhoto.id}/comments`, {
+        content: newComment.trim(),
+      });
 
-      if (insertError) {
-        console.error('Error inserting comment:', insertError);
-        throw new Error(`Failed to add feedback: ${insertError.message}`);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to add feedback');
       }
-      
-      // Add the new comment to local state
-      const newCommentObj: PhotoComment = {
-        id: newCommentData.id,
-        content: newCommentData.content,
-        created_at: newCommentData.created_at,
-        professional_id: newCommentData.professional_id,
-        professional_name: 'You',
-      };
-      
-      setComments(prev => [...prev, newCommentObj]);
+
+      if (response.data.data?.comment) {
+        setComments(prev => [...prev, response.data.data!.comment]);
+      }
       setNewComment('');
 
       toast({
@@ -520,22 +356,22 @@ const ClientPhotosSection: React.FC = () => {
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token || !selectedPhoto) return;
 
     setDeletingComment(commentId);
     try {
-      const { error: deleteError } = await supabase
-        .from('photo_comments')
-        .delete()
-        .eq('id', commentId)
-        .eq('professional_id', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        error?: string;
+      }>(`/api/professional/photos/${selectedPhoto.id}/comments/${commentId}`);
 
-      if (deleteError) {
-        console.error('Error deleting comment:', deleteError);
-        throw new Error(`Failed to delete feedback: ${deleteError.message}`);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to delete feedback');
       }
 
-      // Remove from local state
       setComments(prev => prev.filter(c => c.id !== commentId));
 
       toast({
@@ -555,10 +391,11 @@ const ClientPhotosSection: React.FC = () => {
   };
 
   const handleSaveAnnotation = async (annotationData: AnnotationData, imageBlob: Blob) => {
-    if (!selectedPhoto || !user?.id) {
+    const token = getAuthToken();
+    if (!selectedPhoto || !token) {
       toast({
         title: 'Error',
-        description: 'Missing photo or user information.',
+        description: 'Missing photo or authentication.',
         variant: 'destructive',
       });
       return;
@@ -566,59 +403,34 @@ const ClientPhotosSection: React.FC = () => {
 
     setSavingAnnotation(true);
     try {
-      // Generate unique filename for the markup image
-      const timestamp = Date.now();
-      const randomStr = Math.random().toString(36).substring(2, 8);
-      const fileName = `markups/${user.id}/${selectedPhoto.id}/${timestamp}-${randomStr}.png`;
+      // Upload the annotated image
+      const file = new File([imageBlob], `markup-${Date.now()}.png`, { type: 'image/png' });
+      const uploadResult = await uploadImage(file, 'photos', token);
 
-      // Upload the annotated image to Supabase storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('progress-photos')
-        .upload(fileName, imageBlob, {
-          contentType: 'image/png',
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error('Error uploading markup image:', uploadError);
-        throw new Error(`Failed to upload image: ${uploadError.message}`);
+      if (!uploadResult.success || !uploadResult.data?.image_url) {
+        throw new Error(uploadResult.error || 'Failed to upload markup image');
       }
 
-      // Get the public URL for the uploaded image
-      const { data: publicUrlData } = supabase.storage
-        .from('progress-photos')
-        .getPublicUrl(fileName);
+      const markupImageUrl = uploadResult.data.image_url;
 
-      const markupImageUrl = publicUrlData.publicUrl;
-
-      // Save the annotation record to photo_annotations table
-      const { data: annotationRecord, error: insertError } = await supabase
-        .from('photo_annotations')
-        .insert({
-          photo_id: selectedPhoto.id,
-          professional_id: user.id,
-          markup_image: markupImageUrl,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Error saving annotation record:', insertError);
-        throw new Error(`Failed to save annotation: ${insertError.message}`);
-      }
-
-      // Update local state with the new annotation
-      const newAnnotation: PhotoAnnotation = {
-        id: annotationRecord.id,
-        photo_id: selectedPhoto.id,
-        professional_id: user.id,
-        markup_image: markupImageUrl,
-        created_at: annotationRecord.created_at,
-        professional_name: 'You',
-      };
+      // Save the annotation record
+      apiClient.setAuthToken(token);
       
-      setAnnotations(prev => [newAnnotation, ...prev]);
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { annotation: PhotoAnnotation };
+        error?: string;
+      }>(`/api/professional/photos/${selectedPhoto.id}/annotations`, {
+        markup_image: markupImageUrl,
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to save annotation');
+      }
+
+      if (response.data.data?.annotation) {
+        setAnnotations(prev => [response.data.data!.annotation, ...prev]);
+      }
       setShowMarkupEditor(false);
 
       toast({
@@ -638,36 +450,37 @@ const ClientPhotosSection: React.FC = () => {
   };
 
   const handleDeleteAnnotation = async (annotationId: string, markupImageUrl: string) => {
-    if (!user?.id) return;
+    const token = getAuthToken();
+    if (!token || !selectedPhoto) return;
 
     setDeletingAnnotation(annotationId);
     try {
-      // Delete the annotation record from database
-      const { error: deleteError } = await supabase
-        .from('photo_annotations')
-        .delete()
-        .eq('id', annotationId)
-        .eq('professional_id', user.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        data?: { markup_image: string };
+        error?: string;
+      }>(`/api/professional/photos/${selectedPhoto.id}/annotations/${annotationId}`);
 
-      if (deleteError) {
-        console.error('Error deleting annotation:', deleteError);
-        throw new Error(`Failed to delete markup: ${deleteError.message}`);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to delete markup');
       }
 
-      // Try to delete the image from storage (extract path from URL)
-      try {
-        const url = new URL(markupImageUrl);
-        const pathParts = url.pathname.split('/storage/v1/object/public/progress-photos/');
-        if (pathParts.length > 1) {
-          const filePath = pathParts[1];
-          await supabase.storage.from('progress-photos').remove([filePath]);
+      // Try to delete the image from storage
+      const imageUrl = response.data.data?.markup_image || markupImageUrl;
+      if (imageUrl) {
+        try {
+          const match = imageUrl.match(/\/api\/images\/(\w+)\/([^/]+)$/);
+          if (match) {
+            const [, category, filename] = match;
+            await apiClient.delete(`/api/images/${category}/${filename}`);
+          }
+        } catch (storageError) {
+          console.warn('Could not delete image from storage:', storageError);
         }
-      } catch (storageError) {
-        console.warn('Could not delete image from storage:', storageError);
-        // Continue anyway - the record is deleted
       }
 
-      // Remove from local state
       setAnnotations(prev => prev.filter(a => a.id !== annotationId));
 
       toast({
@@ -688,7 +501,6 @@ const ClientPhotosSection: React.FC = () => {
 
   const handleViewClientProfile = (clientId: string) => {
     console.log('View client profile:', clientId);
-    // TODO: Integrate with client profile modal
   };
 
   const handleRefresh = () => {
@@ -904,17 +716,12 @@ const ClientPhotosSection: React.FC = () => {
                   }}
                   className="relative cursor-pointer aspect-square bg-gray-100"
                 >
-                  <img
+                  <EncryptedImage
                     src={photo.thumbnail_url || photo.photo_url}
                     alt={photo.title || 'Progress photo'}
                     className="w-full h-full object-cover transition-transform hover:scale-105"
-                    onError={(e) => {
-                      // Fallback to main photo_url if thumbnail fails
-                      const target = e.target as HTMLImageElement;
-                      if (target.src !== photo.photo_url) {
-                        target.src = photo.photo_url;
-                      }
-                    }}
+                    fallbackIcon="user"
+                    showFallback={true}
                   />
                   {/* Photo type badge */}
                   <div className="absolute top-3 left-3">
@@ -944,10 +751,12 @@ const ClientPhotosSection: React.FC = () => {
                 {/* Client Info */}
                 <div className="p-4">
                   <div className="flex items-center gap-3 mb-2">
-                    <img
+                    <EncryptedImage
                       src={clientImage}
                       alt={clientName}
                       className="w-10 h-10 rounded-full object-cover border-2 border-gray-100"
+                      fallbackIcon="user"
+                      showFallback={true}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -1007,7 +816,7 @@ const ClientPhotosSection: React.FC = () => {
       {showPhotoModal && selectedPhoto && !showMarkupEditor && !viewingMarkup && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
           <div className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden">
-            {/* Close button - positioned outside modal for dark background */}
+            {/* Close button */}
             <button
               onClick={handleClosePhotoModal}
               className="absolute -top-12 right-0 p-2 text-white hover:bg-white/10 rounded-lg z-10"
@@ -1019,17 +828,19 @@ const ClientPhotosSection: React.FC = () => {
               <div className="grid md:grid-cols-2 max-h-[85vh]">
                 {/* Photo */}
                 <div className="relative bg-black flex items-center justify-center">
-                  <img
+                  <EncryptedImage
                     src={selectedPhoto.photo_url}
                     alt={selectedPhoto.title || 'Progress photo'}
                     className="w-full h-[400px] md:h-[500px] object-contain"
+                    fallbackIcon="user"
+                    showFallback={true}
                   />
                 </div>
 
 
                 {/* Details & Comments */}
                 <div className="p-6 flex flex-col max-h-[500px] overflow-y-auto">
-                  {/* Header row with badge, annotate button, and close button */}
+                  {/* Header row */}
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <span
                       className={`px-3 py-1 rounded-full text-sm font-medium ${
@@ -1044,14 +855,12 @@ const ClientPhotosSection: React.FC = () => {
                         selectedPhoto.photo_type.slice(1)}
                     </span>
                     <div className="flex items-center gap-2">
-                      {/* Annotate Button */}
                       <button
                         onClick={() => setShowMarkupEditor(true)}
                         className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white rounded-lg text-sm font-medium hover:shadow-lg transition-all"
                       >
                         <Edit className="w-4 h-4" /> Annotate
                       </button>
-                      {/* Close button */}
                       <button
                         onClick={handleClosePhotoModal}
                         className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
@@ -1075,10 +884,12 @@ const ClientPhotosSection: React.FC = () => {
                   {/* Client Info */}
                   {clientLookup.get(selectedPhoto.client_id) && (
                     <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
-                      <img
-                        src={clientLookup.get(selectedPhoto.client_id)?.image}
-                        alt={clientLookup.get(selectedPhoto.client_id)?.name}
+                      <EncryptedImage
+                        src={clientLookup.get(selectedPhoto.client_id)?.image || ''}
+                        alt={clientLookup.get(selectedPhoto.client_id)?.name || ''}
                         className="w-10 h-10 rounded-full object-cover"
+                        fallbackIcon="user"
+                        showFallback={true}
                       />
                       <div>
                         <p className="font-medium text-gray-900">
@@ -1140,10 +951,12 @@ const ClientPhotosSection: React.FC = () => {
                             className="flex items-center justify-between text-sm bg-white p-2 rounded-lg"
                           >
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <img
+                              <EncryptedImage
                                 src={ann.markup_image}
                                 alt="Markup thumbnail"
                                 className="w-10 h-10 rounded object-cover border border-gray-200"
+                                fallbackIcon="user"
+                                showFallback={true}
                               />
                               <div className="flex-1 min-w-0">
                                 <p className="text-gray-700 font-medium truncate">
@@ -1162,16 +975,7 @@ const ClientPhotosSection: React.FC = () => {
                               >
                                 <Eye className="w-4 h-4 text-gray-500" />
                               </button>
-                              <a
-                                href={ann.markup_image}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="Open in new tab"
-                              >
-                                <ExternalLink className="w-4 h-4 text-gray-500" />
-                              </a>
-                              {ann.professional_id === user?.id && (
+                              {ann.professional_id === userId && (
                                 <button
                                   onClick={() => handleDeleteAnnotation(ann.id, ann.markup_image)}
                                   disabled={deletingAnnotation === ann.id}
@@ -1226,7 +1030,7 @@ const ClientPhotosSection: React.FC = () => {
                                 <span className="text-xs text-gray-400">
                                   {new Date(comment.created_at).toLocaleDateString()}
                                 </span>
-                                {comment.professional_id === user?.id && (
+                                {comment.professional_id === userId && (
                                   <button
                                     onClick={() => handleDeleteComment(comment.id)}
                                     disabled={deletingComment === comment.id}
@@ -1292,7 +1096,9 @@ const ClientPhotosSection: React.FC = () => {
             {/* Header */}
             <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent z-10">
               <div className="text-white">
-                <h3 className="font-medium">Markup by {viewingMarkup.professional_name}</h3>
+                <h3 className="font-medium">
+                  {showingOriginalInViewer ? 'Original Photo' : `Markup by ${viewingMarkup.professional_name}`}
+                </h3>
                 <p className="text-sm text-gray-300">
                   {new Date(viewingMarkup.created_at).toLocaleDateString('en-US', {
                     weekday: 'long',
@@ -1303,17 +1109,22 @@ const ClientPhotosSection: React.FC = () => {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <a
-                  href={viewingMarkup.markup_image}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open Original
-                </a>
                 <button
-                  onClick={() => setViewingMarkup(null)}
+                  onClick={() => setShowingOriginalInViewer(!showingOriginalInViewer)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    showingOriginalInViewer 
+                      ? 'bg-[#CFAFA3] text-white hover:bg-[#B89A8E]' 
+                      : 'bg-white/10 hover:bg-white/20 text-white'
+                  }`}
+                >
+                  <Eye className="w-4 h-4" />
+                  {showingOriginalInViewer ? 'Show Markup' : 'Show Original'}
+                </button>
+                <button
+                  onClick={() => {
+                    setViewingMarkup(null);
+                    setShowingOriginalInViewer(false);
+                  }}
                   className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -1323,10 +1134,12 @@ const ClientPhotosSection: React.FC = () => {
 
             {/* Image */}
             <div className="flex items-center justify-center h-full">
-              <img
-                src={viewingMarkup.markup_image}
-                alt="Markup"
+              <EncryptedImage
+                src={showingOriginalInViewer ? selectedPhoto?.photo_url : viewingMarkup.markup_image}
+                alt={showingOriginalInViewer ? "Original photo" : "Markup"}
                 className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+                fallbackIcon="user"
+                showFallback={true}
               />
             </div>
           </div>

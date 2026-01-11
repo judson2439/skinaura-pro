@@ -1338,4 +1338,795 @@ router.delete('/products/:productId', authMiddleware, async (req: Request, res: 
   }
 });
 
+// ============================================================================
+// PROGRESS PHOTOS ROUTES
+// ============================================================================
+
+interface ProgressPhoto {
+  id: string;
+  client_id: string;
+  photo_url: string;
+  thumbnail_url: string | null;
+  notes: string | null;
+  skin_analysis: Record<string, unknown> | null;
+  tags: string[] | null;
+  taken_at: string;
+  created_at: string;
+  updated_at: string;
+  photo_type: string | null;
+  title: string | null;
+}
+
+interface PhotoAnnotation {
+  id: string;
+  photo_id: string;
+  professional_id: string;
+  markup_image: string | null;
+  created_at: string;
+  updated_at: string;
+  professional_name?: string;
+}
+
+interface PhotoComment {
+  id: string;
+  photo_id: string;
+  professional_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  professional_name?: string;
+  professional_avatar?: string;
+}
+
+// GET /client/progress-photos - Get all progress photos for the client
+router.get('/progress-photos', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`📸 Fetching progress photos for client: ${userId}`);
+
+    const photos = await query<ProgressPhoto>(
+      `SELECT * FROM progress_photos 
+       WHERE client_id = $1 
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    // Get photo IDs for metadata fetch
+    const photoIds = photos.map(p => p.id);
+    
+    let metadata: Record<string, { hasAnnotations: boolean; hasComments: boolean }> = {};
+    
+    if (photoIds.length > 0) {
+      // Fetch annotations existence
+      const annotations = await query<{ photo_id: string }>(
+        `SELECT DISTINCT photo_id FROM photo_annotations WHERE photo_id = ANY($1)`,
+        [photoIds]
+      );
+      
+      // Fetch comments existence
+      const comments = await query<{ photo_id: string }>(
+        `SELECT DISTINCT photo_id FROM photo_comments WHERE photo_id = ANY($1)`,
+        [photoIds]
+      );
+      
+      photoIds.forEach(id => {
+        metadata[id] = {
+          hasAnnotations: annotations.some(a => a.photo_id === id),
+          hasComments: comments.some(c => c.photo_id === id),
+        };
+      });
+    }
+
+    console.log(`✅ Found ${photos.length} progress photos`);
+
+    res.status(200).json({
+      success: true,
+      data: { photos, metadata },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching progress photos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch progress photos',
+    } as ApiResponse);
+  }
+});
+
+// POST /client/progress-photos - Upload a new progress photo
+router.post('/progress-photos', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const { photo_url, photo_type, title, notes, thumbnail_url, tags } = req.body;
+
+    if (!photo_url) {
+      res.status(400).json({
+        success: false,
+        error: 'Photo URL is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📸 Adding progress photo for client: ${userId}`);
+
+    const photo = await queryOne<ProgressPhoto>(
+      `INSERT INTO progress_photos 
+       (client_id, photo_url, photo_type, title, notes, thumbnail_url, tags, taken_at, created_at, updated_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), NOW()) 
+       RETURNING *`,
+      [
+        userId,
+        photo_url,
+        photo_type || 'progress',
+        title || null,
+        notes || null,
+        thumbnail_url || null,
+        tags || null,
+      ]
+    );
+
+    console.log(`✅ Progress photo added: ${photo?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { photo },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error adding progress photo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add progress photo',
+    } as ApiResponse);
+  }
+});
+
+// DELETE /client/progress-photos/:photoId - Delete a progress photo
+router.delete('/progress-photos/:photoId', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const photoId = req.params.photoId;
+
+    console.log(`🗑️ Deleting progress photo ${photoId} for client: ${userId}`);
+
+    // Get the photo first to return the URL for storage cleanup
+    const existingPhoto = await queryOne<ProgressPhoto>(
+      `SELECT * FROM progress_photos WHERE id = $1 AND client_id = $2`,
+      [photoId, userId]
+    );
+
+    if (!existingPhoto) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found',
+      } as ApiResponse);
+      return;
+    }
+
+    // Delete the photo
+    await query(
+      `DELETE FROM progress_photos WHERE id = $1 AND client_id = $2`,
+      [photoId, userId]
+    );
+
+    console.log(`✅ Progress photo deleted: ${photoId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Photo deleted successfully',
+      data: { photo_url: existingPhoto.photo_url },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting progress photo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete progress photo',
+    } as ApiResponse);
+  }
+});
+
+// GET /client/progress-photos/:photoId/annotations - Get annotations for a photo
+router.get('/progress-photos/:photoId/annotations', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const photoId = req.params.photoId;
+
+    console.log(`📝 Fetching annotations for photo: ${photoId}`);
+
+    // Verify photo belongs to client
+    const photo = await queryOne<ProgressPhoto>(
+      `SELECT id FROM progress_photos WHERE id = $1 AND client_id = $2`,
+      [photoId, userId]
+    );
+
+    if (!photo) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found',
+      } as ApiResponse);
+      return;
+    }
+
+    // Fetch annotations with professional names
+    const annotations = await query<PhotoAnnotation & { full_name: string | null }>(
+      `SELECT pa.*, up.full_name 
+       FROM photo_annotations pa
+       LEFT JOIN user_profiles up ON pa.professional_id = up.id
+       WHERE pa.photo_id = $1
+       ORDER BY pa.created_at DESC`,
+      [photoId]
+    );
+
+    const annotationsWithNames = annotations.map(ann => ({
+      id: ann.id,
+      photo_id: ann.photo_id,
+      professional_id: ann.professional_id,
+      markup_image: ann.markup_image,
+      created_at: ann.created_at,
+      updated_at: ann.updated_at,
+      professional_name: ann.full_name || undefined,
+    }));
+
+    console.log(`✅ Found ${annotations.length} annotations`);
+
+    res.status(200).json({
+      success: true,
+      data: { annotations: annotationsWithNames },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching annotations:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch annotations',
+    } as ApiResponse);
+  }
+});
+
+// GET /client/progress-photos/:photoId/comments - Get comments for a photo
+router.get('/progress-photos/:photoId/comments', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const photoId = req.params.photoId;
+
+    console.log(`💬 Fetching comments for photo: ${photoId}`);
+
+    // Verify photo belongs to client
+    const photo = await queryOne<ProgressPhoto>(
+      `SELECT id FROM progress_photos WHERE id = $1 AND client_id = $2`,
+      [photoId, userId]
+    );
+
+    if (!photo) {
+      res.status(404).json({
+        success: false,
+        error: 'Photo not found',
+      } as ApiResponse);
+      return;
+    }
+
+    // Fetch comments with professional names and avatars
+    const comments = await query<PhotoComment & { full_name: string | null; avatar_url: string | null }>(
+      `SELECT pc.*, up.full_name, up.avatar_url 
+       FROM photo_comments pc
+       LEFT JOIN user_profiles up ON pc.professional_id = up.id
+       WHERE pc.photo_id = $1
+       ORDER BY pc.created_at ASC`,
+      [photoId]
+    );
+
+    const commentsWithNames = comments.map(comment => ({
+      id: comment.id,
+      photo_id: comment.photo_id,
+      professional_id: comment.professional_id,
+      content: comment.content,
+      created_at: comment.created_at,
+      updated_at: comment.updated_at,
+      professional_name: comment.full_name || undefined,
+      professional_avatar: comment.avatar_url || undefined,
+    }));
+
+    console.log(`✅ Found ${comments.length} comments`);
+
+    res.status(200).json({
+      success: true,
+      data: { comments: commentsWithNames },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching comments:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch comments',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// TREATMENT PLANS ROUTES
+// ============================================================================
+
+interface TreatmentPlan {
+  id: string;
+  client_id: string;
+  professional_id: string;
+  title: string;
+  description: string | null;
+  goals: string[] | null;
+  start_date: string;
+  end_date: string;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+interface TreatmentPlanMilestone {
+  id: string;
+  plan_id: string;
+  title: string;
+  description: string | null;
+  target_date: string;
+  completed: boolean;
+  completed_at: string | null;
+  order_index: number;
+}
+
+interface TreatmentPlanProduct {
+  id: string;
+  plan_id: string;
+  product_name: string;
+  product_brand: string | null;
+  product_category: string | null;
+  usage_instructions: string | null;
+  priority: string;
+  created_at: string;
+}
+
+interface TreatmentPlanRoutine {
+  id: string;
+  plan_id: string;
+  routine_name: string;
+  routine_type: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface TreatmentPlanAppointment {
+  id: string;
+  plan_id: string;
+  appointment_type: string;
+  scheduled_date: string;
+  scheduled_time: string | null;
+  duration_minutes: number;
+  notes: string | null;
+  completed: boolean;
+  created_at: string;
+}
+
+interface ProfessionalInfo {
+  id: string;
+  full_name: string;
+  avatar_url: string | null;
+}
+
+// GET /client/treatment-plans - Get all treatment plans for the client
+router.get('/treatment-plans', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`📋 Fetching treatment plans for client: ${userId}`);
+
+    // Fetch treatment plans for this client
+    const plans = await query<TreatmentPlan>(
+      `SELECT * FROM treatment_plans 
+       WHERE client_id = $1 
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    if (plans.length === 0) {
+      console.log('No treatment plans found');
+      res.status(200).json({
+        success: true,
+        data: { plans: [], professionals: {} },
+      } as ApiResponse);
+      return;
+    }
+
+    const planIds = plans.map(p => p.id);
+
+    // Fetch milestones
+    const milestones = await query<TreatmentPlanMilestone>(
+      `SELECT * FROM treatment_plan_milestones 
+       WHERE plan_id = ANY($1) 
+       ORDER BY order_index ASC`,
+      [planIds]
+    );
+
+    // Fetch products
+    const products = await query<TreatmentPlanProduct>(
+      `SELECT * FROM treatment_plan_products 
+       WHERE plan_id = ANY($1) 
+       ORDER BY created_at ASC`,
+      [planIds]
+    );
+
+    // Fetch routines
+    const routines = await query<TreatmentPlanRoutine>(
+      `SELECT * FROM treatment_plan_routines 
+       WHERE plan_id = ANY($1) 
+       ORDER BY created_at ASC`,
+      [planIds]
+    );
+
+    // Fetch appointments
+    const appointments = await query<TreatmentPlanAppointment>(
+      `SELECT * FROM treatment_plan_appointments 
+       WHERE plan_id = ANY($1) 
+       ORDER BY scheduled_date ASC`,
+      [planIds]
+    );
+
+    // Fetch professional info
+    const professionalIds = [...new Set(plans.map(p => p.professional_id))];
+    let professionals: Record<string, ProfessionalInfo> = {};
+    
+    if (professionalIds.length > 0) {
+      const profData = await query<ProfessionalInfo>(
+        `SELECT id, full_name, avatar_url FROM user_profiles WHERE id = ANY($1)`,
+        [professionalIds]
+      );
+      
+      profData.forEach(prof => {
+        professionals[prof.id] = {
+          id: prof.id,
+          full_name: prof.full_name || 'Your Professional',
+          avatar_url: prof.avatar_url,
+        };
+      });
+    }
+
+    // Group related data by plan_id
+    const milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
+    const productsMap: Record<string, TreatmentPlanProduct[]> = {};
+    const routinesMap: Record<string, TreatmentPlanRoutine[]> = {};
+    const appointmentsMap: Record<string, TreatmentPlanAppointment[]> = {};
+
+    milestones.forEach(m => {
+      if (!milestonesMap[m.plan_id]) milestonesMap[m.plan_id] = [];
+      milestonesMap[m.plan_id].push(m);
+    });
+
+    products.forEach(p => {
+      if (!productsMap[p.plan_id]) productsMap[p.plan_id] = [];
+      productsMap[p.plan_id].push(p);
+    });
+
+    routines.forEach(r => {
+      if (!routinesMap[r.plan_id]) routinesMap[r.plan_id] = [];
+      routinesMap[r.plan_id].push(r);
+    });
+
+    appointments.forEach(a => {
+      if (!appointmentsMap[a.plan_id]) appointmentsMap[a.plan_id] = [];
+      appointmentsMap[a.plan_id].push(a);
+    });
+
+    // Build complete plans with related data
+    const completePlans = plans.map(plan => ({
+      ...plan,
+      goals: plan.goals || [],
+      milestones: milestonesMap[plan.id] || [],
+      products: productsMap[plan.id] || [],
+      routines: routinesMap[plan.id] || [],
+      appointments: appointmentsMap[plan.id] || [],
+    }));
+
+    console.log(`✅ Found ${plans.length} treatment plans`);
+
+    res.status(200).json({
+      success: true,
+      data: { plans: completePlans, professionals },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching treatment plans:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch treatment plans',
+    } as ApiResponse);
+  }
+});
+
+// PATCH /client/treatment-plans/milestones/:milestoneId - Toggle milestone completion
+router.patch('/treatment-plans/milestones/:milestoneId', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const milestoneId = req.params.milestoneId;
+    const { completed } = req.body;
+
+    console.log(`🎯 Toggling milestone ${milestoneId} completion to ${completed}`);
+
+    // Verify the milestone belongs to a plan that belongs to this client
+    const milestone = await queryOne<{ id: string; plan_id: string }>(
+      `SELECT m.id, m.plan_id 
+       FROM treatment_plan_milestones m
+       JOIN treatment_plans p ON m.plan_id = p.id
+       WHERE m.id = $1 AND p.client_id = $2`,
+      [milestoneId, userId]
+    );
+
+    if (!milestone) {
+      res.status(404).json({
+        success: false,
+        error: 'Milestone not found',
+      } as ApiResponse);
+      return;
+    }
+
+    const completedAt = completed ? new Date().toISOString() : null;
+
+    // Update the milestone
+    await query(
+      `UPDATE treatment_plan_milestones 
+       SET completed = $1, completed_at = $2 
+       WHERE id = $3`,
+      [completed, completedAt, milestoneId]
+    );
+
+    console.log(`✅ Milestone updated: ${milestoneId}`);
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        milestone: {
+          id: milestoneId,
+          completed,
+          completed_at: completedAt,
+        }
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error updating milestone:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update milestone',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// ACHIEVEMENTS / GAMIFICATION ROUTES
+// ============================================================================
+
+interface UserGamification {
+  id: string;
+  user_id: string;
+  current_streak: number;
+  longest_streak: number;
+  points: number;
+  total_routines_completed: number;
+  level: string;
+  last_completion_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface UserBadge {
+  id: string;
+  user_id: string;
+  badge_name: string;
+  badge_description: string | null;
+  badge_icon: string | null;
+  earned_at: string;
+}
+
+// GET /client/achievements - Get gamification stats and badges
+router.get('/achievements', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`🏆 Fetching achievements for client: ${userId}`);
+
+    // Fetch gamification data
+    const gamification = await queryOne<UserGamification>(
+      `SELECT * FROM user_gamification WHERE user_id = $1`,
+      [userId]
+    );
+
+    // Fetch user badges
+    const badges = await query<UserBadge>(
+      `SELECT * FROM user_badges 
+       WHERE user_id = $1 
+       ORDER BY earned_at DESC`,
+      [userId]
+    );
+
+    console.log(`✅ Found gamification data and ${badges.length} badges`);
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        gamification: gamification || null,
+        badges,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching achievements:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch achievements',
+    } as ApiResponse);
+  }
+});
+
+// POST /client/achievements/badges - Save new badges (upsert)
+router.post('/achievements/badges', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const { badges } = req.body;
+
+    if (!badges || !Array.isArray(badges) || badges.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Badges array is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`🎖️ Saving ${badges.length} badges for client: ${userId}`);
+
+    const savedBadges: UserBadge[] = [];
+
+    for (const badge of badges) {
+      if (!badge.name) continue;
+
+      try {
+        // Try to insert, ignore if already exists
+        const existing = await queryOne<UserBadge>(
+          `SELECT * FROM user_badges WHERE user_id = $1 AND badge_name = $2`,
+          [userId, badge.name]
+        );
+
+        if (existing) {
+          // Badge already exists, skip
+          savedBadges.push(existing);
+          continue;
+        }
+
+        // Insert new badge
+        const newBadge = await queryOne<UserBadge>(
+          `INSERT INTO user_badges (user_id, badge_name, badge_description, badge_icon, earned_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           RETURNING *`,
+          [userId, badge.name, badge.description || null, badge.image || null]
+        );
+
+        if (newBadge) {
+          savedBadges.push(newBadge);
+        }
+      } catch (insertError) {
+        // Handle duplicate key error gracefully
+        console.log(`Badge ${badge.name} might already exist, skipping...`);
+      }
+    }
+
+    console.log(`✅ Saved ${savedBadges.length} badges`);
+
+    res.status(201).json({
+      success: true,
+      data: { badges: savedBadges },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error saving badges:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save badges',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// LEADERBOARD ROUTES
+// ============================================================================
+
+interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  avatar: string;
+  points: number;
+  level: string;
+  streak: number;
+  totalRoutines: number;
+  isCurrentUser: boolean;
+}
+
+// GET /client/leaderboard - Get leaderboard data
+router.get('/leaderboard', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`🏆 Fetching leaderboard for client: ${userId}`);
+
+    // Fetch all gamification data with user profiles, ordered by points
+    const leaderboardData = await query<{
+      user_id: string;
+      current_streak: number;
+      longest_streak: number;
+      points: number;
+      total_routines_completed: number;
+      level: string;
+      full_name: string | null;
+      email: string | null;
+      avatar_url: string | null;
+    }>(
+      `SELECT 
+        ug.user_id,
+        ug.current_streak,
+        ug.longest_streak,
+        ug.points,
+        ug.total_routines_completed,
+        ug.level,
+        up.full_name,
+        up.email,
+        up.avatar_url
+       FROM user_gamification ug
+       LEFT JOIN user_profiles up ON ug.user_id = up.id
+       ORDER BY ug.points DESC`,
+      []
+    );
+
+    // Build leaderboard entries
+    let currentUserRank: number | null = null;
+    const entries: LeaderboardEntry[] = leaderboardData.map((row, index) => {
+      const isCurrentUser = userId === row.user_id;
+      
+      if (isCurrentUser) {
+        currentUserRank = index + 1;
+      }
+
+      // Generate display name and avatar
+      const displayName = row.full_name || row.email?.split('@')[0] || 'Anonymous';
+      const avatarUrl = row.avatar_url || 
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=CFAFA3&color=2D2A3E&size=100`;
+
+      return {
+        rank: index + 1,
+        userId: row.user_id,
+        name: displayName,
+        avatar: avatarUrl,
+        points: row.points || 0,
+        level: row.level || 'Bronze',
+        streak: row.current_streak || 0,
+        totalRoutines: row.total_routines_completed || 0,
+        isCurrentUser,
+      };
+    });
+
+    console.log(`✅ Found ${entries.length} leaderboard entries`);
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        leaderboard: entries,
+        currentUserRank,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching leaderboard:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch leaderboard',
+    } as ApiResponse);
+  }
+});
+
 export default router;

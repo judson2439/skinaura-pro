@@ -8,8 +8,8 @@ import {
   Lock,
   Loader2,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 
 // ============================================================================
 // TYPES
@@ -156,24 +156,14 @@ const getLevelInfo = (level: string) => {
   return { current, next };
 };
 
-// Get badge image by name
-const getBadgeImage = (badgeName: string): string => {
-  const index = BADGE_DEFINITIONS.findIndex(b => b.name === badgeName);
-  return index >= 0 ? BADGE_IMAGES[index] : BADGE_IMAGES[0];
-};
-
-// Get badge description by name
-const getBadgeDescription = (badgeName: string): string => {
-  const badge = BADGE_DEFINITIONS.find(b => b.name === badgeName);
-  return badge?.description || '';
-};
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 const AchievementsSection: React.FC = () => {
-  const { user } = useAuth();
+  // Get auth token for API calls
+  const authToken = getAuthToken();
+  
   const [gamificationData, setGamificationData] = useState<UserGamification | null>(null);
   const [userBadges, setUserBadges] = useState<UserBadge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -185,46 +175,35 @@ const AchievementsSection: React.FC = () => {
   // Fetch gamification data from database
   useEffect(() => {
     const fetchData = async () => {
-      if (!user?.id) {
+      const token = getAuthToken();
+      if (!token) {
         setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
+        apiClient.setAuthToken(token);
         
-        // Fetch gamification data
-        const { data: gamData, error: gamError } = await supabase
-          .from('user_gamification')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: {
+            gamification: UserGamification | null;
+            badges: UserBadge[];
+          };
+          error?: string;
+        }>('/api/client/achievements');
 
-        if (gamError) {
-          if (gamError.code === 'PGRST116') {
-            console.log('No gamification record found for user');
-          } else {
-            console.error('Error fetching gamification data:', gamError);
-          }
+        if (!response.data.success) {
+          console.error('Error fetching achievements:', response.data.error);
           setGamificationData(null);
-        } else {
-          setGamificationData(gamData);
-        }
-
-        // Fetch user badges
-        const { data: badgesData, error: badgesError } = await supabase
-          .from('user_badges')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('earned_at', { ascending: false });
-
-        if (badgesError) {
-          console.error('Error fetching user badges:', badgesError);
           setUserBadges([]);
-        } else {
-          setUserBadges(badgesData || []);
+        } else if (response.data.data) {
+          setGamificationData(response.data.data.gamification);
+          setUserBadges(response.data.data.badges || []);
+          
           // Mark already saved badges as attempted
-          (badgesData || []).forEach(badge => {
+          (response.data.data.badges || []).forEach(badge => {
             savedBadgeAttemptsRef.current.add(badge.badge_name);
           });
         }
@@ -238,7 +217,7 @@ const AchievementsSection: React.FC = () => {
     };
 
     fetchData();
-  }, [user?.id]);
+  }, [authToken]);
 
   // Convert database data to stats format
   const gamificationStats: GamificationStats = gamificationData 
@@ -250,9 +229,10 @@ const AchievementsSection: React.FC = () => {
       }
     : DEFAULT_GAMIFICATION_STATS;
 
-  // Save newly earned badges to database using upsert to handle duplicates
+  // Save newly earned badges to database
   const saveNewBadges = useCallback(async (newBadges: { name: string; description: string; image: string }[]) => {
-    if (!user?.id || newBadges.length === 0) return;
+    const token = getAuthToken();
+    if (!token || newBadges.length === 0) return;
 
     // Filter out badges we've already attempted to save
     const badgesToSave = newBadges.filter(badge => !savedBadgeAttemptsRef.current.has(badge.name));
@@ -266,35 +246,23 @@ const AchievementsSection: React.FC = () => {
 
     setSavingBadges(true);
     try {
-      const badgesToInsert = badgesToSave.map(badge => ({
-        user_id: user.id,
-        badge_name: badge.name,
-        badge_description: badge.description,
-        badge_icon: badge.image,
-      }));
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { badges: UserBadge[] };
+        error?: string;
+      }>('/api/client/achievements/badges', {
+        badges: badgesToSave,
+      });
 
-      // Use upsert with onConflict to handle duplicates gracefully
-      const { data, error } = await supabase
-        .from('user_badges')
-        .upsert(badgesToInsert, { 
-          onConflict: 'user_id,badge_name',
-          ignoreDuplicates: true 
-        })
-        .select();
-
-      if (error) {
-        // If it's a duplicate key error, just ignore it - badge already exists
-        if (error.code === '23505') {
-          console.log('Badge already exists, skipping...');
-        } else {
-          console.error('Error saving badges:', error);
-        }
-      } else if (data && data.length > 0) {
+      if (!response.data.success) {
+        console.error('Error saving badges:', response.data.error);
+      } else if (response.data.data?.badges && response.data.data.badges.length > 0) {
         // Update local state with newly saved badges
         setUserBadges(prev => {
-          // Filter out any badges that might already exist in prev
           const existingNames = new Set(prev.map(b => b.badge_name));
-          const newData = data.filter(b => !existingNames.has(b.badge_name));
+          const newData = response.data.data!.badges.filter(b => !existingNames.has(b.badge_name));
           return [...newData, ...prev];
         });
       }
@@ -303,11 +271,11 @@ const AchievementsSection: React.FC = () => {
     } finally {
       setSavingBadges(false);
     }
-  }, [user?.id]);
+  }, []);
 
   // Check and save new badges when stats change
   useEffect(() => {
-    if (loading || !user?.id) return;
+    if (loading || !authToken) return;
 
     // Get names of badges already saved in database
     const savedBadgeNames = new Set(userBadges.map(b => b.badge_name));
@@ -333,7 +301,7 @@ const AchievementsSection: React.FC = () => {
     if (newlyEarnedBadges.length > 0) {
       saveNewBadges(newlyEarnedBadges);
     }
-  }, [gamificationStats.total_routines_completed, gamificationStats.current_streak, gamificationStats.longest_streak, userBadges, loading, user?.id, saveNewBadges]);
+  }, [gamificationStats.total_routines_completed, gamificationStats.current_streak, gamificationStats.longest_streak, userBadges, loading, authToken, saveNewBadges]);
 
 
   // Build badges array combining definitions with saved data

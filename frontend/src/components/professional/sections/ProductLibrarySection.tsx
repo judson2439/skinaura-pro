@@ -839,15 +839,13 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
             {/* Product Preview */}
             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-6">
               <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-                {productToDelete.image_url ? (
-                  <img
-                    src={productToDelete.image_url}
-                    alt={productToDelete.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Package className="w-8 h-8 text-gray-400" />
-                )}
+                <EncryptedImage
+                  src={productToDelete.image_url}
+                  alt={productToDelete.name}
+                  className="w-full h-full object-cover"
+                  fallbackIcon="package"
+                  showFallback={true}
+                />
               </div>
               <div className="min-w-0">
                 <p className="text-xs text-[#CFAFA3] font-medium">{productToDelete.brand}</p>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ZoomIn, ZoomOut, RotateCw, Eye, EyeOff } from 'lucide-react';
 import { PhotoAnnotation } from './progressPhotosTypes';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -90,16 +91,12 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
           className="relative transition-transform duration-200" 
           style={{ transform: `scale(${zoom})` }}
         >
-          <img
+          <EncryptedImage
             src={displayImage}
             alt={showMarkup && latestMarkup ? "Photo with professional markup" : "Progress photo"}
             className="max-w-full max-h-[550px] object-contain"
-            onError={(e) => {
-              // Fallback to original image if markup fails to load
-              if (showMarkup && latestMarkup) {
-                (e.target as HTMLImageElement).src = imageUrl;
-              }
-            }}
+            fallbackIcon="user"
+            showFallback={true}
           />
         </div>
       </div>

@@ -3,17 +3,18 @@ import {
   Search,
   Filter,
   Plus,
-  Camera,
   Package,
   Edit,
   Trash2,
   X,
   Loader2,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import AddProductModal, { PRODUCT_CATEGORIES } from '../modals/AddProductModal';
-import AddProductPhotoModal from '../modals/AddProductPhotoModal';
+import ClientAIPhotoScanModal from '../modals/ClientAIPhotoScanModal';
 import EditProductModal from '../modals/EditProductModal';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -66,7 +67,7 @@ const MyProductsSection: React.FC = () => {
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [showAIPhotoModal, setShowAIPhotoModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
@@ -74,13 +75,11 @@ const MyProductsSection: React.FC = () => {
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Form states
+  // Form states (for manual add/edit modals)
   const [productName, setProductName] = useState('');
   const [productBrand, setProductBrand] = useState('');
   const [productCategory, setProductCategory] = useState('');
   const [productNotes, setProductNotes] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   // ============================================================================
   // FETCH PRODUCTS
@@ -187,20 +186,31 @@ const MyProductsSection: React.FC = () => {
     setProductBrand('');
     setProductCategory('');
     setProductNotes('');
-    setSelectedFile(null);
-    setPhotoPreview(null);
   };
 
   // ============================================================================
-  // ADD PRODUCT MANUALLY
+  // ADD PRODUCT MANUALLY (with optional image)
   // ============================================================================
 
-  const handleAddProduct = async () => {
+  const handleAddProduct = async (imageFile?: File) => {
     const token = getAuthToken();
     if (!productName.trim() || !token) return;
     setSaving(true);
 
     try {
+      // Step 1: Upload image if provided
+      let imageUrl: string | null = null;
+      if (imageFile) {
+        setUploading(true);
+        const uploadedUrl = await uploadProductImage(imageFile);
+        setUploading(false);
+        
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        }
+      }
+
+      // Step 2: Create product
       apiClient.setAuthToken(token);
       
       const response = await apiClient.post<{
@@ -212,11 +222,15 @@ const MyProductsSection: React.FC = () => {
         brand: productBrand.trim() || null,
         category: productCategory || null,
         notes: productNotes.trim() || null,
-        image_url: null,
+        image_url: imageUrl,
       });
 
       if (!response.data.success || !response.data.data?.product) {
         console.error('Error adding product:', response.data.error);
+        // Delete uploaded image if product insert fails
+        if (imageUrl) {
+          await deleteProductImage(imageUrl);
+        }
         toast({
           title: 'Error',
           description: 'Failed to add product. Please try again.',
@@ -243,35 +257,40 @@ const MyProductsSection: React.FC = () => {
       });
     } finally {
       setSaving(false);
+      setUploading(false);
     }
   };
 
   // ============================================================================
-  // ADD PRODUCT FROM PHOTO
+  // ADD PRODUCT FROM AI PHOTO SCAN
   // ============================================================================
 
-  const handleAddProductFromPhoto = async () => {
+  const handleAddProductFromAI = async (
+    productData: {
+      name: string;
+      brand: string | null;
+      category: string | null;
+      notes: string | null;
+      image_url: string | null;
+    },
+    imageFile?: File
+  ) => {
     const token = getAuthToken();
-    if (!productName.trim() || !selectedFile || !token) return;
+    if (!productData.name.trim() || !token) return;
     setSaving(true);
-    setUploading(true);
 
     try {
-      // Step 1: Upload image
-      const imageUrl = await uploadProductImage(selectedFile);
-
-      if (!imageUrl) {
-        toast({
-          title: 'Error',
-          description: 'Failed to upload image. Please try again.',
-          variant: 'destructive',
-        });
-        setSaving(false);
+      // Step 1: Upload image if provided
+      let imageUrl = productData.image_url;
+      if (imageFile) {
+        setUploading(true);
+        const uploadedUrl = await uploadProductImage(imageFile);
         setUploading(false);
-        return;
+        
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        }
       }
-
-      setUploading(false);
 
       // Step 2: Insert product with image URL
       apiClient.setAuthToken(token);
@@ -281,17 +300,19 @@ const MyProductsSection: React.FC = () => {
         data?: { product: Product };
         error?: string;
       }>('/api/client/products', {
-        name: productName.trim(),
-        brand: productBrand.trim() || null,
-        category: productCategory || null,
-        notes: productNotes.trim() || null,
+        name: productData.name.trim(),
+        brand: productData.brand || null,
+        category: productData.category || null,
+        notes: productData.notes || null,
         image_url: imageUrl,
       });
 
       if (!response.data.success || !response.data.data?.product) {
         console.error('Error adding product:', response.data.error);
         // Delete uploaded image if product insert fails
-        await deleteProductImage(imageUrl);
+        if (imageUrl && imageUrl !== productData.image_url) {
+          await deleteProductImage(imageUrl);
+        }
         toast({
           title: 'Error',
           description: 'Failed to add product. Please try again.',
@@ -302,12 +323,11 @@ const MyProductsSection: React.FC = () => {
 
       // Add to local state
       setProducts(prev => [response.data.data!.product, ...prev]);
-      setShowPhotoModal(false);
-      resetForm();
+      setShowAIPhotoModal(false);
 
       toast({
         title: 'Success',
-        description: 'Product added successfully with photo!',
+        description: 'Product added successfully!',
       });
     } catch (error) {
       console.error('Error adding product:', error);
@@ -345,34 +365,58 @@ const MyProductsSection: React.FC = () => {
     resetForm();
   };
 
-  // Close photo modal
-  const closePhotoModal = () => {
-    setShowPhotoModal(false);
-    resetForm();
-  };
-
   // ============================================================================
   // UPDATE PRODUCT
   // ============================================================================
 
-  const handleUpdateProduct = async () => {
+  const handleUpdateProduct = async (imageFile?: File, removeImage?: boolean) => {
     const token = getAuthToken();
     if (!selectedProduct || !productName.trim() || !token) return;
     setSaving(true);
 
     try {
+      // Step 1: Handle image changes
+      let newImageUrl: string | null | undefined = undefined; // undefined means no change
+      
+      if (imageFile) {
+        // Upload new image
+        setUploading(true);
+        const uploadedUrl = await uploadProductImage(imageFile);
+        setUploading(false);
+        
+        if (uploadedUrl) {
+          newImageUrl = uploadedUrl;
+          // Delete old image if exists
+          if (selectedProduct.image_url) {
+            await deleteProductImage(selectedProduct.image_url);
+          }
+        }
+      } else if (removeImage && selectedProduct.image_url) {
+        // Remove existing image
+        await deleteProductImage(selectedProduct.image_url);
+        newImageUrl = null;
+      }
+
+      // Step 2: Update product
       apiClient.setAuthToken(token);
+      
+      const updateData: Record<string, unknown> = {
+        name: productName.trim(),
+        brand: productBrand.trim() || null,
+        category: productCategory || null,
+        notes: productNotes.trim() || null,
+      };
+      
+      // Only include image_url if it changed
+      if (newImageUrl !== undefined) {
+        updateData.image_url = newImageUrl;
+      }
       
       const response = await apiClient.put<{
         success: boolean;
         data?: { product: Product };
         error?: string;
-      }>(`/api/client/products/${selectedProduct.id}`, {
-        name: productName.trim(),
-        brand: productBrand.trim() || null,
-        category: productCategory || null,
-        notes: productNotes.trim() || null,
-      });
+      }>(`/api/client/products/${selectedProduct.id}`, updateData);
 
       if (!response.data.success) {
         console.error('Error updating product:', response.data.error);
@@ -393,6 +437,7 @@ const MyProductsSection: React.FC = () => {
               brand: productBrand.trim() || undefined,
               category: productCategory || undefined,
               notes: productNotes.trim() || undefined,
+              image_url: newImageUrl !== undefined ? (newImageUrl || undefined) : p.image_url,
               updated_at: new Date().toISOString(),
             }
           : p
@@ -413,6 +458,7 @@ const MyProductsSection: React.FC = () => {
       });
     } finally {
       setSaving(false);
+      setUploading(false);
     }
   };
 
@@ -546,14 +592,27 @@ const MyProductsSection: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-serif font-bold text-gray-900">My Products</h2>
-          <p className="text-sm text-gray-500">Track the products you're currently using</p>
+          <p className="text-sm text-gray-500">Track the products you're currently using with AI-powered recognition</p>
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => { resetForm(); setShowPhotoModal(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+            onClick={() => fetchProducts()}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-all"
+            title="Refresh products"
           >
-            <Camera className="w-4 h-4" /> Add with Photo
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={() => setShowAIPhotoModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+          >
+            <img 
+              className="text-[#2D2A3E]" 
+              src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} 
+              width={16} 
+              height={16}
+              alt="AI"
+            /> AI Photo Scan
           </button>
           <button
             onClick={() => { resetForm(); setShowAddModal(true); }}
@@ -620,14 +679,20 @@ const MyProductsSection: React.FC = () => {
           {!searchQuery && categoryFilter === 'all' && (
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
-                onClick={() => { resetForm(); setShowPhotoModal(true); }}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-teal-500 text-teal-600 rounded-xl font-medium hover:bg-teal-50 transition-all"
+                onClick={() => setShowAIPhotoModal(true)}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
               >
-                <Camera className="w-5 h-5" /> Upload Product Photo
+                <img 
+                  className="text-[#2D2A3E]" 
+                  src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} 
+                  width={20} 
+                  height={20}
+                  alt="AI"
+                /> AI Photo Scan
               </button>
               <button
                 onClick={() => { resetForm(); setShowAddModal(true); }}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-teal-500 text-teal-600 rounded-xl font-medium hover:bg-teal-50 transition-all"
               >
                 <Plus className="w-5 h-5" /> Add Manually
               </button>
@@ -646,17 +711,13 @@ const MyProductsSection: React.FC = () => {
             >
               {/* Product Image */}
               <div className="relative h-40 bg-gradient-to-br from-gray-100 to-gray-50">
-                {product.image_url ? (
-                  <img
-                    src={product.image_url}
-                    alt={product.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Package className="w-12 h-12 text-gray-300" />
-                  </div>
-                )}
+                <EncryptedImage
+                  src={product.image_url}
+                  alt={product.name}
+                  className="w-full h-full object-cover"
+                  fallbackIcon="package"
+                  showFallback={true}
+                />
                 {/* Badge for photo vs manual */}
                 <div className="absolute top-3 left-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -664,7 +725,7 @@ const MyProductsSection: React.FC = () => {
                       ? 'bg-purple-100 text-purple-700'
                       : 'bg-teal-100 text-teal-700'
                   }`}>
-                    {hasImage(product) ? 'Photo' : 'Manual'}
+                    {hasImage(product) ? 'AI Scan' : 'Manual'}
                   </span>
                 </div>
               </div>
@@ -712,27 +773,11 @@ const MyProductsSection: React.FC = () => {
         </div>
       )}
 
-      {/* Add Product Modal (Manual) */}
+      {/* Add Product Modal (Manual with optional image) */}
       <AddProductModal
         isOpen={showAddModal}
         onClose={closeAddModal}
         onSubmit={handleAddProduct}
-        saving={saving}
-        productName={productName}
-        setProductName={setProductName}
-        productBrand={productBrand}
-        setProductBrand={setProductBrand}
-        productCategory={productCategory}
-        setProductCategory={setProductCategory}
-        productNotes={productNotes}
-        setProductNotes={setProductNotes}
-      />
-
-      {/* Add Product from Photo Modal */}
-      <AddProductPhotoModal
-        isOpen={showPhotoModal}
-        onClose={closePhotoModal}
-        onSubmit={handleAddProductFromPhoto}
         saving={saving}
         uploading={uploading}
         productName={productName}
@@ -743,10 +788,14 @@ const MyProductsSection: React.FC = () => {
         setProductCategory={setProductCategory}
         productNotes={productNotes}
         setProductNotes={setProductNotes}
-        selectedFile={selectedFile}
-        setSelectedFile={setSelectedFile}
-        photoPreview={photoPreview}
-        setPhotoPreview={setPhotoPreview}
+      />
+
+      {/* AI Photo Scan Modal */}
+      <ClientAIPhotoScanModal
+        isOpen={showAIPhotoModal}
+        onClose={() => setShowAIPhotoModal(false)}
+        onAdd={handleAddProductFromAI}
+        saving={saving}
       />
 
       {/* Edit Product Modal */}
@@ -755,6 +804,7 @@ const MyProductsSection: React.FC = () => {
         onClose={closeEditModal}
         onSubmit={handleUpdateProduct}
         saving={saving}
+        uploading={uploading}
         product={selectedProduct}
         productName={productName}
         setProductName={setProductName}
