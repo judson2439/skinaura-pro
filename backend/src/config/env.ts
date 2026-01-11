@@ -9,7 +9,7 @@ const isProd = NODE_ENV === 'production';
 
 export const env = {
   // Server
-  PORT: parseInt(process.env.PORT || '5505', 10),
+  PORT: parseInt(process.env.PORT || '3000', 10),
   NODE_ENV,
   isDev,
   isProd,

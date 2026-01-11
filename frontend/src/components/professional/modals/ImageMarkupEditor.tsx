@@ -110,7 +110,7 @@ const ImageMarkupEditor: React.FC<ImageMarkupEditorProps> = ({
 
         if (isEncryptedImage) {
           // Fetch and decrypt the image
-          const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5505';
+          const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
           const fullUrl = imageUrl.startsWith('http') ? imageUrl : 
                           imageUrl.startsWith('/') ? `${apiBaseUrl}${imageUrl}` : `${apiBaseUrl}/${imageUrl}`;
           
