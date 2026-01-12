@@ -1,58 +1,35 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import ReactFaceAge from 'react-face-age';
 import {
   Sparkles,
   Camera,
   Upload,
-  Loader2,
   RefreshCw,
-  AlertCircle,
   CheckCircle2,
-  X,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { API_CONFIG } from '@/config/api';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const FACE_AGE_ID = 'sG3mv6Z0qLEuDJIHopSZ';
-const FACE_AGE_WIDGET_BASE_URL = 'https://panel.getfaceage.com/widget/skin-analyze';
-
-// All available skin problems for analysis
-const SKIN_PROBLEMS = [
-  'fineWrinkles',
-  'eyeWrinkles',
-  'deepWrinkles',
-  'darkCircle',
-  'eyeBag',
-  'pores',
-  'pigment',
-  'redness',
-  'oiliness',
-  'dryness',
-  'sagginess',
-  'dullness',
-  'acne',
-] as const;
-
-type SkinProblem = typeof SKIN_PROBLEMS[number];
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-interface WidgetConfig {
-  showCamera: boolean;
-  showUpload: boolean;
-  language: string;
-  currency: string;
-  problems: SkinProblem[];
+interface FaceAgeOptions {
+  faceageId: string;
+  type: string;
 }
 
-type WidgetState = 'idle' | 'loading' | 'ready' | 'analyzing' | 'complete' | 'error';
+interface FaceAgeResult {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+type WidgetState = 'idle' | 'active';
 
 // ============================================================================
 // FACE ANALYSIS V2 SECTION
@@ -60,95 +37,31 @@ type WidgetState = 'idle' | 'loading' | 'ready' | 'analyzing' | 'complete' | 'er
 
 const FaceAnalysisV2Section: React.FC = () => {
   const [widgetState, setWidgetState] = useState<WidgetState>('idle');
-  const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [config] = useState<WidgetConfig>({
-    showCamera: true,
-    showUpload: true,
-    language: 'en',
-    currency: '$',
-    problems: [...SKIN_PROBLEMS],
-  });
+  const [analysisResult, setAnalysisResult] = useState<FaceAgeResult | null>(null);
 
-  // Generate callback URL for receiving analysis results
-  const getCallbackUrl = useCallback(() => {
-    // Use the API base URL for callback
-    return `${API_CONFIG.baseUrl}/api/client/face-analysis/callback`;
+  // FaceAge options
+  const options: FaceAgeOptions = {
+    faceageId: FACE_AGE_ID,
+    type: 'skincare-analyzer',
+  };
+
+  // Handle FaceAge onLoad callback
+  const handleLoad = useCallback((result: FaceAgeResult) => {
+    console.log('FaceAge result:', result);
+    setAnalysisResult(result);
   }, []);
 
-  // Build widget URL directly (avoids CORS issues with their API)
-  const buildWidgetUrl = useCallback(() => {
-    const params = new URLSearchParams();
-    
-    // Required parameters
-    params.set('faceAgeId', FACE_AGE_ID);
-    params.set('type', 'skincare-analyzer');
-    
-    // Optional parameters
-    params.set('showCamera', config.showCamera.toString());
-    params.set('showUpload', config.showUpload.toString());
-    params.set('language', config.language);
-    params.set('currency', config.currency);
-    params.set('callbackUrl', getCallbackUrl());
-    
-    // Add problems/access parameter (comma-separated list)
-    params.set('access', config.problems.join(','));
-    
-    return `${FACE_AGE_WIDGET_BASE_URL}?${params.toString()}`;
-  }, [config, getCallbackUrl]);
-
-  // Initialize widget
-  const initializeWidget = useCallback(() => {
-    setWidgetState('loading');
-    setError(null);
-
-    try {
-      const url = buildWidgetUrl();
-      setWidgetUrl(url);
-      setWidgetState('ready');
-    } catch (err) {
-      console.error('Error building widget URL:', err);
-      setError(err instanceof Error ? err.message : 'Failed to initialize skin analysis');
-      setWidgetState('error');
-    }
-  }, [buildWidgetUrl]);
-
-  // Start analysis when component mounts or user clicks start
+  // Start analysis
   const handleStartAnalysis = () => {
-    initializeWidget();
+    setWidgetState('active');
+    setAnalysisResult(null);
   };
 
   // Reset to initial state
   const handleReset = () => {
     setWidgetState('idle');
-    setWidgetUrl(null);
-    setError(null);
-    setIsFullscreen(false);
+    setAnalysisResult(null);
   };
-
-  // Toggle fullscreen mode
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
-
-  // Listen for messages from iframe (if FaceAge sends postMessage)
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Only accept messages from FaceAge domain
-      if (event.origin.includes('getfaceage.com') || event.origin.includes('panel.getfaceage.com')) {
-        console.log('FaceAge message received:', event.data);
-        
-        // Handle completion message if sent
-        if (event.data?.type === 'analysis_complete' || event.data?.status === 'complete') {
-          setWidgetState('complete');
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
 
   return (
     <div className="space-y-6">
@@ -168,7 +81,7 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         </div>
 
-        {widgetState !== 'idle' && (
+        {widgetState === 'active' && (
           <Button
             variant="outline"
             size="sm"
@@ -182,9 +95,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden transition-all duration-300 ${
-        isFullscreen ? 'fixed inset-4 z-50' : ''
-      }`}>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {/* Idle State - Start Screen */}
         {widgetState === 'idle' && (
           <div className="p-8">
@@ -233,85 +144,29 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         )}
 
-        {/* Loading State */}
-        {widgetState === 'loading' && (
-          <div className="p-8">
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <Loader2 className="w-12 h-12 text-[#CFAFA3] animate-spin mb-4" />
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                Initializing Analysis
-              </h2>
-              <p className="text-gray-500">
-                Preparing the skin analysis widget...
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Error State */}
-        {widgetState === 'error' && (
-          <div className="p-8">
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4">
-                <AlertCircle className="w-8 h-8 text-red-500" />
-              </div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                Unable to Start Analysis
-              </h2>
-              <p className="text-gray-500 mb-6 max-w-md">
-                {error || 'Something went wrong. Please try again.'}
-              </p>
-              <Button
-                onClick={handleStartAnalysis}
-                className="bg-gradient-to-r from-[#CFAFA3] to-[#E8D5D0] hover:from-[#C09A8D] hover:to-[#D9C6C1] text-white"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Try Again
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Widget Ready - Show iframe */}
-        {(widgetState === 'ready' || widgetState === 'analyzing' || widgetState === 'complete') && widgetUrl && (
-          <div className="relative">
-            {/* Fullscreen toggle */}
-            <div className="absolute top-4 right-4 z-10 flex gap-2">
-              <Button
-                variant="secondary"
-                size="icon"
-                onClick={toggleFullscreen}
-                className="bg-white/90 hover:bg-white shadow-md"
-              >
-                {isFullscreen ? (
-                  <Minimize2 className="w-4 h-4" />
-                ) : (
-                  <Maximize2 className="w-4 h-4" />
-                )}
-              </Button>
-              {isFullscreen && (
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  onClick={handleReset}
-                  className="bg-white/90 hover:bg-white shadow-md"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-
-            {/* FaceAge Widget iframe */}
-            <iframe
-              src={widgetUrl}
-              title="FaceAge Skin Analysis"
-              className={`w-full border-0 ${isFullscreen ? 'h-full' : 'h-[700px]'}`}
-              allow="camera; microphone"
-              sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
+        {/* Active State - Show ReactFaceAge Component */}
+        {widgetState === 'active' && (
+          <div className="min-h-[700px]">
+            <ReactFaceAge
+              options={options}
+              onLoad={handleLoad}
             />
           </div>
         )}
       </div>
+
+      {/* Analysis Result (if available) */}
+      {analysisResult && (
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+          <div className="flex items-center gap-2 mb-4">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
+            <h3 className="font-semibold text-gray-900">Analysis Complete</h3>
+          </div>
+          <pre className="text-sm text-gray-600 bg-white/50 rounded-lg p-4 overflow-auto max-h-64">
+            {JSON.stringify(analysisResult, null, 2)}
+          </pre>
+        </div>
+      )}
 
       {/* Info Card */}
       {widgetState === 'idle' && (
@@ -343,14 +198,6 @@ const FaceAnalysisV2Section: React.FC = () => {
             ))}
           </div>
         </div>
-      )}
-
-      {/* Fullscreen backdrop */}
-      {isFullscreen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40"
-          onClick={toggleFullscreen}
-        />
       )}
     </div>
   );
