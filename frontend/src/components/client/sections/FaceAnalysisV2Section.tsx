@@ -57,7 +57,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       const options = {
         elementId: ELEMENT_ID,
         faceageId: FACE_AGE_ID,
-        displayModel: 'widget',
+        displayModel: 'section',
         language: 'en',
         currency: '$',
         quiz: true,
@@ -140,7 +140,7 @@ const FaceAnalysisV2Section: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div id={ELEMENT_ID} className="w-full min-h-[600px]" />
+      <div id={ELEMENT_ID} className="w-full min-h-[700px]" />
     </div>
   );
 };
