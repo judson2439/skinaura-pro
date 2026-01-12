@@ -58,6 +58,7 @@ export const CLIENT_NAV_ITEMS: NavItem[] = [
   { id: 'products', label: 'My Products', icon: Package },
   { id: 'photos', label: 'Progress Photos', icon: Camera },
   { id: 'face-analysis', label: 'Face Analysis', icon: ScanFace },
+  { id: 'face-analysis-v2', label: 'Face Analysis v2', icon: Sparkles },
   { id: 'treatments', label: 'Treatment Plans', icon: ClipboardList },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'achievements', label: 'Achievements', icon: Trophy },
