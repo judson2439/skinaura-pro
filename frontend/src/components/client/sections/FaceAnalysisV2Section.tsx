@@ -1,11 +1,15 @@
-import React, { useState, useCallback } from 'react';
-import ReactFaceAge from 'react-face-age';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import FaceAge from 'face-age';
 import {
   Sparkles,
   Camera,
   Upload,
   RefreshCw,
   CheckCircle2,
+  ShoppingCart,
+  RotateCcw,
+  User,
+  Droplets,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -15,21 +19,54 @@ import { Button } from '@/components/ui/button';
 
 const FACE_AGE_ID = 'sG3mv6Z0qLEuDJIHopSZ';
 
+// All available skin problems for analysis
+const SKIN_PROBLEMS = [
+  'fineWrinkles',
+  'eyeWrinkles',
+  'deepWrinkles',
+  'darkCircle',
+  'eyeBag',
+  'pores',
+  'pigment',
+  'redness',
+  'oiliness',
+  'dryness',
+  'sagginess',
+  'dullness',
+  'acne',
+] as const;
+
+// Routine categories
+const ROUTINE_SUPPORT = [
+  'cleanser',
+  'toner',
+  'serum',
+  'eyeCream',
+  'spotTreatment',
+  'moisturizer',
+  'sunscreen',
+  'faceOil',
+  'nightCream',
+] as const;
+
 // ============================================================================
 // TYPES
 // ============================================================================
 
-interface FaceAgeOptions {
-  faceageId: string;
-  type: string;
-}
-
-interface FaceAgeResult {
+interface AnalysisData {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
-type WidgetState = 'idle' | 'active';
+interface ProductData {
+  id: number;
+  title: string;
+  price: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+type WidgetState = 'idle' | 'active' | 'complete';
 
 // ============================================================================
 // FACE ANALYSIS V2 SECTION
@@ -37,31 +74,117 @@ type WidgetState = 'idle' | 'active';
 
 const FaceAnalysisV2Section: React.FC = () => {
   const [widgetState, setWidgetState] = useState<WidgetState>('idle');
-  const [analysisResult, setAnalysisResult] = useState<FaceAgeResult | null>(null);
+  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+  const [userImage, setUserImage] = useState<string | null>(null);
+  const [selectedProducts, setSelectedProducts] = useState<ProductData[]>([]);
+  const faceAgeRef = useRef<FaceAge | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // FaceAge options
-  const options: FaceAgeOptions = {
-    faceageId: FACE_AGE_ID,
-    type: 'skincare-analyzer',
-  };
+  // Initialize FaceAge when active
+  useEffect(() => {
+    if (widgetState === 'active' && containerRef.current) {
+      // Create FaceAge instance with full options
+      const options = {
+        elementId: 'faceage-container',
+        faceageId: FACE_AGE_ID,
+        displayModel: 'section' as const, // 'widget', 'section', or 'modal'
+        language: 'en',
+        currency: '$',
+        height: '650px',
+        quiz: true,
+        showProducts: true,
+        showRoutine: true,
+        showAddToCart: true,
+        showCamera: true,
+        showUpload: true,
+        problems: [...SKIN_PROBLEMS] as string[],
+        routinesSupport: [...ROUTINE_SUPPORT] as string[],
+      };
 
-  // Handle FaceAge onLoad callback
-  const handleLoad = useCallback((result: FaceAgeResult) => {
-    console.log('FaceAge result:', result);
-    setAnalysisResult(result);
-  }, []);
+      const faceAge = new FaceAge(options);
+      faceAgeRef.current = faceAge;
+
+      // Set up API callbacks
+      faceAge.API.getAdvisorData((data: AnalysisData) => {
+        console.log('Advisor data analysis:', data);
+        setAnalysisData(data);
+        setWidgetState('complete');
+
+        // Get user image after analysis
+        const image = faceAge.API.getImage();
+        if (image) {
+          setUserImage(image);
+        }
+
+        // Get active quiz selections
+        faceAge.API.getActiveSelections((selections: AnalysisData) => {
+          console.log('Quiz active selection data:', selections);
+        });
+      });
+
+      // Set up event handlers
+      faceAge.onClickProblem((key: string) => {
+        console.log('User clicked on problem:', key);
+      });
+
+      faceAge.onDisplayProducts((data: ProductData[]) => {
+        console.log('Display Products:', data);
+      });
+
+      faceAge.onDisplayRoutines((data: AnalysisData) => {
+        console.log('Display Routines:', data);
+      });
+
+      faceAge.onAddToCart((product: ProductData) => {
+        console.log('User clicked add to cart:', product);
+        setSelectedProducts(prev => [...prev, product]);
+      });
+
+      faceAge.onClickProduct((product: ProductData) => {
+        console.log('User clicked on product info:', product);
+      });
+
+      faceAge.onResetData(() => {
+        console.log('User clicked reset data');
+        setAnalysisData(null);
+        setUserImage(null);
+        setSelectedProducts([]);
+      });
+
+      faceAge.onCloseModal(() => {
+        console.log('User closed modal');
+      });
+
+      faceAge.onCheckout((data: AnalysisData) => {
+        console.log('User clicked checkout:', data);
+      });
+
+      // Render the widget
+      faceAge.render();
+
+      // Cleanup on unmount
+      return () => {
+        faceAgeRef.current = null;
+      };
+    }
+  }, [widgetState]);
 
   // Start analysis
-  const handleStartAnalysis = () => {
+  const handleStartAnalysis = useCallback(() => {
     setWidgetState('active');
-    setAnalysisResult(null);
-  };
+    setAnalysisData(null);
+    setUserImage(null);
+    setSelectedProducts([]);
+  }, []);
 
   // Reset to initial state
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setWidgetState('idle');
-    setAnalysisResult(null);
-  };
+    setAnalysisData(null);
+    setUserImage(null);
+    setSelectedProducts([]);
+    faceAgeRef.current = null;
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -81,14 +204,14 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         </div>
 
-        {widgetState === 'active' && (
+        {widgetState !== 'idle' && (
           <Button
             variant="outline"
             size="sm"
             onClick={handleReset}
             className="gap-2"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RotateCcw className="w-4 h-4" />
             Start Over
           </Button>
         )}
@@ -128,8 +251,16 @@ const FaceAnalysisV2Section: React.FC = () => {
                   <span>13 skin metrics</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Sparkles className="w-4 h-4 text-[#CFAFA3]" />
-                  <span>AI-powered accuracy</span>
+                  <Droplets className="w-4 h-4 text-[#CFAFA3]" />
+                  <span>Skincare routines</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <ShoppingCart className="w-4 h-4 text-[#CFAFA3]" />
+                  <span>Product recommendations</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <User className="w-4 h-4 text-[#CFAFA3]" />
+                  <span>Personalized quiz</span>
                 </div>
               </div>
 
@@ -144,27 +275,65 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         )}
 
-        {/* Active State - Show ReactFaceAge Component */}
-        {widgetState === 'active' && (
-          <div className="min-h-[700px]">
-            <ReactFaceAge
-              options={options}
-              onLoad={handleLoad}
-            />
-          </div>
+        {/* Active State - Show FaceAge Widget */}
+        {(widgetState === 'active' || widgetState === 'complete') && (
+          <div 
+            ref={containerRef}
+            id="faceage-container" 
+            className="min-h-[650px] w-full"
+          />
         )}
       </div>
 
-      {/* Analysis Result (if available) */}
-      {analysisResult && (
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
-          <div className="flex items-center gap-2 mb-4">
-            <CheckCircle2 className="w-5 h-5 text-green-600" />
-            <h3 className="font-semibold text-gray-900">Analysis Complete</h3>
+      {/* Analysis Summary (shown after complete) */}
+      {widgetState === 'complete' && analysisData && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* User Image */}
+          {userImage && (
+            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Camera className="w-5 h-5 text-[#CFAFA3]" />
+                Your Photo
+              </h3>
+              <img 
+                src={userImage} 
+                alt="Analysis photo" 
+                className="w-full max-w-xs mx-auto rounded-lg shadow-md"
+              />
+            </div>
+          )}
+
+          {/* Analysis Results */}
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <h3 className="font-semibold text-gray-900">Analysis Complete</h3>
+            </div>
+            <pre className="text-sm text-gray-600 bg-white/50 rounded-lg p-4 overflow-auto max-h-64">
+              {JSON.stringify(analysisData, null, 2)}
+            </pre>
           </div>
-          <pre className="text-sm text-gray-600 bg-white/50 rounded-lg p-4 overflow-auto max-h-64">
-            {JSON.stringify(analysisResult, null, 2)}
-          </pre>
+        </div>
+      )}
+
+      {/* Selected Products */}
+      {selectedProducts.length > 0 && (
+        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+          <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <ShoppingCart className="w-5 h-5 text-[#CFAFA3]" />
+            Products Added to Cart ({selectedProducts.length})
+          </h3>
+          <div className="space-y-3">
+            {selectedProducts.map((product, index) => (
+              <div 
+                key={`${product.id}-${index}`}
+                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              >
+                <span className="font-medium">{product.title}</span>
+                <span className="text-[#CFAFA3] font-semibold">${product.price}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
