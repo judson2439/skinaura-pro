@@ -15,7 +15,7 @@ const FaceAnalysisV2Section: React.FC = () => {
   const options = {
     faceageId: FACE_AGE_ID,
     displayModel: 'widget',
-    type: 'skincare-analyzer',
+    type: 'skincare',
     language: 'en',
     currency: '$',
     quiz: true,
