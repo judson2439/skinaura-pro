@@ -11,6 +11,7 @@ import {
   User,
 } from 'lucide-react';
 import ProfessionalChatModal from '../modals/ProfessionalChatModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -286,10 +287,11 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
                 {/* Avatar */}
                 <div className="flex-shrink-0 relative">
                   {group.professional_avatar ? (
-                    <img
+                    <EncryptedImage
                       src={group.professional_avatar}
                       alt={group.professional_name}
                       className="w-14 h-14 rounded-full object-cover border-2 border-gray-100"
+                      fallbackClassName="w-14 h-14 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-gray-100"
                     />
                   ) : (
                     <div className="w-14 h-14 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-gray-100">

@@ -3,6 +3,7 @@ import { X, Send, Loader2, MessageSquare, User } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface ChatMessage {
   id: string;
@@ -293,10 +294,11 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-[#CFAFA3]/5 to-[#CFAFA3]/10">
           <div className="flex items-center gap-3">
             {professional.avatar_url ? (
-              <img
+              <EncryptedImage
                 src={professional.avatar_url}
                 alt={professional.name}
                 className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-md"
+                fallbackClassName="w-12 h-12 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-white shadow-md"
               />
             ) : (
               <div className="w-12 h-12 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-white shadow-md">
@@ -362,10 +364,11 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
                         {msg.sender_type === 'professional' && (
                           <div className="flex items-end gap-2">
                             {professional.avatar_url ? (
-                              <img
+                              <EncryptedImage
                                 src={professional.avatar_url}
                                 alt={professional.name}
-                                className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                                className="w-8 h-8 rounded-full object-cover flex-shrink-0" 
+                                fallbackClassName="w-8 h-8 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center flex-shrink-0"
                               />
                             ) : (
                               <div className="w-8 h-8 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center flex-shrink-0">
