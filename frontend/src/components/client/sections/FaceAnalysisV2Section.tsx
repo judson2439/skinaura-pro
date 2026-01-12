@@ -19,7 +19,7 @@ import { API_CONFIG } from '@/config/api';
 // ============================================================================
 
 const FACE_AGE_ID = 'sG3mv6Z0qLEuDJIHopSZ';
-const FACE_AGE_API_URL = 'https://core.getfaceage.com/api/v1/widget/skin-analyze/set-parameters';
+const FACE_AGE_WIDGET_BASE_URL = 'https://panel.getfaceage.com/widget/skin-analyze';
 
 // All available skin problems for analysis
 const SKIN_PROBLEMS = [
@@ -77,55 +77,46 @@ const FaceAnalysisV2Section: React.FC = () => {
     return `${API_CONFIG.baseUrl}/api/client/face-analysis/callback`;
   }, []);
 
-  // Fetch widget URL from FaceAge API
-  const fetchWidgetUrl = useCallback(async () => {
+  // Build widget URL directly (avoids CORS issues with their API)
+  const buildWidgetUrl = useCallback(() => {
+    const params = new URLSearchParams();
+    
+    // Required parameters
+    params.set('faceAgeId', FACE_AGE_ID);
+    params.set('type', 'skincare-analyzer');
+    
+    // Optional parameters
+    params.set('showCamera', config.showCamera.toString());
+    params.set('showUpload', config.showUpload.toString());
+    params.set('language', config.language);
+    params.set('currency', config.currency);
+    params.set('callbackUrl', getCallbackUrl());
+    
+    // Add problems/access parameter (comma-separated list)
+    params.set('access', config.problems.join(','));
+    
+    return `${FACE_AGE_WIDGET_BASE_URL}?${params.toString()}`;
+  }, [config, getCallbackUrl]);
+
+  // Initialize widget
+  const initializeWidget = useCallback(() => {
     setWidgetState('loading');
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('faceAgeId', FACE_AGE_ID);
-      formData.append('callbackUrl', getCallbackUrl());
-      formData.append('showCamera', config.showCamera.toString());
-      formData.append('showUpload', config.showUpload.toString());
-      formData.append('language', config.language);
-      formData.append('currency', config.currency);
-      
-      // Add problems to analyze
-      config.problems.forEach((problem, index) => {
-        formData.append(`problems[${index}]`, problem);
-      });
-
-      const response = await fetch(FACE_AGE_API_URL, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.status && data.data?.url) {
-        setWidgetUrl(data.data.url);
-        setWidgetState('ready');
-      } else {
-        throw new Error(data.message || 'Failed to get widget URL');
-      }
+      const url = buildWidgetUrl();
+      setWidgetUrl(url);
+      setWidgetState('ready');
     } catch (err) {
-      console.error('Error fetching widget URL:', err);
+      console.error('Error building widget URL:', err);
       setError(err instanceof Error ? err.message : 'Failed to initialize skin analysis');
       setWidgetState('error');
     }
-  }, [config, getCallbackUrl]);
+  }, [buildWidgetUrl]);
 
   // Start analysis when component mounts or user clicks start
   const handleStartAnalysis = () => {
-    fetchWidgetUrl();
+    initializeWidget();
   };
 
   // Reset to initial state
