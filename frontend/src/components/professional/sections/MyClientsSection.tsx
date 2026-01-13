@@ -17,8 +17,7 @@ import ClientProfileModal, { ClientProfile } from '@/components/professional/mod
 import AddClientModal from '@/components/professional/modals/AddClientModal';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
-import { getAuthSession, getAuthToken } from '@/lib/authStorage';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 
 // ============================================================================
@@ -50,7 +49,7 @@ interface MyClientsSectionProps {
 // ============================================================================
 
 const MyClientsSection: React.FC<MyClientsSectionProps> = () => {
-  useAuth(); // Ensure auth context is available
+  // Auth session is managed by authStorage
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [clients, setClients] = useState<Client[]>([]);

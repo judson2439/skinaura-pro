@@ -29,9 +29,8 @@ import CSVProductImport from '@/components/professional/modals/CSVProductImport'
 import ShopifyProductImport from '@/components/professional/modals/ShopifyProductImport';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
-import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { uploadImage } from '@/lib/encryption';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
 
 
@@ -79,7 +78,8 @@ const uploadProductImage = async (file: File): Promise<string | null> => {
 const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
   onNavigateToView,
 }) => {
-  const { user } = useAuth();
+  const session = getAuthSession();
+  const user = session?.user;
 
   // Data state
   const [products, setProducts] = useState<Product[]>([]);

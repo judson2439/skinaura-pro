@@ -18,7 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { UserProfile } from '../types';
 import UserDetailModal from '../modals/UserDetailModal';
@@ -30,7 +30,6 @@ interface UsersSectionProps {
 }
 
 const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
-  const { authToken } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
@@ -49,8 +48,9 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
 
   // Fetch users from backend API
   const fetchUsers = async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
-    
+
     setIsLoadingUsers(true);
     try {
       apiClient.setAuthToken(authToken);
@@ -96,7 +96,7 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   // Fetch users on mount
   useEffect(() => {
     fetchUsers();
-  }, [authToken]);
+  }, []);
 
   // Paginated users
   const paginatedUsers = filteredUsers.slice(
@@ -119,8 +119,9 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   };
 
   const handleSaveUser = async (updatedUser: UserProfile) => {
+    const authToken = getAuthToken();
     if (!authToken) return;
-    
+
     try {
       apiClient.setAuthToken(authToken);
       const response = await apiClient.put<{
@@ -153,8 +154,9 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   };
 
   const confirmDeleteUser = async () => {
+    const authToken = getAuthToken();
     if (!userToDelete || !authToken) return;
-    
+
     setIsDeleting(true);
     try {
       apiClient.setAuthToken(authToken);
@@ -197,8 +199,9 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   };
 
   const handleBulkDelete = async () => {
+    const authToken = getAuthToken();
     if (selectedUsers.size === 0 || !authToken) return;
-    
+
     if (!confirm(`Are you sure you want to delete ${selectedUsers.size} user(s)?`)) return;
 
     setIsDeleting(true);

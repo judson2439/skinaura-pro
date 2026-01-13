@@ -9,7 +9,7 @@ import {
   X,
   Info,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -123,7 +123,6 @@ const parseArrayField = (value: string): string[] => {
 // ============================================================================
 
 const CSVProductImport: React.FC<CSVProductImportProps> = ({ userId, onImportComplete }) => {
-  const { authToken } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -327,6 +326,7 @@ const CSVProductImport: React.FC<CSVProductImportProps> = ({ userId, onImportCom
 
   // Import products to database
   const handleImport = async () => {
+    const authToken = getAuthToken();
     if (parsedProducts.length === 0 || !authToken) return;
 
     setImporting(true);

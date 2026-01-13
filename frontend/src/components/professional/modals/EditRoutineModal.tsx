@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, UserPlus, Link2, Package, Loader2 } from 'lucide-react';
 import { Routine, RoutineStep, getScheduleLabel, PRODUCT_TYPES } from './routineTypes';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 import LinkProductModal from './LinkProductModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -69,48 +71,28 @@ const EditRoutineModal: React.FC<EditRoutineModalProps> = ({
   const fetchLinkedProducts = async () => {
     if (!routine) return;
     
+    const token = getAuthToken();
+    if (!token) return;
+
     setIsLoadingLinks(true);
     try {
-      const stepIds = routine.steps.map(s => s.id);
+      apiClient.setAuthToken(token);
       
-      // Fetch all linked products for these steps
-      const { data: links, error: linksError } = await supabase
-        .from('routine_step_products')
-        .select('*')
-        .in('routine_step_id', stepIds);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { linkedProducts: Record<string, LinkedProduct> };
+        error?: string;
+      }>(`/api/professional/routines/${routine.id}/step-products`);
 
-      if (linksError) throw linksError;
-
-      if (links && links.length > 0) {
-        // Fetch product details for all linked products
-        const productIds = links.map(l => l.product_id);
-        const { data: products, error: productsError } = await supabase
-          .from('products')
-          .select('id, name, brand, category, image_url, price, currency')
-          .in('id', productIds);
-
-        if (productsError) throw productsError;
-
-        // Create a map of step_id -> linked product with product details
-        const productMap: Record<string, Product> = {};
-        products?.forEach(p => {
-          productMap[p.id] = p;
-        });
-
-        const linksMap: Record<string, LinkedProduct> = {};
-        links.forEach(link => {
-          linksMap[link.routine_step_id] = {
-            ...link,
-            product: productMap[link.product_id],
-          };
-        });
-
-        setLinkedProducts(linksMap);
+      if (response.data.success && response.data.data) {
+        setLinkedProducts(response.data.data.linkedProducts);
       } else {
+        console.error('Error fetching linked products:', response.data.error);
         setLinkedProducts({});
       }
     } catch (err) {
       console.error('Error fetching linked products:', err);
+      setLinkedProducts({});
     } finally {
       setIsLoadingLinks(false);
     }
@@ -209,7 +191,7 @@ const EditRoutineModal: React.FC<EditRoutineModalProps> = ({
                       {/* Step Number or Product Image */}
                       {linkedProduct?.product?.image_url ? (
                         <div className="relative">
-                          <img
+                          <EncryptedImage
                             src={linkedProduct.product.image_url}
                             alt={linkedProduct.product.name}
                             className="w-10 h-10 rounded-full object-cover border-2 border-[#CFAFA3]"

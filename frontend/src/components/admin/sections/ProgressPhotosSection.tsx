@@ -22,7 +22,7 @@ import {
   Filter,
   Download,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import { CustomSelect } from '@/components/ui/custom-select';
@@ -102,7 +102,6 @@ const dbToProgressPhoto = (dbPhoto: DBProgressPhoto & { comments_count?: number;
 // ============================================================================
 
 const ProgressPhotosSection: React.FC = () => {
-  const { authToken } = useAuth();
   const { toast } = useToast();
 
   // State
@@ -137,6 +136,7 @@ const ProgressPhotosSection: React.FC = () => {
   // ============================================================================
 
   const fetchPhotos = useCallback(async (showRefreshIndicator = false) => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     if (showRefreshIndicator) {
@@ -197,9 +197,10 @@ const ProgressPhotosSection: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [authToken, currentPage, selectedPhotoType, selectedUser, toast]);
+  }, [currentPage, selectedPhotoType, selectedUser, toast]);
 
   const fetchStats = useCallback(async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     try {
@@ -223,9 +224,10 @@ const ProgressPhotosSection: React.FC = () => {
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
-  }, [authToken]);
+  }, []);
 
   const fetchAllUsers = useCallback(async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     try {
@@ -245,23 +247,25 @@ const ProgressPhotosSection: React.FC = () => {
     } catch (error) {
       console.error('Error fetching users:', error);
     }
-  }, [authToken]);
+  }, []);
 
   // Initial load
   useEffect(() => {
+    const authToken = getAuthToken();
     if (authToken) {
       fetchPhotos();
       fetchStats();
       fetchAllUsers();
     }
-  }, [authToken]);
+  }, []);
 
   // Refetch when filters or page change
   useEffect(() => {
+    const authToken = getAuthToken();
     if (authToken) {
       fetchPhotos();
     }
-  }, [currentPage, selectedPhotoType, selectedUser, authToken]);
+  }, [currentPage, selectedPhotoType, selectedUser]);
 
   // Reset page when filters change
   useEffect(() => {

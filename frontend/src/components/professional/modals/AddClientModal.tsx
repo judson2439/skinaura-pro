@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Loader2, AlertCircle, Mail, CheckCircle, Send, Clock } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 
 // ============================================================================
@@ -22,7 +22,6 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
   onClose,
   onClientAdded,
 }) => {
-  const { authToken } = useAuth();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +44,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
       return;
     }
 
+    const authToken = getAuthToken();
     if (!authToken) {
       setError('Unable to identify your account. Please try again.');
       return;

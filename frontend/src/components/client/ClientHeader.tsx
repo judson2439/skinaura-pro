@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken, getAuthSession, clearAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
@@ -59,7 +59,8 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
   unreadNotifications = 0,
 }) => {
   const navigate = useNavigate();
-  const { signOut, profile, authToken } = useAuth();
+  const session = getAuthSession();
+  const profile = session?.user;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -70,8 +71,9 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
 
   // Fetch recent notifications when dropdown opens
   const fetchRecentNotifications = async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
-    
+
     setLoadingNotifications(true);
     try {
       apiClient.setAuthToken(authToken);
@@ -102,7 +104,7 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
 
   const handleLogout = async () => {
     setShowUserMenu(false);
-    await signOut();
+    clearAuthSession();
     navigate('/');
   };
 

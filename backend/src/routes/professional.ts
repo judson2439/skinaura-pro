@@ -2760,4 +2760,371 @@ router.post('/products/bulk-import', async (req: Request, res: Response): Promis
   }
 });
 
+// ============================================================================
+// ROUTINE STEP PRODUCTS ENDPOINTS
+// ============================================================================
+
+interface LinkedProduct {
+  id: string;
+  routine_step_id: string;
+  product_id: string;
+  notes: string | null;
+  created_at: string;
+}
+
+interface ProductDetails {
+  id: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  image_url: string | null;
+  price: number | null;
+  currency: string | null;
+}
+
+/**
+ * GET /professional/routines/:routineId/step-products
+ * Fetch all linked products for a routine's steps
+ */
+router.get('/routines/:routineId/step-products', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { routineId } = req.params;
+
+    console.log(`📦 Fetching linked products for routine ${routineId}`);
+
+    // Verify routine belongs to this professional
+    const routine = await queryOne<{ id: string }>(
+      `SELECT id FROM routine_templates WHERE id = $1 AND professional_id = $2`,
+      [routineId, professionalId]
+    );
+
+    if (!routine) {
+      res.status(404).json({
+        success: false,
+        error: 'Routine not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Fetch step IDs for this routine
+    const steps = await query<{ id: string }>(
+      `SELECT id FROM routine_steps WHERE routine_id = $1`,
+      [routineId]
+    );
+
+    if (steps.length === 0) {
+      res.json({
+        success: true,
+        data: { linkedProducts: {} },
+      } as ApiResponse);
+      return;
+    }
+
+    const stepIds = steps.map(s => s.id);
+
+    // Fetch linked products with product details
+    const linkedProducts = await query<LinkedProduct & ProductDetails>(
+      `SELECT 
+         rsp.id,
+         rsp.routine_step_id,
+         rsp.product_id,
+         rsp.notes,
+         rsp.created_at,
+         p.name,
+         p.brand,
+         p.category,
+         p.image_url,
+         p.price,
+         p.currency
+       FROM routine_step_products rsp
+       LEFT JOIN products p ON rsp.product_id = p.id
+       WHERE rsp.routine_step_id = ANY($1)`,
+      [stepIds]
+    );
+
+    // Transform to map format: stepId -> linkedProduct with product details
+    const linksMap: Record<string, any> = {};
+    linkedProducts.forEach(link => {
+      linksMap[link.routine_step_id] = {
+        id: link.id,
+        routine_step_id: link.routine_step_id,
+        product_id: link.product_id,
+        notes: link.notes,
+        created_at: link.created_at,
+        product: {
+          id: link.product_id,
+          name: link.name,
+          brand: link.brand,
+          category: link.category,
+          image_url: link.image_url,
+          price: link.price,
+          currency: link.currency,
+        },
+      };
+    });
+
+    console.log(`✅ Found ${linkedProducts.length} linked products`);
+
+    res.json({
+      success: true,
+      data: { linkedProducts: linksMap },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching step products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch linked products',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/products/list
+ * Fetch products for the professional (owned or global)
+ */
+router.get('/products/list', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`📦 Fetching products for professional ${professionalId}`);
+
+    const products = await query<ProductDetails>(
+      `SELECT id, name, brand, category, image_url, price, currency
+       FROM products
+       WHERE (professional_id = $1 OR is_global = true) AND is_active = true
+       ORDER BY name`,
+      [professionalId]
+    );
+
+    console.log(`✅ Found ${products.length} products`);
+
+    res.json({
+      success: true,
+      data: { products },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch products',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/routine-steps/:stepId/link-product
+ * Link a product to a routine step
+ */
+router.post('/routine-steps/:stepId/link-product', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { stepId } = req.params;
+    const { product_id, notes } = req.body;
+
+    console.log(`🔗 Linking product ${product_id} to step ${stepId}`);
+
+    if (!product_id) {
+      res.status(400).json({
+        success: false,
+        error: 'Product ID is required',
+      } as ApiResponse);
+      return;
+    }
+
+    // Verify step belongs to a routine owned by this professional
+    const step = await queryOne<{ id: string; routine_id: string }>(
+      `SELECT rs.id, rs.routine_id
+       FROM routine_steps rs
+       JOIN routine_templates rt ON rs.routine_id = rt.id
+       WHERE rs.id = $1 AND rt.professional_id = $2`,
+      [stepId, professionalId]
+    );
+
+    if (!step) {
+      res.status(404).json({
+        success: false,
+        error: 'Step not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Check if link already exists
+    const existingLink = await queryOne<LinkedProduct>(
+      `SELECT * FROM routine_step_products WHERE routine_step_id = $1`,
+      [stepId]
+    );
+
+    if (existingLink) {
+      res.status(400).json({
+        success: false,
+        error: 'Step already has a linked product. Use update instead.',
+      } as ApiResponse);
+      return;
+    }
+
+    // Create the link
+    const newLink = await queryOne<LinkedProduct>(
+      `INSERT INTO routine_step_products (routine_step_id, product_id, notes, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING *`,
+      [stepId, product_id, notes || null]
+    );
+
+    // Fetch product details
+    const product = await queryOne<ProductDetails>(
+      `SELECT id, name, brand, category, image_url, price, currency
+       FROM products WHERE id = $1`,
+      [product_id]
+    );
+
+    console.log(`✅ Product linked successfully`);
+
+    res.json({
+      success: true,
+      data: {
+        linkedProduct: {
+          ...newLink,
+          product,
+        },
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error linking product:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to link product',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PUT /professional/routine-step-products/:linkId
+ * Update a linked product
+ */
+router.put('/routine-step-products/:linkId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { linkId } = req.params;
+    const { product_id, notes } = req.body;
+
+    console.log(`📝 Updating product link ${linkId}`);
+
+    if (!product_id) {
+      res.status(400).json({
+        success: false,
+        error: 'Product ID is required',
+      } as ApiResponse);
+      return;
+    }
+
+    // Verify link exists and belongs to a routine owned by this professional
+    const existingLink = await queryOne<LinkedProduct & { professional_id: string }>(
+      `SELECT rsp.*, rt.professional_id
+       FROM routine_step_products rsp
+       JOIN routine_steps rs ON rsp.routine_step_id = rs.id
+       JOIN routine_templates rt ON rs.routine_id = rt.id
+       WHERE rsp.id = $1 AND rt.professional_id = $2`,
+      [linkId, professionalId]
+    );
+
+    if (!existingLink) {
+      res.status(404).json({
+        success: false,
+        error: 'Product link not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Update the link
+    const updatedLink = await queryOne<LinkedProduct>(
+      `UPDATE routine_step_products
+       SET product_id = $1, notes = $2
+       WHERE id = $3
+       RETURNING *`,
+      [product_id, notes || null, linkId]
+    );
+
+    // Fetch product details
+    const product = await queryOne<ProductDetails>(
+      `SELECT id, name, brand, category, image_url, price, currency
+       FROM products WHERE id = $1`,
+      [product_id]
+    );
+
+    console.log(`✅ Product link updated successfully`);
+
+    res.json({
+      success: true,
+      data: {
+        linkedProduct: {
+          ...updatedLink,
+          product,
+        },
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error updating product link:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update product link',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/routine-step-products/:linkId
+ * Unlink a product from a routine step
+ */
+router.delete('/routine-step-products/:linkId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { linkId } = req.params;
+
+    console.log(`🗑️ Deleting product link ${linkId}`);
+
+    // Verify link exists and belongs to a routine owned by this professional
+    const existingLink = await queryOne<LinkedProduct & { professional_id: string }>(
+      `SELECT rsp.*, rt.professional_id
+       FROM routine_step_products rsp
+       JOIN routine_steps rs ON rsp.routine_step_id = rs.id
+       JOIN routine_templates rt ON rs.routine_id = rt.id
+       WHERE rsp.id = $1 AND rt.professional_id = $2`,
+      [linkId, professionalId]
+    );
+
+    if (!existingLink) {
+      res.status(404).json({
+        success: false,
+        error: 'Product link not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    // Delete the link
+    await query(
+      `DELETE FROM routine_step_products WHERE id = $1`,
+      [linkId]
+    );
+
+    console.log(`✅ Product link deleted successfully`);
+
+    res.json({
+      success: true,
+      message: 'Product unlinked successfully',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting product link:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to unlink product',
+    } as ApiResponse);
+  }
+});
+
 export default router;

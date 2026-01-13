@@ -20,7 +20,7 @@ import {
   Save,
   AlertCircle,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { AdminRoutineTemplate, AdminRoutineStep, SCHEDULE_TYPES } from '../types';
 
@@ -39,7 +39,6 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
   onSave,
   mode,
 }) => {
-  const { authToken } = useAuth();
   const [isEditing, setIsEditing] = useState(mode === 'edit');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingSteps, setIsLoadingSteps] = useState(false);
@@ -57,7 +56,7 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
 
   // Update form data when routine changes
   useEffect(() => {
-    if (routine && authToken) {
+    if (routine) {
       setFormData({
         name: routine.name,
         description: routine.description || '',
@@ -66,7 +65,7 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
       });
       fetchRoutineSteps(routine.id);
     }
-  }, [routine, authToken]);
+  }, [routine]);
 
   // Update editing mode when mode prop changes
   useEffect(() => {
@@ -75,6 +74,7 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
 
   // Fetch routine steps with linked products from backend API
   const fetchRoutineSteps = async (routineId: string) => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     setIsLoadingSteps(true);
@@ -99,6 +99,7 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
   };
 
   const handleSave = async () => {
+    const authToken = getAuthToken();
     if (!routine || !authToken) return;
 
     setIsSaving(true);

@@ -26,7 +26,7 @@ import {
   ArrowDownRight,
   Eye,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { API_CONFIG } from '@/config/api';
 
 // ============================================================================
@@ -109,7 +109,6 @@ const BRAND_COLORS: Record<string, string> = {
 const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   onNavigateToView,
 }) => {
-  const { authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [timePeriod, setTimePeriod] = useState('30');
@@ -133,6 +132,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
 
   // Fetch all analytics data from backend API
   const fetchAnalyticsData = async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
     
     try {
@@ -186,7 +186,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
 
   useEffect(() => {
     fetchAnalyticsData();
-  }, [authToken, timePeriod]);
+  }, [timePeriod]);
 
   const handleRefresh = () => {
     setRefreshing(true);

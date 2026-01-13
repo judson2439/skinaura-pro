@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken, getAuthSession, clearAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
@@ -60,7 +60,8 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
   onNavigateToView,
 }) => {
   const navigate = useNavigate();
-  const { signOut, profile, authToken } = useAuth();
+  const session = getAuthSession();
+  const profile = session?.user;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [unreadNotes, setUnreadNotes] = useState<RoutineNote[]>([]);
@@ -71,6 +72,7 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
 
   // Fetch unread notes from backend API
   const fetchUnreadNotes = useCallback(async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     try {
@@ -90,10 +92,11 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
     } catch (error) {
       console.error('Error fetching unread notes:', error);
     }
-  }, [authToken]);
+  }, []);
 
   // Mark a note as read
   const markNoteAsRead = async (noteId: string) => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     try {
@@ -110,6 +113,7 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
 
   // Mark all notes as read
   const markAllAsRead = async () => {
+    const authToken = getAuthToken();
     if (unreadNotes.length === 0 || !authToken) return;
 
     try {
@@ -125,6 +129,7 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
 
   // Fetch notifications on mount and set up polling interval
   useEffect(() => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     // Initial fetch
@@ -139,7 +144,7 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
     return () => {
       clearInterval(pollInterval);
     };
-  }, [authToken, fetchUnreadNotes]);
+  }, [fetchUnreadNotes]);
 
 
   // Format time ago
@@ -162,9 +167,9 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     setShowUserMenu(false);
-    await signOut();
+    clearAuthSession();
     navigate('/');
   };
 
@@ -241,10 +246,11 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
                           >
                             <div className="flex-shrink-0">
                               {note.client_avatar ? (
-                                <img
+                                <EncryptedImage
                                   src={note.client_avatar}
                                   alt={note.client_name}
                                   className="w-10 h-10 rounded-full object-cover"
+                                  fallbackClassName="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
                                 />
                               ) : (
                                 <div className="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center">

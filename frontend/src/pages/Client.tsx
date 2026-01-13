@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
-import { validateAuthSession, clearAuthSession, getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 import ClientSidebar, { CLIENT_NAV_ITEMS } from '@/components/client/ClientSidebar';
 import ClientHeader from '@/components/client/ClientHeader';
@@ -72,7 +71,7 @@ const ClientPage: React.FC = () => {
   const { section } = useParams<{ section: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, profile, initialized, loading, isAuthenticated, clearAuth } = useAuth();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [clientStats, setClientStats] = useState<ClientStats>({
     level: 'Bronze',
@@ -89,18 +88,12 @@ const ClientPage: React.FC = () => {
   // If no session after initialization, redirect to landing page
   // If session exists but wrong role, redirect to appropriate page
   useEffect(() => {
-    if (!initialized) {
-      // Still checking session, wait...
-      return;
-    }
-
     // Get auth session from storage
     const authSession = getAuthSession();
-    const hasCustomAuth = authSession && authSession.token;
-    const hasSupabaseAuth = isAuthenticated && user;
+    const hasValidAuth = authSession && authSession.token;
     
     // If we have custom auth, validate it
-    if (hasCustomAuth) {
+    if (hasValidAuth) {
       const { valid, reason } = validateAuthSession();
       
       if (!valid && reason) {
@@ -117,22 +110,24 @@ const ClientPage: React.FC = () => {
             duration: 5000,
           });
           
-          clearAuth();
+          clearAuthSession();
           navigate('/', { replace: true });
+          setIsCheckingSession(false);
           return;
         }
       }
     }
 
     // Check if user has any valid session
-    if (!hasCustomAuth && !hasSupabaseAuth) {
+    if (!hasValidAuth) {
       console.log('No session found, redirecting to landing page');
       navigate('/', { replace: true });
+      setIsCheckingSession(false);
       return;
     }
 
-    // Get role from auth storage or profile
-    const userRole = profile?.role || authSession?.user?.role;
+    // Get role from auth storage
+    const userRole = authSession?.user?.role;
 
     // User is authenticated, check role
     if (userRole && userRole !== 'client') {
@@ -143,7 +138,9 @@ const ClientPage: React.FC = () => {
         navigate('/professional', { replace: true });
       }
     }
-  }, [initialized, isAuthenticated, user, profile, navigate, clearAuth, toast]);
+    
+    setIsCheckingSession(false);
+  }, [navigate, toast]);
 
   // Fetch gamification stats from database
   useEffect(() => {
@@ -209,10 +206,10 @@ const ClientPage: React.FC = () => {
       }
     };
 
-    if (initialized && (isAuthenticated || getAuthToken())) {
+    if (!isCheckingSession && getAuthToken()) {
       fetchGamificationStats();
     }
-  }, [initialized, isAuthenticated, user]);
+  }, [isCheckingSession]);
 
   // Fetch unread notifications count
   useEffect(() => {
@@ -240,15 +237,15 @@ const ClientPage: React.FC = () => {
       }
     };
 
-    if (initialized && (isAuthenticated || getAuthToken())) {
+    if (!isCheckingSession && getAuthToken()) {
       fetchUnreadCount();
     }
-  }, [initialized, isAuthenticated, user]);
+  }, [isCheckingSession]);
 
   // Poll for notification updates (replaces real-time subscription)
   useEffect(() => {
     const token = getAuthToken();
-    if (!token || !initialized) return;
+    if (!token || isCheckingSession) return;
 
     const pollInterval = setInterval(async () => {
       try {
@@ -270,7 +267,7 @@ const ClientPage: React.FC = () => {
     return () => {
       clearInterval(pollInterval);
     };
-  }, [initialized, isAuthenticated]);
+  }, [isCheckingSession]);
 
   // Handle unread count change from NotificationsSection
   const handleUnreadCountChange = (count: number) => {
@@ -278,7 +275,7 @@ const ClientPage: React.FC = () => {
   };
 
   // Show loading state while checking session
-  if (!initialized || loading) {
+  if (isCheckingSession) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
         <div className="flex flex-col items-center gap-4">
@@ -289,9 +286,9 @@ const ClientPage: React.FC = () => {
     );
   }
 
-  // Check for valid auth session (custom auth or Supabase)
+  // Check for valid auth session
   const currentAuthSession = getAuthSession();
-  const hasValidSession = isAuthenticated || (currentAuthSession && currentAuthSession.token);
+  const hasValidSession = currentAuthSession && currentAuthSession.token;
 
   // Don't render content if not authenticated (will redirect)
   if (!hasValidSession) {
@@ -305,11 +302,11 @@ const ClientPage: React.FC = () => {
     );
   }
 
-  // Get user data from profile, auth session, or fallback to defaults
+  // Get user data from auth session, or fallback to defaults
   const storedUser = currentAuthSession?.user;
-  const userDisplayName = profile?.full_name || storedUser?.full_name || user?.user_metadata?.full_name || 'User';
-  const userEmail = profile?.email || storedUser?.email || user?.email || '';
-  const userAvatar = profile?.avatar_url || storedUser?.avatar_url || undefined;
+  const userDisplayName = storedUser?.full_name || 'User';
+  const userEmail = storedUser?.email || '';
+  const userAvatar = storedUser?.avatar_url || undefined;
 
   const handleNavigateToView = (viewId: string) => {
     navigate(`/client/${viewId}`);

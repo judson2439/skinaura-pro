@@ -12,7 +12,7 @@ import {
   Info,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthSession } from '@/lib/authStorage';
 
 // ============================================================================
 // TYPES
@@ -105,7 +105,8 @@ const mapProductTypeToCategory = (productType: string): string => {
 const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
   onImportComplete,
 }) => {
-  const { user } = useAuth();
+  const session = getAuthSession();
+  const user = session?.user;
   
   // State
   const [loading, setLoading] = useState(false);

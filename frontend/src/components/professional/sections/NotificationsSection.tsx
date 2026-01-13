@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import {
@@ -45,7 +44,8 @@ const POLLING_INTERVAL = 5000;
 const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   onNavigateToView,
 }) => {
-  const { user } = useAuth();
+  const session = getAuthSession();
+  const user = session?.user;
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,17 +60,12 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
   const isMountedRef = useRef(true);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get auth token
-  const getToken = useCallback(() => {
-    const authSession = getAuthSession();
-    return authSession?.token || getAuthToken();
-  }, []);
-
   // Fetch all notifications grouped by client
   const fetchNotifications = useCallback(async (showLoading = true) => {
-    const token = getToken();
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
     
-    if (!user?.id || !token) {
+    if (!token) {
       if (showLoading) {
         setLoading(false);
       }
@@ -104,16 +99,11 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
         setLoading(false);
       }
     }
-  }, [user?.id, getToken]);
+  }, []);
 
   // Set up polling for real-time updates
   useEffect(() => {
     isMountedRef.current = true;
-
-    if (!user?.id) {
-      setLoading(false);
-      return;
-    }
 
     // Initial fetch with loading
     fetchNotifications(true);
@@ -131,13 +121,12 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
         clearInterval(pollingRef.current);
       }
     };
-  }, [user?.id, fetchNotifications, isChatModalOpen]);
+  }, [fetchNotifications, isChatModalOpen]);
 
   // Mark all as read
   const markAllAsRead = async () => {
-    if (!user?.id) return;
-
-    const token = getToken();
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
     if (!token) return;
 
     try {

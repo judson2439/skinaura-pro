@@ -21,7 +21,7 @@ import {
   Moon,
   Calendar,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { AdminRoutineTemplate, SCHEDULE_TYPES } from '../types';
 import RoutineDetailModal from '../modals/RoutineDetailModal';
@@ -32,7 +32,6 @@ interface RoutinesSectionProps {
 }
 
 const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) => {
-  const { authToken } = useAuth();
   const [routines, setRoutines] = useState<AdminRoutineTemplate[]>([]);
   const [filteredRoutines, setFilteredRoutines] = useState<AdminRoutineTemplate[]>([]);
   const [isLoadingRoutines, setIsLoadingRoutines] = useState(false);
@@ -52,6 +51,7 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
 
   // Fetch routines from backend API
   const fetchRoutines = async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     setIsLoadingRoutines(true);
@@ -108,7 +108,7 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   // Fetch routines on mount
   useEffect(() => {
     fetchRoutines();
-  }, [authToken]);
+  }, []);
 
   // Paginated routines
   const paginatedRoutines = filteredRoutines.slice(
@@ -146,6 +146,7 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   };
 
   const confirmDeleteRoutine = async () => {
+    const authToken = getAuthToken();
     if (!routineToDelete || !authToken) return;
     
     setIsDeletingRoutine(true);
@@ -190,6 +191,7 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   };
 
   const handleBulkDeleteRoutines = async () => {
+    const authToken = getAuthToken();
     if (selectedRoutines.size === 0 || !authToken) return;
     
     if (!confirm(`Are you sure you want to delete ${selectedRoutines.size} routine(s)? This will also delete all associated steps and assignments.`)) return;

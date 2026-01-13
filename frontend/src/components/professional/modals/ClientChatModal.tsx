@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Send, Loader2, MessageSquare, User } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
-import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface ChatMessage {
   id: string;
@@ -37,7 +37,6 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
   client,
   onMessagesRead,
 }) => {
-  const { user } = useAuth();
   const { toast } = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,11 +47,17 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
   const isMountedRef = useRef(true);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const lastMessageIdRef = useRef<string | null>(null);
+  const hasMarkedAsReadRef = useRef(false);
 
-  // Get auth token
+  // Get auth token and user ID from auth session
   const getToken = useCallback(() => {
     const authSession = getAuthSession();
     return authSession?.token || getAuthToken();
+  }, []);
+
+  const getUserId = useCallback(() => {
+    const authSession = getAuthSession();
+    return authSession?.user?.id || null;
   }, []);
 
   // Scroll to bottom of messages
@@ -62,7 +67,8 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
 
   // Fetch chat history
   const fetchMessages = useCallback(async (showLoading = true) => {
-    if (!user?.id || !client.id) return;
+    const userId = getUserId();
+    if (!userId || !client.id) return;
 
     const token = getToken();
     if (!token) return;
@@ -110,11 +116,12 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
         setLoading(false);
       }
     }
-  }, [user?.id, client.id, getToken]);
+  }, [client.id, getToken, getUserId]);
 
   // Mark all unread messages from this client as read
   const markMessagesAsRead = useCallback(async () => {
-    if (!user?.id || !client.id) return;
+    const userId = getUserId();
+    if (!userId || !client.id) return;
 
     const token = getToken();
     if (!token) return;
@@ -143,13 +150,14 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
-  }, [user?.id, client.id, getToken, onMessagesRead]);
+  }, [client.id, getToken, getUserId, onMessagesRead]);
 
   // Send a new message
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!newMessage.trim() || !user?.id || !client.id) return;
+    const userId = getUserId();
+    if (!newMessage.trim() || !userId || !client.id) return;
 
     const token = getToken();
     if (!token) return;
@@ -253,6 +261,7 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
 
     if (isOpen && client.id) {
       lastMessageIdRef.current = null;
+      hasMarkedAsReadRef.current = false; // Reset when modal opens
       fetchMessages(true);
     }
 
@@ -263,7 +272,8 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
 
   // Setup polling for new messages
   useEffect(() => {
-    if (!isOpen || !user?.id || !client.id) return;
+    const userId = getUserId();
+    if (!isOpen || !userId || !client.id) return;
 
     // Set up polling interval
     pollingRef.current = setInterval(() => {
@@ -277,13 +287,19 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
         clearInterval(pollingRef.current);
       }
     };
-  }, [isOpen, user?.id, client.id, fetchMessages]);
+  }, [isOpen, client.id, fetchMessages, getUserId]);
 
-  // Scroll and mark as read when messages load
+  // Scroll to bottom when messages load
   useEffect(() => {
     if (!loading && messages.length > 0) {
       scrollToBottom();
-      // Mark messages as read when modal opens
+    }
+  }, [loading, messages.length]);
+
+  // Mark messages as read only once when modal opens and messages are loaded
+  useEffect(() => {
+    if (!loading && messages.length > 0 && !hasMarkedAsReadRef.current) {
+      hasMarkedAsReadRef.current = true;
       markMessagesAsRead();
     }
   }, [loading, messages.length, markMessagesAsRead]);
@@ -313,10 +329,11 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-[#5a4a3f]/5 to-[#CFAFA3]/10">
           <div className="flex items-center gap-3">
             {client.avatar_url ? (
-              <img
+              <EncryptedImage
                 src={client.avatar_url}
                 alt={client.name}
                 className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-md"
+                fallbackClassName="w-12 h-12 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-white shadow-md"
               />
             ) : (
               <div className="w-12 h-12 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-white shadow-md">
@@ -382,10 +399,11 @@ const ClientChatModal: React.FC<ClientChatModalProps> = ({
                         {msg.sender_type === 'client' && (
                           <div className="flex items-end gap-2">
                             {client.avatar_url ? (
-                              <img
+                              <EncryptedImage
                                 src={client.avatar_url}
                                 alt={client.name}
                                 className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                                fallbackClassName="w-8 h-8 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center flex-shrink-0"
                               />
                             ) : (
                               <div className="w-8 h-8 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center flex-shrink-0">

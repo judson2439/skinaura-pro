@@ -12,7 +12,6 @@ import {
   Loader2,
   Send,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
@@ -59,7 +58,8 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
   onOpenClientProfile,
   onOpenSMSModal,
 }) => {
-  const { profile } = useAuth();
+  const session = getAuthSession();
+  const profile = session?.user;
   const { toast } = useToast();
   const [allDisplayClients, setAllDisplayClients] = useState<Client[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats>({

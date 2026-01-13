@@ -41,6 +41,7 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hasMarkedAsReadRef = useRef(false);
 
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -210,14 +211,22 @@ const ProfessionalChatModal: React.FC<ProfessionalChatModalProps> = ({
   // Effects
   useEffect(() => {
     if (isOpen && professional.id) {
+      hasMarkedAsReadRef.current = false; // Reset when modal opens
       fetchMessages();
     }
   }, [isOpen, professional.id, fetchMessages]);
 
+  // Scroll to bottom when messages load
   useEffect(() => {
     if (!loading && messages.length > 0) {
       scrollToBottom();
-      // Mark messages as read when modal opens
+    }
+  }, [loading, messages.length]);
+
+  // Mark messages as read only once when modal opens and messages are loaded
+  useEffect(() => {
+    if (!loading && messages.length > 0 && !hasMarkedAsReadRef.current) {
+      hasMarkedAsReadRef.current = true;
       markMessagesAsRead();
     }
   }, [loading, messages.length, markMessagesAsRead]);

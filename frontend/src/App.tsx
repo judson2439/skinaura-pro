@@ -4,7 +4,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
-import { AuthProvider } from "@/contexts/AuthContext";
 import Landing from "./pages/Landing";
 import Client from "./pages/Client";
 import Professional from "./pages/Professional";
@@ -22,25 +21,23 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <AuthProvider>
-            <Routes>
-              <Route path="/" element={<Landing />} />
-              {/* Email confirmation route */}
-              <Route path="/confirm-email" element={<ConfirmEmail />} />
-              {/* Password reset route */}
-              <Route path="/reset-password" element={<ResetPassword />} />
-              {/* Complete client profile route for invited users */}
-              <Route path="/complete-client-profile" element={<CompleteClientProfile />} />
-              {/* Admin route */}
-              <Route path="/admin" element={<Admin />} />
-              {/* Client routes */}
-              <Route path="/client" element={<Navigate to="/client/dashboard" replace />} />
-              <Route path="/client/:section" element={<Client />} />
-              {/* Professional routes */}
-              <Route path="/professional" element={<Navigate to="/professional/dashboard" replace />} />
-              <Route path="/professional/:section" element={<Professional />} />
-            </Routes>
-          </AuthProvider>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            {/* Email confirmation route */}
+            <Route path="/confirm-email" element={<ConfirmEmail />} />
+            {/* Password reset route */}
+            <Route path="/reset-password" element={<ResetPassword />} />
+            {/* Complete client profile route for invited users */}
+            <Route path="/complete-client-profile" element={<CompleteClientProfile />} />
+            {/* Admin route */}
+            <Route path="/admin" element={<Admin />} />
+            {/* Client routes */}
+            <Route path="/client" element={<Navigate to="/client/dashboard" replace />} />
+            <Route path="/client/:section" element={<Client />} />
+            {/* Professional routes */}
+            <Route path="/professional" element={<Navigate to="/professional/dashboard" replace />} />
+            <Route path="/professional/:section" element={<Professional />} />
+          </Routes>
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>

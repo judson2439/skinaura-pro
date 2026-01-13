@@ -19,7 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { Product, PRODUCT_CATEGORIES } from '../types';
 import ProductDetailModal from '../modals/ProductDetailModal';
@@ -31,7 +31,6 @@ interface ProductsSectionProps {
 }
 
 const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) => {
-  const { authToken } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
@@ -51,6 +50,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
 
   // Fetch products from backend API
   const fetchProducts = async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     setIsLoadingProducts(true);
@@ -109,7 +109,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   // Fetch products on mount
   useEffect(() => {
     fetchProducts();
-  }, [authToken]);
+  }, []);
 
   // Paginated products
   const paginatedProducts = filteredProducts.slice(
@@ -137,6 +137,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   };
 
   const handleSaveProduct = async (updatedProduct: Product) => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     try {
@@ -172,6 +173,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   };
 
   const confirmDeleteProduct = async () => {
+    const authToken = getAuthToken();
     if (!productToDelete || !authToken) return;
     
     setIsDeletingProduct(true);
@@ -216,6 +218,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   };
 
   const handleBulkDeleteProducts = async () => {
+    const authToken = getAuthToken();
     if (selectedProducts.size === 0 || !authToken) return;
     
     if (!confirm(`Are you sure you want to delete ${selectedProducts.size} product(s)?`)) return;

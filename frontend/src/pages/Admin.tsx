@@ -18,7 +18,6 @@ import UsersSection from '@/components/admin/sections/UsersSection';
 import ProductsSection from '@/components/admin/sections/ProductsSection';
 import RoutinesSection from '@/components/admin/sections/RoutinesSection';
 import ProgressPhotosSection from '@/components/admin/sections/ProgressPhotosSection';
-import { supabase } from '@/lib/supabase';
 import { Loader2 } from 'lucide-react';
 import { validateAuthSession, getAuthSession, clearAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -107,145 +106,70 @@ const Admin: React.FC = () => {
 
   // Check admin session on mount
   useEffect(() => {
-    const checkAdminSession = async () => {
+    const checkAdminSession = () => {
       console.log('Checking admin session from localStorage...');
       
-      // Step 1: Validate auth session using centralized auth storage
+      // Validate auth session using centralized auth storage
       const { valid, reason } = validateAuthSession();
       const customSession = getAuthSession();
       
-      // Check centralized auth first
-      if (customSession && customSession.token) {
-        if (!valid && reason) {
-          console.log(`Admin session invalid: ${reason}, redirecting to /`);
-          
-          // Show toast if session expired due to inactivity
-          if (reason === 'Session expired due to inactivity') {
-            toast({
-              title: 'Session Expired',
-              description: 'You have been logged out due to inactivity. Please sign in again.',
-              variant: 'destructive',
-              duration: 5000,
-            });
-          }
-          
-          clearAuthSession();
-          clearAdminSession();
-          navigate('/', { replace: true });
-          return;
-        }
-        
-        // Verify role is admin
-        if (customSession.user.role !== 'admin') {
-          console.log(`User role is ${customSession.user.role}, not admin. Redirecting...`);
-          if (customSession.user.role === 'client') {
-            navigate('/client', { replace: true });
-          } else {
-            navigate('/professional', { replace: true });
-          }
-          return;
-        }
-        
-        // Session is valid, set admin profile
-        setAdminProfile({
-          id: customSession.user.id,
-          email: customSession.user.email,
-          full_name: customSession.user.full_name,
-          role: customSession.user.role,
-        });
-        setIsCheckingSession(false);
-        return;
-      }
-      
-      // Fallback: Check legacy admin session storage
-      const storedSession = getAdminSessionFromStorage();
-      
-      if (!storedSession) {
-        console.log('No admin session found in localStorage, redirecting to /');
+      // Check if we have a valid session
+      if (!customSession || !customSession.token) {
+        console.log('No admin session found, redirecting to /');
+        clearAuthSession();
         clearAdminSession();
         navigate('/', { replace: true });
         return;
       }
 
-      // Step 2: Check if legacy session is expired
-      const expiresAt = storedSession.session.expires_at;
-      const now = Math.floor(Date.now() / 1000);
-      
-      if (expiresAt && expiresAt < now) {
-        console.log('Admin session expired, redirecting to /');
-        clearAdminSession();
-        navigate('/', { replace: true });
-        return;
-      }
-
-      // Step 3: Verify the session is still valid with Supabase
-      try {
-        // Set the session in Supabase client
-        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-          access_token: storedSession.session.access_token,
-          refresh_token: storedSession.session.refresh_token,
-        });
-
-        if (sessionError || !sessionData.session) {
-          console.log('Admin session invalid or expired, redirecting to /');
-          clearAdminSession();
-          navigate('/', { replace: true });
-          return;
-        }
-
-        // Step 4: Verify user is still an admin
-        const { data: profileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('id, email, full_name, role')
-          .eq('id', storedSession.user.id)
-          .single();
-
-        if (profileError || !profileData || profileData.role !== 'admin') {
-          console.log('User is no longer an admin, redirecting to /');
-          clearAdminSession();
-          await supabase.auth.signOut();
-          navigate('/', { replace: true });
-          return;
-        }
-
-        // Step 5: Session is valid, update state
-        console.log('Admin session valid, user:', profileData.email);
-        setAdminProfile(profileData);
+      if (!valid && reason) {
+        console.log(`Admin session invalid: ${reason}, redirecting to /`);
         
-        // Update the stored session with refreshed tokens if needed
-        if (sessionData.session.access_token !== storedSession.session.access_token) {
-          const updatedSessionData: AdminSessionData = {
-            ...storedSession,
-            session: {
-              access_token: sessionData.session.access_token,
-              refresh_token: sessionData.session.refresh_token,
-              expires_at: sessionData.session.expires_at,
-            },
-          };
-          localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(updatedSessionData));
-          console.log('Admin session tokens refreshed');
+        // Show toast if session expired due to inactivity
+        if (reason === 'Session expired due to inactivity') {
+          toast({
+            title: 'Session Expired',
+            description: 'You have been logged out due to inactivity. Please sign in again.',
+            variant: 'destructive',
+            duration: 5000,
+          });
         }
-
-      } catch (error) {
-        console.error('Error verifying admin session:', error);
+        
+        clearAuthSession();
         clearAdminSession();
         navigate('/', { replace: true });
         return;
       }
-
+      
+      // Verify role is admin
+      if (customSession.user.role !== 'admin') {
+        console.log(`User role is ${customSession.user.role}, not admin. Redirecting...`);
+        if (customSession.user.role === 'client') {
+          navigate('/client', { replace: true });
+        } else {
+          navigate('/professional', { replace: true });
+        }
+        return;
+      }
+      
+      // Session is valid, set admin profile
+      console.log('Admin session valid, user:', customSession.user.email);
+      setAdminProfile({
+        id: customSession.user.id,
+        email: customSession.user.email,
+        full_name: customSession.user.full_name,
+        role: customSession.user.role,
+      });
       setIsCheckingSession(false);
     };
 
     checkAdminSession();
-  }, [navigate]);
+  }, [navigate, toast]);
 
   // Handle admin logout
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
+  const handleLogout = () => {
+    console.log('Admin logging out...');
+    clearAuthSession();
     clearAdminSession();
     navigate('/', { replace: true });
   };

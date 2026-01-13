@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
+import { saveAuthSession, AuthUser } from '@/lib/authStorage';
 import {
   validateInput,
   checkPasswordStrength,
@@ -102,7 +102,6 @@ const PasswordStrengthIndicator: React.FC<{ strength: PasswordStrength }> = ({ s
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'login', initialRole }) => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { loading: authLoading, setCustomAuth } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [view, setView] = useState<AuthView>(initialRole ? initialMode : 'select-role');
@@ -324,20 +323,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         console.log('📋 User data from backend:', userData);
         console.log('📋 Role resolved as:', userRole);
         
-        // Use the AuthContext setCustomAuth to properly save the session
-        setCustomAuth(
-          {
-            id: userData.id,
-            email: userData.email,
-            full_name: userData.full_name,
-            phone: userData.phone,
-            role: userRole,
-            avatar_url: userData.avatar_url,
-          },
-          token
-        );
+        // Save auth session to localStorage
+        const authUser: AuthUser = {
+          id: userData.id,
+          email: userData.email,
+          full_name: userData.full_name,
+          phone: userData.phone,
+          role: userRole,
+          avatar_url: userData.avatar_url,
+        };
+        saveAuthSession(authUser, token);
         
-        console.log('✅ Auth session saved via AuthContext');
+        console.log('✅ Auth session saved to localStorage');
       }
 
       toast({
@@ -988,14 +985,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
         <button
           type="submit"
-          disabled={loading || authLoading}
+          disabled={loading}
           className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
             selectedRole === 'client'
               ? 'bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white hover:shadow-lg hover:shadow-[#CFAFA3]/30'
               : 'bg-[#2D2A3E] text-white hover:bg-[#3D3A4E]'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
-          {(loading || authLoading) ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
         </button>
       </form>
 
@@ -1250,14 +1247,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
         <button
           type="submit"
-          disabled={loading || authLoading}
+          disabled={loading}
           className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
             selectedRole === 'client'
               ? 'bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white hover:shadow-lg hover:shadow-[#CFAFA3]/30'
               : 'bg-[#2D2A3E] text-white hover:bg-[#3D3A4E]'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
-          {(loading || authLoading) ? (
+          {loading ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
               Creating account...

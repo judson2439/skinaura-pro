@@ -25,7 +25,6 @@ import TreatmentPlanDetailModal from '@/components/professional/modals/Treatment
 import EncryptedImage from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
-import { useAuth } from '@/contexts/AuthContext';
 
 // ============================================================================
 // TYPES
@@ -42,7 +41,7 @@ interface TreatmentPlansSectionProps {
 const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   onNavigateToView,
 }) => {
-  useAuth(); // Ensure auth context is available
+  // Auth session is managed by authStorage
   
   // Data state
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);

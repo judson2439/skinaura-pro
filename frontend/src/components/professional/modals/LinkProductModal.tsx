@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Link2, Package, Loader2 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -75,19 +77,29 @@ const LinkProductModal: React.FC<LinkProductModalProps> = ({
   }, [isOpen, existingLink]);
 
   const fetchProducts = async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setError('Not authenticated');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch products for this professional or global products
-      const { data, error: fetchError } = await supabase
-        .from('products')
-        .select('id, name, brand, category, image_url, price, currency')
-        .or(`professional_id.eq.${professionalId},is_global.eq.true`)
-        .eq('is_active', true)
-        .order('name');
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { products: Product[] };
+        error?: string;
+      }>('/api/professional/products/list');
 
-      if (fetchError) throw fetchError;
-      setProducts(data || []);
+      if (response.data.success && response.data.data) {
+        setProducts(response.data.data.products);
+      } else {
+        console.error('Error fetching products:', response.data.error);
+        setError('Failed to load products');
+      }
     } catch (err) {
       console.error('Error fetching products:', err);
       setError('Failed to load products');
@@ -102,50 +114,50 @@ const LinkProductModal: React.FC<LinkProductModalProps> = ({
       return;
     }
 
+    const token = getAuthToken();
+    if (!token) {
+      setError('Not authenticated');
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
 
     try {
+      apiClient.setAuthToken(token);
+
       if (existingLink) {
         // Update existing link
-        const { data, error: updateError } = await supabase
-          .from('routine_step_products')
-          .update({
-            product_id: selectedProductId,
-            notes: notes || null,
-          })
-          .eq('id', existingLink.id)
-          .select()
-          .single();
-
-        if (updateError) throw updateError;
-
-        // Get the product details
-        const selectedProduct = products.find(p => p.id === selectedProductId);
-        onSave({
-          ...data,
-          product: selectedProduct,
+        const response = await apiClient.put<{
+          success: boolean;
+          data?: { linkedProduct: LinkedProduct };
+          error?: string;
+        }>(`/api/professional/routine-step-products/${existingLink.id}`, {
+          product_id: selectedProductId,
+          notes: notes || null,
         });
+
+        if (response.data.success && response.data.data) {
+          onSave(response.data.data.linkedProduct);
+        } else {
+          throw new Error(response.data.error || 'Failed to update product link');
+        }
       } else {
         // Create new link
-        const { data, error: insertError } = await supabase
-          .from('routine_step_products')
-          .insert({
-            routine_step_id: stepId,
-            product_id: selectedProductId,
-            notes: notes || null,
-          })
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-
-        // Get the product details
-        const selectedProduct = products.find(p => p.id === selectedProductId);
-        onSave({
-          ...data,
-          product: selectedProduct,
+        const response = await apiClient.post<{
+          success: boolean;
+          data?: { linkedProduct: LinkedProduct };
+          error?: string;
+        }>(`/api/professional/routine-steps/${stepId}/link-product`, {
+          product_id: selectedProductId,
+          notes: notes || null,
         });
+
+        if (response.data.success && response.data.data) {
+          onSave(response.data.data.linkedProduct);
+        } else {
+          throw new Error(response.data.error || 'Failed to link product');
+        }
       }
 
       handleClose();
@@ -160,19 +172,29 @@ const LinkProductModal: React.FC<LinkProductModalProps> = ({
   const handleUnlink = async () => {
     if (!existingLink) return;
 
+    const token = getAuthToken();
+    if (!token) {
+      setError('Not authenticated');
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
 
     try {
-      const { error: deleteError } = await supabase
-        .from('routine_step_products')
-        .delete()
-        .eq('id', existingLink.id);
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.delete<{
+        success: boolean;
+        error?: string;
+      }>(`/api/professional/routine-step-products/${existingLink.id}`);
 
-      if (deleteError) throw deleteError;
-
-      onUnlink();
-      handleClose();
+      if (response.data.success) {
+        onUnlink();
+        handleClose();
+      } else {
+        throw new Error(response.data.error || 'Failed to unlink product');
+      }
     } catch (err) {
       console.error('Error unlinking product:', err);
       setError('Failed to unlink product');
@@ -249,10 +271,11 @@ const LinkProductModal: React.FC<LinkProductModalProps> = ({
             {selectedProduct && (
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
                 {selectedProduct.image_url ? (
-                  <img
+                  <EncryptedImage
                     src={selectedProduct.image_url}
                     alt={selectedProduct.name}
                     className="w-12 h-12 rounded-lg object-cover"
+                    fallbackClassName="w-12 h-12 rounded-lg bg-gray-200 flex items-center justify-center"
                   />
                 ) : (
                   <div className="w-12 h-12 rounded-lg bg-gray-200 flex items-center justify-center">

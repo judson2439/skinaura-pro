@@ -31,7 +31,7 @@ import AssignRoutineModal from '@/components/professional/modals/AssignRoutineMo
 import AddClientPlaceholderModal from '@/components/professional/modals/AddClientPlaceholderModal';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 
 // ============================================================================
@@ -163,7 +163,8 @@ const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
   onNavigateToView,
 }) => {
-  const { profile } = useAuth();
+  const session = getAuthSession();
+  const profile = session?.user;
   const { toast } = useToast();
 
   // Data state

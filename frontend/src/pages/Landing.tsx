@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthSession } from '@/lib/authStorage';
 import { 
   Sparkles, 
   User, 
@@ -28,7 +28,7 @@ const PROFESSIONAL_IMAGES = [
 
 const Landing: React.FC = () => {
   const navigate = useNavigate();
-  const { user, profile, initialized, isAuthenticated } = useAuth();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [authRole, setAuthRole] = useState<'client' | 'professional' | undefined>(undefined);
@@ -36,23 +36,25 @@ const Landing: React.FC = () => {
   // Session check on page load/refresh
   // If user is already authenticated, redirect to their dashboard
   useEffect(() => {
-    if (!initialized) {
-      // Still checking session, wait...
-      return;
-    }
+    const authSession = getAuthSession();
+    const hasValidAuth = authSession && authSession.token;
 
     // Session check complete
-    if (isAuthenticated && user && profile) {
+    if (hasValidAuth && authSession?.user) {
+      const userRole = authSession.user.role;
       // User is authenticated, redirect to appropriate dashboard
-      if (profile.role === 'client') {
+      if (userRole === 'client') {
         console.log('Authenticated client found, redirecting to client dashboard');
         navigate('/client', { replace: true });
-      } else if (profile.role === 'professional') {
+      } else if (userRole === 'professional') {
         console.log('Authenticated professional found, redirecting to professional dashboard');
         navigate('/professional', { replace: true });
+      } else if (userRole === 'admin') {
+        navigate('/admin', { replace: true });
       }
     }
-  }, [initialized, isAuthenticated, user, profile, navigate]);
+    setIsCheckingSession(false);
+  }, [navigate]);
 
   const openAuthModal = (mode: 'login' | 'signup', role?: 'client' | 'professional') => {
     setAuthMode(mode);
@@ -61,7 +63,7 @@ const Landing: React.FC = () => {
   };
 
   // Show loading while checking auth state
-  if (!initialized) {
+  if (isCheckingSession) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
         <div className="flex flex-col items-center gap-4">
@@ -72,8 +74,9 @@ const Landing: React.FC = () => {
     );
   }
 
-  // Show loading if authenticated (will redirect)
-  if (isAuthenticated && user && profile) {
+  // Check if user has valid session (will redirect if so)
+  const authSession = getAuthSession();
+  if (authSession && authSession.token) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
         <div className="flex flex-col items-center gap-4">

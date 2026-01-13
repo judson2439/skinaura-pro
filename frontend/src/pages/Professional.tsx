@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
-import { validateAuthSession, getAuthSession, getAuthToken } from '@/lib/authStorage';
+import { getAuthSession, clearAuthSession, isSessionExpiredByInactivity, validateAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/apiClient';
 import ProfessionalSidebar, { PROFESSIONAL_NAV_ITEMS } from '@/components/professional/ProfessionalSidebar';
@@ -48,7 +47,7 @@ const ProfessionalPage: React.FC = () => {
   const { section } = useParams<{ section: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, profile, initialized, loading, isAuthenticated, clearAuth } = useAuth();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
 
@@ -96,18 +95,12 @@ const ProfessionalPage: React.FC = () => {
   // If no session after initialization, redirect to landing page
   // If session exists but wrong role, redirect to appropriate page
   useEffect(() => {
-    if (!initialized) {
-      // Still checking session, wait...
-      return;
-    }
-
     // Get auth session from storage
     const authSession = getAuthSession();
-    const hasCustomAuth = authSession && authSession.token;
-    const hasSupabaseAuth = isAuthenticated && user;
+    const hasValidAuth = authSession && authSession.token;
     
     // If we have custom auth, validate it
-    if (hasCustomAuth) {
+    if (hasValidAuth) {
       const { valid, reason } = validateAuthSession();
       
       if (!valid && reason) {
@@ -124,22 +117,24 @@ const ProfessionalPage: React.FC = () => {
             duration: 5000,
           });
           
-          clearAuth();
+          clearAuthSession();
           navigate('/', { replace: true });
+          setIsCheckingSession(false);
           return;
         }
       }
     }
 
     // Check if user has any valid session
-    if (!hasCustomAuth && !hasSupabaseAuth) {
+    if (!hasValidAuth) {
       console.log('No session found, redirecting to landing page');
       navigate('/', { replace: true });
+      setIsCheckingSession(false);
       return;
     }
 
-    // Get role from auth storage or profile
-    const userRole = profile?.role || authSession?.user?.role;
+    // Get role from auth storage
+    const userRole = authSession?.user?.role;
 
     // User is authenticated, check role
     if (userRole && userRole !== 'professional') {
@@ -150,14 +145,16 @@ const ProfessionalPage: React.FC = () => {
         navigate('/client', { replace: true });
       }
     }
-  }, [initialized, isAuthenticated, user, profile, navigate, clearAuth, toast]);
+    
+    setIsCheckingSession(false);
+  }, [navigate, toast]);
 
-  // Check for valid auth session (custom auth or Supabase)
+  // Check for valid auth session
   const authSession = getAuthSession();
-  const hasValidSession = isAuthenticated || (authSession && authSession.token);
+  const hasValidSession = authSession && authSession.token;
 
   // Show loading state while checking session
-  if (!initialized || loading) {
+  if (isCheckingSession) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
         <div className="flex flex-col items-center gap-4">
@@ -180,12 +177,12 @@ const ProfessionalPage: React.FC = () => {
     );
   }
 
-  // Get user data from profile, auth session, or fallback to defaults
+  // Get user data from auth session, or fallback to defaults
   const storedUser = authSession?.user;
-  const userDisplayName = profile?.full_name || storedUser?.full_name || user?.user_metadata?.full_name || 'Professional';
-  const userEmail = profile?.email || storedUser?.email || user?.email || '';
-  const userAvatar = profile?.avatar_url || storedUser?.avatar_url || user?.user_metadata?.avatar_url || '';
-  const businessName = profile?.business_name || 'Your Business';
+  const userDisplayName = storedUser?.full_name || 'Professional';
+  const userEmail = storedUser?.email || '';
+  const userAvatar = storedUser?.avatar_url || '';
+  const businessName = 'Your Business';
 
 
   const handleNavigateToView = (viewId: string) => {

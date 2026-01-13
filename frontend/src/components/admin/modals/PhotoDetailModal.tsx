@@ -18,7 +18,7 @@ import {
   ZoomOut,
   RotateCw,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import EncryptedImage from '@/components/ui/encrypted-image';
 
@@ -83,7 +83,6 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
   user,
   onClose,
 }) => {
-  const { authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [comments, setComments] = useState<PhotoComment[]>([]);
   const [annotations, setAnnotations] = useState<PhotoAnnotation[]>([]);
@@ -94,6 +93,7 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
   // Fetch comments and annotations from backend API
   useEffect(() => {
     const fetchPhotoDetails = async () => {
+      const authToken = getAuthToken();
       if (!authToken) return;
 
       setLoading(true);
@@ -128,7 +128,7 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
     };
 
     fetchPhotoDetails();
-  }, [photo.id, authToken]);
+  }, [photo.id]);
 
   const latestMarkup = annotations.length > 0 ? annotations[0] : null;
   const displayImage = showMarkup && latestMarkup ? latestMarkup.markup_image : photo.photo_url;

@@ -33,7 +33,7 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 
 interface OverviewSectionProps {
@@ -85,7 +85,6 @@ interface GamificationStats {
 }
 
 const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
-  const { authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -135,6 +134,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
   });
 
   const fetchAllData = async () => {
+    const authToken = getAuthToken();
     if (!authToken) return;
 
     try {
@@ -178,7 +178,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
 
   useEffect(() => {
     fetchAllData();
-  }, [authToken]);
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

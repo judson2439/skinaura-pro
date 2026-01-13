@@ -32,7 +32,7 @@ import {
   Flag,
   Play,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import EncryptedImage from '@/components/ui/encrypted-image';
 
@@ -168,8 +168,6 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
   onClose,
   onUpdate
 }) => {
-  const { authToken } = useAuth();
-  
   // State
   const [activeTab, setActiveTab] = useState<'overview' | 'routines' | 'products' | 'treatment-plans' | 'photos' | 'notes'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -193,7 +191,10 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
     options: RequestInit = {}
   ): Promise<{ success: boolean; data?: T; error?: string }> => {
     try {
-      apiClient.setAuthToken(authToken);
+      const authToken = getAuthToken();
+      if (authToken) {
+        apiClient.setAuthToken(authToken);
+      }
       
       const method = (options.method || 'GET').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
       let response;

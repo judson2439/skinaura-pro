@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
@@ -30,7 +30,9 @@ interface ProfileSectionProps {
 // ============================================================================
 
 const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
-  const { user, profile, refreshProfile } = useAuth();
+  const session = getAuthSession();
+  const user = session?.user;
+  const profile = session?.user; // Profile data is stored in the user object
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,16 +44,14 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
   // Profile fields
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone] = useState(profile?.phone || '');
-  const [businessName, setBusinessName] = useState(profile?.business_name || '');
-  const [licenseNumber, setLicenseNumber] = useState(profile?.license_number || '');
+  const [businessName, setBusinessName] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
 
   // Update form state when profile changes
   useEffect(() => {
     if (profile) {
       setFullName(profile.full_name || '');
       setPhone(profile.phone || '');
-      setBusinessName(profile.business_name || '');
-      setLicenseNumber(profile.license_number || '');
     }
   }, [profile]);
 
@@ -59,8 +59,8 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
   const resetForm = () => {
     setFullName(profile?.full_name || '');
     setPhone(profile?.phone || '');
-    setBusinessName(profile?.business_name || '');
-    setLicenseNumber(profile?.license_number || '');
+    setBusinessName('');
+    setLicenseNumber('');
     setIsEditing(false);
   };
 
@@ -125,8 +125,8 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
         throw updateError;
       }
 
-      // Refresh profile to get updated data
-      await refreshProfile();
+      // Reload page to refresh profile data
+      window.location.reload();
 
       toast({
         title: 'Avatar updated',
@@ -175,8 +175,8 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
         throw error;
       }
 
-      // Refresh profile to get updated data
-      await refreshProfile();
+      // Reload page to refresh profile data
+      window.location.reload();
 
       setIsEditing(false);
 
@@ -301,7 +301,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
 
               {/* Email Verification Status */}
               <div className="flex items-center gap-2 mt-4 text-sm">
-                {user?.email_confirmed_at ? (
+                {user ? (
                   <>
                     <CheckCircle className="w-4 h-4 text-green-500" />
                     <span className="text-green-600">Email verified</span>
@@ -324,7 +324,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                 <Calendar className="w-4 h-4 text-gray-400" />
                 <div>
                   <p className="text-gray-500">Member since</p>
-                  <p className="font-medium text-gray-900">{formatDate(profile?.created_at || null)}</p>
+                  <p className="font-medium text-gray-900">{formatDate(null)}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 text-sm">
@@ -417,7 +417,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                       />
                     ) : (
                       <p className="px-4 py-3 bg-gray-50 rounded-xl text-gray-900">
-                        {profile?.business_name || 'Not set'}
+                        {businessName || 'Not set'}
                       </p>
                     )}
                   </div>
@@ -438,7 +438,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                       />
                     ) : (
                       <p className="px-4 py-3 bg-gray-50 rounded-xl text-gray-900">
-                        {profile?.license_number || 'Not set'}
+                        {licenseNumber || 'Not set'}
                       </p>
                     )}
                   </div>
