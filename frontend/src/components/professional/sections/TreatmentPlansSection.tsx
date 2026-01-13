@@ -22,6 +22,7 @@ import {
 } from '@/components/professional/modals/treatmentPlanTypes';
 import CreateTreatmentPlanModal from '@/components/professional/modals/CreateTreatmentPlanModal';
 import TreatmentPlanDetailModal from '@/components/professional/modals/TreatmentPlanDetailModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { useAuth } from '@/contexts/AuthContext';
@@ -979,10 +980,11 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <img
+                    <EncryptedImage
                       src={client?.image || CLIENT_IMAGES[0]}
                       alt={client?.name || 'Client'}
                       className="w-10 h-10 rounded-full object-cover"
+                      fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
                     />
                     <div>
                       <h3 className="font-medium text-gray-900 line-clamp-1">{plan.title}</h3>

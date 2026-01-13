@@ -20,7 +20,8 @@ import {
   Save,
   AlertCircle,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 import { AdminRoutineTemplate, AdminRoutineStep, SCHEDULE_TYPES } from '../types';
 
 interface RoutineDetailModalProps {
@@ -38,6 +39,7 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
   onSave,
   mode,
 }) => {
+  const { authToken } = useAuth();
   const [isEditing, setIsEditing] = useState(mode === 'edit');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingSteps, setIsLoadingSteps] = useState(false);
@@ -55,7 +57,7 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
 
   // Update form data when routine changes
   useEffect(() => {
-    if (routine) {
+    if (routine && authToken) {
       setFormData({
         name: routine.name,
         description: routine.description || '',
@@ -64,56 +66,27 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
       });
       fetchRoutineSteps(routine.id);
     }
-  }, [routine]);
+  }, [routine, authToken]);
 
   // Update editing mode when mode prop changes
   useEffect(() => {
     setIsEditing(mode === 'edit');
   }, [mode]);
 
-  // Fetch routine steps with linked products
+  // Fetch routine steps with linked products from backend API
   const fetchRoutineSteps = async (routineId: string) => {
+    if (!authToken) return;
+
     setIsLoadingSteps(true);
     try {
-      // Fetch steps
-      const { data: stepsData, error: stepsError } = await supabase
-        .from('routine_steps')
-        .select('*')
-        .eq('routine_id', routineId)
-        .order('step_order', { ascending: true });
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { steps: AdminRoutineStep[] };
+      }>(`/api/admin/routines/${routineId}/steps`);
 
-      if (stepsError) throw stepsError;
-
-      // Fetch linked products for steps
-      if (stepsData && stepsData.length > 0) {
-        const stepIds = stepsData.map(s => s.id);
-        const { data: linkedProducts, error: linkedError } = await supabase
-          .from('routine_step_products')
-          .select(`
-            routine_step_id,
-            products:product_id (
-              id,
-              name,
-              brand,
-              image_url
-            )
-          `)
-          .in('routine_step_id', stepIds);
-
-        if (linkedError) {
-          console.error('Error fetching linked products:', linkedError);
-        }
-
-        // Map linked products to steps
-        const stepsWithProducts: AdminRoutineStep[] = stepsData.map(step => {
-          const linkedProduct = linkedProducts?.find(lp => lp.routine_step_id === step.id);
-          return {
-            ...step,
-            linked_product: linkedProduct?.products as AdminRoutineStep['linked_product'] || null,
-          };
-        });
-
-        setSteps(stepsWithProducts);
+      if (response.data.success && response.data.data) {
+        setSteps(response.data.data.steps || []);
       } else {
         setSteps([]);
       }
@@ -126,35 +99,37 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
   };
 
   const handleSave = async () => {
-    if (!routine) return;
+    if (!routine || !authToken) return;
 
     setIsSaving(true);
     setError(null);
 
     try {
-      const { error: updateError } = await supabase
-        .from('routine_templates')
-        .update({
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.put<{
+        success: boolean;
+        error?: string;
+      }>(`/api/admin/routines/${routine.id}`, {
+        name: formData.name,
+        description: formData.description || null,
+        schedule_type: formData.schedule_type,
+        is_active: formData.is_active,
+      });
+
+      if (response.data.success) {
+        onSave({
+          ...routine,
           name: formData.name,
           description: formData.description || null,
           schedule_type: formData.schedule_type,
           is_active: formData.is_active,
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', routine.id);
+        });
 
-      if (updateError) throw updateError;
-
-      onSave({
-        ...routine,
-        name: formData.name,
-        description: formData.description || null,
-        schedule_type: formData.schedule_type,
-        is_active: formData.is_active,
-        updated_at: new Date().toISOString(),
-      });
-
-      setIsEditing(false);
+        setIsEditing(false);
+      } else {
+        throw new Error(response.data.error || 'Failed to update routine');
+      }
     } catch (err) {
       console.error('Error updating routine:', err);
       setError('Failed to update routine. Please try again.');

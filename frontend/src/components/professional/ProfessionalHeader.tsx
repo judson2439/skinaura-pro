@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   Menu,
@@ -60,7 +60,7 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
   onNavigateToView,
 }) => {
   const navigate = useNavigate();
-  const { signOut, profile, user } = useAuth();
+  const { signOut, profile, authToken } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [unreadNotes, setUnreadNotes] = useState<RoutineNote[]>([]);
@@ -69,54 +69,20 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
   // Use profile avatar if available
   const avatarUrl = profile?.avatar_url || userAvatar || null;
 
-  console.log('🔐 Avatar URL:', avatarUrl);
-
-  // Fetch unread notes from routine_notes table (only client messages)
-  const fetchUnreadNotes = async () => {
-    if (!user?.id) return;
+  // Fetch unread notes from backend API
+  const fetchUnreadNotes = useCallback(async () => {
+    if (!authToken) return;
 
     try {
-      // Fetch notes where professional_id matches current user, read_status is false, sender_type is client, and not deleted
-      const { data: notes, error } = await supabase
-        .from('routine_notes')
-        .select('*')
-        .eq('professional_id', user.id)
-        .eq('read_status', false)
-        .eq('professional_deleted', false)
-        .or('sender_type.eq.client,sender_type.is.null')
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { notifications: RoutineNote[]; count: number };
+      }>('/api/professional/notifications/unread');
 
-      if (error) {
-        console.error('Error fetching routine notes:', error);
-        return;
-      }
-
-      if (notes && notes.length > 0) {
-        // Get unique client IDs
-        const clientIds = [...new Set(notes.map(note => note.client_id))];
-        
-        // Fetch client profiles
-        const { data: clientProfiles, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', clientIds);
-
-        if (profileError) {
-          console.error('Error fetching client profiles:', profileError);
-        }
-
-        // Map client info to notes
-        const notesWithClientInfo = notes.map(note => {
-          const clientProfile = clientProfiles?.find(p => p.id === note.client_id);
-          return {
-            ...note,
-            client_name: clientProfile?.full_name || 'Unknown Client',
-            client_avatar: clientProfile?.avatar_url || null,
-          };
-        });
-
-        setUnreadNotes(notesWithClientInfo);
-        setUnreadCount(notesWithClientInfo.length);
+      if (response.data.success && response.data.data) {
+        setUnreadNotes(response.data.data.notifications || []);
+        setUnreadCount(response.data.data.count || 0);
       } else {
         setUnreadNotes([]);
         setUnreadCount(0);
@@ -124,21 +90,15 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
     } catch (error) {
       console.error('Error fetching unread notes:', error);
     }
-  };
-
+  }, [authToken]);
 
   // Mark a note as read
   const markNoteAsRead = async (noteId: string) => {
-    try {
-      const { error } = await supabase
-        .from('routine_notes')
-        .update({ read_status: true })
-        .eq('id', noteId);
+    if (!authToken) return;
 
-      if (error) {
-        console.error('Error marking note as read:', error);
-        return;
-      }
+    try {
+      apiClient.setAuthToken(authToken);
+      await apiClient.patch(`/api/professional/notifications/${noteId}/read`, {});
 
       // Update local state
       setUnreadNotes(prev => prev.filter(note => note.id !== noteId));
@@ -150,20 +110,11 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
 
   // Mark all notes as read
   const markAllAsRead = async () => {
-    if (unreadNotes.length === 0) return;
+    if (unreadNotes.length === 0 || !authToken) return;
 
     try {
-      const noteIds = unreadNotes.map(note => note.id);
-      
-      const { error } = await supabase
-        .from('routine_notes')
-        .update({ read_status: true })
-        .in('id', noteIds);
-
-      if (error) {
-        console.error('Error marking all notes as read:', error);
-        return;
-      }
+      apiClient.setAuthToken(authToken);
+      await apiClient.patch('/api/professional/notifications/mark-all-read', {});
 
       setUnreadNotes([]);
       setUnreadCount(0);
@@ -172,85 +123,23 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
     }
   };
 
-  // Set up real-time subscription for INSERT events
+  // Fetch notifications on mount and set up polling interval
   useEffect(() => {
-    if (!user?.id) return;
+    if (!authToken) return;
 
     // Initial fetch
     fetchUnreadNotes();
 
-    // Subscribe to real-time INSERT events on routine_notes table
-    const channel = supabase
-      .channel('routine_notes_inserts')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'routine_notes',
-          filter: `professional_id=eq.${user.id}`,
-        },
-        async (payload) => {
-          console.log('New note received:', payload);
-          
-          // Get the new note data
-          const newNote = payload.new as any;
-          
-          // Only process if it's from a client (sender_type is 'client' or null), unread, and not deleted
-          const isClientMessage = newNote.sender_type === 'client' || !newNote.sender_type;
-          if (isClientMessage && newNote.read_status === false && newNote.professional_deleted === false) {
-            // Fetch client info for the new note
-            try {
-              const { data: clientProfile, error } = await supabase
-                .from('user_profiles')
-                .select('id, full_name, avatar_url')
-                .eq('id', newNote.client_id)
-                .single();
+    // Poll for new notifications every 30 seconds
+    const pollInterval = setInterval(() => {
+      fetchUnreadNotes();
+    }, 30000);
 
-              if (!error && clientProfile) {
-                const noteWithClientInfo: RoutineNote = {
-                  ...newNote,
-                  client_name: clientProfile.full_name || 'Unknown Client',
-                  client_avatar: clientProfile.avatar_url || undefined,
-                };
-
-                // Add new note to the beginning of the list
-                setUnreadNotes(prev => [noteWithClientInfo, ...prev]);
-                setUnreadCount(prev => prev + 1);
-              } else {
-                // If we can't get client info, still add the note
-                const noteWithDefaultInfo: RoutineNote = {
-                  ...newNote,
-                  client_name: 'Unknown Client',
-                  client_avatar: undefined,
-                };
-                setUnreadNotes(prev => [noteWithDefaultInfo, ...prev]);
-                setUnreadCount(prev => prev + 1);
-              }
-            } catch (error) {
-              console.error('Error fetching client info for new note:', error);
-              // Still add the note even if we can't get client info
-              const noteWithDefaultInfo: RoutineNote = {
-                ...newNote,
-                client_name: 'Unknown Client',
-                client_avatar: undefined,
-              };
-              setUnreadNotes(prev => [noteWithDefaultInfo, ...prev]);
-              setUnreadCount(prev => prev + 1);
-            }
-          }
-        }
-
-      )
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-      });
-
-    // Cleanup subscription on unmount
+    // Cleanup on unmount
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(pollInterval);
     };
-  }, [user?.id]);
+  }, [authToken, fetchUnreadNotes]);
 
 
   // Format time ago

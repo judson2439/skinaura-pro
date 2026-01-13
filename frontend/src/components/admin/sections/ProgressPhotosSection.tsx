@@ -22,10 +22,12 @@ import {
   Filter,
   Download,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import { CustomSelect } from '@/components/ui/custom-select';
 import PhotoDetailModal from '@/components/admin/modals/PhotoDetailModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -76,7 +78,7 @@ interface UserInfo {
 // HELPER FUNCTIONS
 // ============================================================================
 
-const dbToProgressPhoto = (dbPhoto: DBProgressPhoto): ProgressPhoto => {
+const dbToProgressPhoto = (dbPhoto: DBProgressPhoto & { comments_count?: number; annotations_count?: number }): ProgressPhoto => {
   return {
     id: dbPhoto.id,
     client_id: dbPhoto.client_id,
@@ -90,6 +92,8 @@ const dbToProgressPhoto = (dbPhoto: DBProgressPhoto): ProgressPhoto => {
     taken_at: dbPhoto.taken_at || dbPhoto.created_at,
     created_at: dbPhoto.created_at,
     updated_at: dbPhoto.updated_at,
+    comments_count: dbPhoto.comments_count || 0,
+    annotations_count: dbPhoto.annotations_count || 0,
   };
 };
 
@@ -98,6 +102,7 @@ const dbToProgressPhoto = (dbPhoto: DBProgressPhoto): ProgressPhoto => {
 // ============================================================================
 
 const ProgressPhotosSection: React.FC = () => {
+  const { authToken } = useAuth();
   const { toast } = useToast();
 
   // State
@@ -132,6 +137,8 @@ const ProgressPhotosSection: React.FC = () => {
   // ============================================================================
 
   const fetchPhotos = useCallback(async (showRefreshIndicator = false) => {
+    if (!authToken) return;
+
     if (showRefreshIndicator) {
       setRefreshing(true);
     } else {
@@ -139,106 +146,46 @@ const ProgressPhotosSection: React.FC = () => {
     }
 
     try {
-      // Build query
-      let query = supabase
-        .from('progress_photos')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false });
-
-      // Apply filters
+      // Build query params
+      const params = new URLSearchParams();
+      params.append('page', currentPage.toString());
+      params.append('limit', itemsPerPage.toString());
+      
       if (selectedPhotoType) {
-        query = query.eq('photo_type', selectedPhotoType);
+        params.append('photo_type', selectedPhotoType);
       }
-
       if (selectedUser) {
-        query = query.eq('client_id', selectedUser);
+        params.append('client_id', selectedUser);
       }
 
-      // Apply pagination
-      const from = (currentPage - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
-      query = query.range(from, to);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          photos: (DBProgressPhoto & { comments_count: number; annotations_count: number })[];
+          totalCount: number;
+          users: UserInfo[];
+        };
+      }>(`/api/admin/progress-photos?${params.toString()}`);
 
-      const { data: photosData, error: photosError, count } = await query;
+      if (response.data.success && response.data.data) {
+        const result = response.data;
+        // Map to ProgressPhoto type
+        const mappedPhotos = (result.data.photos || []).map(dbToProgressPhoto);
+        setPhotos(mappedPhotos);
+        setTotalCount(result.data.totalCount || 0);
 
-      if (photosError) {
-        console.error('Error fetching photos:', photosError);
-        toast({
-          title: 'Error',
-          description: 'Failed to load progress photos. Please try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      setTotalCount(count || 0);
-
-      // Map to ProgressPhoto type
-      const mappedPhotos = (photosData || []).map(dbToProgressPhoto);
-
-      // Get unique user IDs
-      const userIds = [...new Set(mappedPhotos.map(p => p.client_id))];
-
-      // Fetch user info for these photos
-      if (userIds.length > 0) {
-        const { data: usersData, error: usersError } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, email, avatar_url, role')
-          .in('id', userIds);
-
-        if (!usersError && usersData) {
-          const userMap = new Map<string, UserInfo>();
-          usersData.forEach(u => {
-            userMap.set(u.id, {
-              id: u.id,
-              full_name: u.full_name,
-              email: u.email,
-              avatar_url: u.avatar_url,
-              role: u.role,
-            });
-          });
+        // Update users map
+        if (result.data.users && result.data.users.length > 0) {
           setUsers(prev => {
             const newMap = new Map(prev);
-            userMap.forEach((value, key) => newMap.set(key, value));
+            result.data.users.forEach((u: UserInfo) => {
+              newMap.set(u.id, u);
+            });
             return newMap;
           });
         }
       }
-
-      // Fetch comments and annotations counts
-      if (mappedPhotos.length > 0) {
-        const photoIds = mappedPhotos.map(p => p.id);
-
-        // Get comments count per photo
-        const { data: commentsData } = await supabase
-          .from('photo_comments')
-          .select('photo_id')
-          .in('photo_id', photoIds);
-
-        const commentsCounts = new Map<string, number>();
-        (commentsData || []).forEach(c => {
-          commentsCounts.set(c.photo_id, (commentsCounts.get(c.photo_id) || 0) + 1);
-        });
-
-        // Get annotations count per photo
-        const { data: annotationsData } = await supabase
-          .from('photo_annotations')
-          .select('photo_id')
-          .in('photo_id', photoIds);
-
-        const annotationsCounts = new Map<string, number>();
-        (annotationsData || []).forEach(a => {
-          annotationsCounts.set(a.photo_id, (annotationsCounts.get(a.photo_id) || 0) + 1);
-        });
-
-        // Add counts to photos
-        mappedPhotos.forEach(photo => {
-          photo.comments_count = commentsCounts.get(photo.id) || 0;
-          photo.annotations_count = annotationsCounts.get(photo.id) || 0;
-        });
-      }
-
-      setPhotos(mappedPhotos);
     } catch (error) {
       console.error('Unexpected error:', error);
       toast({
@@ -250,96 +197,71 @@ const ProgressPhotosSection: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentPage, selectedPhotoType, selectedUser, toast]);
+  }, [authToken, currentPage, selectedPhotoType, selectedUser, toast]);
 
   const fetchStats = useCallback(async () => {
+    if (!authToken) return;
+
     try {
-      // Get total counts by type
-      const { data: allPhotos, error } = await supabase
-        .from('progress_photos')
-        .select('id, client_id, photo_type');
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          total: number;
+          before: number;
+          after: number;
+          progress: number;
+          usersWithPhotos: number;
+          withComments: number;
+          withAnnotations: number;
+        };
+      }>('/api/admin/progress-photos/stats');
 
-      if (error) {
-        console.error('Error fetching stats:', error);
-        return;
+      if (response.data.success && response.data.data) {
+        setStats(response.data.data);
       }
-
-      const before = allPhotos?.filter(p => p.photo_type === 'before').length || 0;
-      const after = allPhotos?.filter(p => p.photo_type === 'after').length || 0;
-      const progress = allPhotos?.filter(p => p.photo_type === 'progress' || !p.photo_type).length || 0;
-      const usersWithPhotos = new Set(allPhotos?.map(p => p.client_id)).size;
-
-      // Get photos with comments
-      const { data: photosWithComments } = await supabase
-        .from('photo_comments')
-        .select('photo_id');
-      const withComments = new Set(photosWithComments?.map(c => c.photo_id)).size;
-
-      // Get photos with annotations
-      const { data: photosWithAnnotations } = await supabase
-        .from('photo_annotations')
-        .select('photo_id');
-      const withAnnotations = new Set(photosWithAnnotations?.map(a => a.photo_id)).size;
-
-      setStats({
-        total: allPhotos?.length || 0,
-        before,
-        after,
-        progress,
-        usersWithPhotos,
-        withComments,
-        withAnnotations,
-      });
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
-  }, []);
+  }, [authToken]);
 
   const fetchAllUsers = useCallback(async () => {
+    if (!authToken) return;
+
     try {
-      // Get all users who have photos
-      const { data: photoUsers } = await supabase
-        .from('progress_photos')
-        .select('client_id');
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { users: UserInfo[] };
+      }>('/api/admin/progress-photos/users');
 
-      const userIds = [...new Set(photoUsers?.map(p => p.client_id) || [])];
-
-      if (userIds.length > 0) {
-        const { data: usersData } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, email, avatar_url, role')
-          .in('id', userIds);
-
-        if (usersData) {
-          const userMap = new Map<string, UserInfo>();
-          usersData.forEach(u => {
-            userMap.set(u.id, {
-              id: u.id,
-              full_name: u.full_name,
-              email: u.email,
-              avatar_url: u.avatar_url,
-              role: u.role,
-            });
-          });
-          setUsers(userMap);
-        }
+      if (response.data.success && response.data.data?.users) {
+        const userMap = new Map<string, UserInfo>();
+        response.data.data.users.forEach((u: UserInfo) => {
+          userMap.set(u.id, u);
+        });
+        setUsers(userMap);
       }
     } catch (error) {
       console.error('Error fetching users:', error);
     }
-  }, []);
+  }, [authToken]);
 
   // Initial load
   useEffect(() => {
-    fetchPhotos();
-    fetchStats();
-    fetchAllUsers();
-  }, []);
+    if (authToken) {
+      fetchPhotos();
+      fetchStats();
+      fetchAllUsers();
+    }
+  }, [authToken]);
 
   // Refetch when filters or page change
   useEffect(() => {
-    fetchPhotos();
-  }, [currentPage, selectedPhotoType, selectedUser]);
+    if (authToken) {
+      fetchPhotos();
+    }
+  }, [currentPage, selectedPhotoType, selectedUser, authToken]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -629,16 +551,11 @@ const ProgressPhotosSection: React.FC = () => {
                     onClick={() => handleViewDetails(photo)}
                     className="relative cursor-pointer aspect-square bg-gray-100"
                   >
-                    <img
+                    <EncryptedImage
                       src={photo.thumbnail_url || photo.photo_url}
                       alt={photo.title || 'Progress photo'}
                       className="w-full h-full object-cover transition-transform hover:scale-105"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        if (target.src !== photo.photo_url) {
-                          target.src = photo.photo_url;
-                        }
-                      }}
+                      fallbackClassName="w-full h-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                     />
                     {/* Photo type badge */}
                     <div className="absolute top-3 left-3">
@@ -677,10 +594,11 @@ const ProgressPhotosSection: React.FC = () => {
                   <div className="p-4">
                     <div className="flex items-center gap-3 mb-2">
                       {user?.avatar_url ? (
-                        <img
+                        <EncryptedImage
                           src={user.avatar_url}
                           alt={user.full_name || 'User'}
                           className="w-10 h-10 rounded-full object-cover border-2 border-gray-100"
+                          fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                         />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center border-2 border-gray-100">

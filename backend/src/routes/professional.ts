@@ -1416,4 +1416,1348 @@ router.delete('/photos/:photoId/annotations/:annotationId', async (req: Request,
   }
 });
 
+// ============================================================================
+// CLIENT PROFILE ENDPOINTS (for ClientProfileModal)
+// ============================================================================
+
+interface ClientNote {
+  id: string;
+  client_id: string;
+  professional_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string | null;
+}
+
+interface ClientProduct {
+  id: string;
+  client_id: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  image_url: string | null;
+  notes: string | null;
+  added_via: string | null;
+  days_used: number | null;
+  created_at: string;
+}
+
+interface TreatmentPlanMilestone {
+  id: string;
+  plan_id: string;
+  title: string;
+  description: string | null;
+  target_date: string;
+  completed: boolean;
+  completed_at: string | null;
+  order_index: number;
+}
+
+interface TreatmentPlanProduct {
+  id: string;
+  plan_id: string;
+  product_name: string;
+  product_brand: string | null;
+  product_category: string | null;
+  usage_instructions: string | null;
+  priority: string;
+}
+
+interface TreatmentPlan {
+  id: string;
+  client_id: string;
+  professional_id: string;
+  title: string;
+  description: string | null;
+  goals: string[] | null;
+  start_date: string;
+  end_date: string;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+interface AssignedRoutineStep {
+  id: string;
+  routine_id: string;
+  step_order: number;
+  step_name: string;
+  product_category: string | null;
+  description: string | null;
+}
+
+interface AssignedRoutine {
+  id: string;
+  routine_id: string;
+  client_id: string;
+  assigned_at: string;
+  notes: string | null;
+  is_active: boolean;
+}
+
+/**
+ * GET /professional/clients/:clientId/profile
+ * Get complete client profile data for ClientProfileModal
+ */
+router.get('/clients/:clientId/profile', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+
+    console.log(`👤 Fetching profile for client: ${clientId}`);
+
+    // Verify client belongs to professional
+    const relationship = await queryOne<ClientProfessionalRelationship>(
+      `SELECT * FROM client_professional_relationships 
+       WHERE professional_id = $1 AND client_id = $2 AND status = 'active'`,
+      [professionalId, clientId]
+    );
+
+    if (!relationship) {
+      res.status(404).json({
+        success: false,
+        error: 'Client not found or not associated with this professional',
+      } as ApiResponse);
+      return;
+    }
+
+    // Fetch all data in parallel
+    const [
+      gamificationResult,
+      completionsResult,
+      treatmentPlansResult,
+      assignmentsResult,
+      productsResult,
+      photosResult,
+      notesResult,
+    ] = await Promise.all([
+      // Gamification
+      queryOne<{
+        user_id: string;
+        current_streak: number;
+        longest_streak: number;
+        points: number;
+        level: string;
+        total_routines_completed: number;
+      }>(`SELECT * FROM user_gamification WHERE user_id = $1`, [clientId]),
+
+      // Routine completions (last 30 days)
+      query<{ completion_date: string }>(
+        `SELECT completion_date FROM routine_completions 
+         WHERE client_id = $1 AND completion_date >= NOW() - INTERVAL '30 days'`,
+        [clientId]
+      ),
+
+      // Treatment plans
+      query<TreatmentPlan>(
+        `SELECT * FROM treatment_plans WHERE client_id = $1 ORDER BY created_at DESC`,
+        [clientId]
+      ),
+
+      // Routine assignments
+      query<AssignedRoutine>(
+        `SELECT * FROM client_routine_assignments WHERE client_id = $1 AND is_active = true`,
+        [clientId]
+      ),
+
+      // Client products
+      query<ClientProduct>(
+        `SELECT * FROM client_products WHERE client_id = $1 ORDER BY created_at DESC`,
+        [clientId]
+      ),
+
+      // Progress photos
+      query<ProgressPhoto>(
+        `SELECT * FROM progress_photos WHERE client_id = $1 ORDER BY taken_at DESC`,
+        [clientId]
+      ),
+
+      // Client notes
+      query<ClientNote>(
+        `SELECT * FROM client_notes WHERE client_id = $1 ORDER BY created_at DESC`,
+        [clientId]
+      ),
+    ]);
+
+    // Calculate compliance rate
+    const uniqueDays = new Set(completionsResult.map(c => c.completion_date));
+    const complianceRate = Math.round((uniqueDays.size / 30) * 100);
+
+    // Build gamification stats
+    const stats = {
+      current_streak: gamificationResult?.current_streak || 0,
+      longest_streak: gamificationResult?.longest_streak || 0,
+      points: gamificationResult?.points || 0,
+      level: gamificationResult?.level || 'Bronze',
+      total_routines_completed: gamificationResult?.total_routines_completed || 0,
+      compliance_rate: complianceRate,
+    };
+
+    // Fetch treatment plan details (milestones, products) if plans exist
+    let treatmentPlans: Array<TreatmentPlan & { milestones: TreatmentPlanMilestone[]; products: TreatmentPlanProduct[] }> = [];
+    
+    if (treatmentPlansResult.length > 0) {
+      const planIds = treatmentPlansResult.map(p => p.id);
+
+      const [milestonesResult, planProductsResult] = await Promise.all([
+        query<TreatmentPlanMilestone>(
+          `SELECT * FROM treatment_plan_milestones WHERE plan_id = ANY($1) ORDER BY order_index`,
+          [planIds]
+        ),
+        query<TreatmentPlanProduct>(
+          `SELECT * FROM treatment_plan_products WHERE plan_id = ANY($1)`,
+          [planIds]
+        ),
+      ]);
+
+      const milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
+      const productsMap: Record<string, TreatmentPlanProduct[]> = {};
+
+      milestonesResult.forEach(m => {
+        if (!milestonesMap[m.plan_id]) milestonesMap[m.plan_id] = [];
+        milestonesMap[m.plan_id].push(m);
+      });
+
+      planProductsResult.forEach(p => {
+        if (!productsMap[p.plan_id]) productsMap[p.plan_id] = [];
+        productsMap[p.plan_id].push(p);
+      });
+
+      treatmentPlans = treatmentPlansResult.map(plan => ({
+        ...plan,
+        goals: plan.goals || [],
+        milestones: milestonesMap[plan.id] || [],
+        products: productsMap[plan.id] || [],
+      }));
+    }
+
+    // Fetch routine details if assignments exist
+    let assignedRoutines: Array<{
+      id: string;
+      routine_id: string;
+      routine_name: string;
+      schedule_type: string;
+      assigned_at: string;
+      is_active: boolean;
+      steps: AssignedRoutineStep[];
+      professional_notes: string | null;
+    }> = [];
+
+    if (assignmentsResult.length > 0) {
+      const routineIds = assignmentsResult.map(a => a.routine_id);
+
+      const [routinesResult, stepsResult] = await Promise.all([
+        query<{ id: string; name: string; schedule_type: string }>(
+          `SELECT id, name, schedule_type FROM routine_templates WHERE id = ANY($1)`,
+          [routineIds]
+        ),
+        query<AssignedRoutineStep>(
+          `SELECT * FROM routine_steps WHERE routine_id = ANY($1) ORDER BY step_order`,
+          [routineIds]
+        ),
+      ]);
+
+      const stepsMap: Record<string, AssignedRoutineStep[]> = {};
+      stepsResult.forEach(s => {
+        if (!stepsMap[s.routine_id]) stepsMap[s.routine_id] = [];
+        stepsMap[s.routine_id].push(s);
+      });
+
+      assignedRoutines = assignmentsResult.map(a => {
+        const routine = routinesResult.find(r => r.id === a.routine_id);
+        return {
+          id: a.id,
+          routine_id: a.routine_id,
+          routine_name: routine?.name || 'Unknown Routine',
+          schedule_type: routine?.schedule_type || 'daily',
+          assigned_at: a.assigned_at,
+          is_active: a.is_active,
+          steps: stepsMap[a.routine_id] || [],
+          professional_notes: a.notes,
+        };
+      });
+    }
+
+    // Format photos
+    const photos = photosResult.map(p => ({
+      id: p.id,
+      photo_url: p.photo_url,
+      photo_type: p.photo_type || 'progress',
+      title: p.title || undefined,
+      taken_at: p.taken_at || p.created_at,
+    }));
+
+    // Format products
+    const products = productsResult.map(p => ({
+      id: p.id,
+      name: p.name,
+      brand: p.brand || undefined,
+      category: p.category || undefined,
+      image_url: p.image_url || undefined,
+      notes: p.notes || undefined,
+      added_via: p.added_via || 'manual',
+      days_used: p.days_used || 0,
+      created_at: p.created_at,
+    }));
+
+    // Format notes
+    const notes = notesResult.map(n => ({
+      id: n.id,
+      content: n.content,
+      created_at: n.created_at,
+      updated_at: n.updated_at || undefined,
+    }));
+
+    console.log(`✅ Client profile fetched successfully`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        stats,
+        treatmentPlans,
+        assignedRoutines,
+        products,
+        photos,
+        notes,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching client profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch client profile',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PUT /professional/clients/:clientId/profile
+ * Update client profile (full_name, phone, skin_type, concerns)
+ */
+router.put('/clients/:clientId/profile', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+    const { full_name, phone, skin_type, concerns } = req.body;
+
+    console.log(`✏️ Updating profile for client: ${clientId}`);
+
+    // Verify client belongs to professional
+    const relationship = await queryOne<ClientProfessionalRelationship>(
+      `SELECT * FROM client_professional_relationships 
+       WHERE professional_id = $1 AND client_id = $2 AND status = 'active'`,
+      [professionalId, clientId]
+    );
+
+    if (!relationship) {
+      res.status(404).json({
+        success: false,
+        error: 'Client not found or not associated with this professional',
+      } as ApiResponse);
+      return;
+    }
+
+    // Update profile
+    await query(
+      `UPDATE user_profiles SET
+        full_name = COALESCE($1, full_name),
+        phone = COALESCE($2, phone),
+        skin_type = COALESCE($3, skin_type),
+        concerns = COALESCE($4, concerns),
+        updated_at = NOW()
+       WHERE id = $5`,
+      [full_name, phone, skin_type, concerns, clientId]
+    );
+
+    console.log(`✅ Client profile updated`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error updating client profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update client profile',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/clients/:clientId/notes
+ * Get all notes for a client
+ */
+router.get('/clients/:clientId/notes', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+
+    console.log(`📝 Fetching notes for client: ${clientId}`);
+
+    // Verify client belongs to professional
+    const relationship = await queryOne<ClientProfessionalRelationship>(
+      `SELECT * FROM client_professional_relationships 
+       WHERE professional_id = $1 AND client_id = $2 AND status = 'active'`,
+      [professionalId, clientId]
+    );
+
+    if (!relationship) {
+      res.status(404).json({
+        success: false,
+        error: 'Client not found or not associated with this professional',
+      } as ApiResponse);
+      return;
+    }
+
+    const notes = await query<ClientNote>(
+      `SELECT * FROM client_notes 
+       WHERE client_id = $1 AND professional_id = $2
+       ORDER BY created_at DESC`,
+      [clientId, professionalId]
+    );
+
+    console.log(`✅ Found ${notes.length} notes`);
+
+    res.status(200).json({
+      success: true,
+      data: { notes },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching client notes:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch notes',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/clients/:clientId/notes
+ * Add a note for a client
+ */
+router.post('/clients/:clientId/notes', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const clientId = req.params.clientId;
+    const { content } = req.body;
+
+    if (!content?.trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'Note content is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📝 Adding note for client: ${clientId}`);
+
+    // Verify client belongs to professional
+    const relationship = await queryOne<ClientProfessionalRelationship>(
+      `SELECT * FROM client_professional_relationships 
+       WHERE professional_id = $1 AND client_id = $2 AND status = 'active'`,
+      [professionalId, clientId]
+    );
+
+    if (!relationship) {
+      res.status(404).json({
+        success: false,
+        error: 'Client not found or not associated with this professional',
+      } as ApiResponse);
+      return;
+    }
+
+    const note = await queryOne<ClientNote>(
+      `INSERT INTO client_notes (client_id, professional_id, content, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING *`,
+      [clientId, professionalId, content.trim()]
+    );
+
+    console.log(`✅ Note added: ${note?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { note },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error adding note:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add note',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PUT /professional/clients/:clientId/notes/:noteId
+ * Update a note
+ */
+router.put('/clients/:clientId/notes/:noteId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { clientId, noteId } = req.params;
+    const { content } = req.body;
+
+    if (!content?.trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'Note content is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✏️ Updating note: ${noteId}`);
+
+    const note = await queryOne<ClientNote>(
+      `UPDATE client_notes SET
+        content = $1,
+        updated_at = NOW()
+       WHERE id = $2 AND client_id = $3 AND professional_id = $4
+       RETURNING *`,
+      [content.trim(), noteId, clientId, professionalId]
+    );
+
+    if (!note) {
+      res.status(404).json({
+        success: false,
+        error: 'Note not found',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Note updated: ${noteId}`);
+
+    res.status(200).json({
+      success: true,
+      data: { note },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error updating note:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update note',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/clients/:clientId/notes/:noteId
+ * Delete a note
+ */
+router.delete('/clients/:clientId/notes/:noteId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { clientId, noteId } = req.params;
+
+    console.log(`🗑️ Deleting note: ${noteId}`);
+
+    const result = await query(
+      `DELETE FROM client_notes 
+       WHERE id = $1 AND client_id = $2 AND professional_id = $3
+       RETURNING id`,
+      [noteId, clientId, professionalId]
+    );
+
+    if (result.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Note not found',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Note deleted: ${noteId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Note deleted successfully',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting note:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete note',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// ANALYTICS ENDPOINT
+// ============================================================================
+
+interface AnalyticsClientData {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  compliance: number;
+  currentStreak: number;
+  longestStreak: number;
+  level: string;
+  points: number;
+  totalRoutinesCompleted: number;
+  lastCompletionDate: string | null;
+  joinedAt: string;
+  routineCompletedToday: boolean;
+}
+
+interface AnalyticsOverviewMetrics {
+  totalClients: number;
+  avgCompliance: number;
+  avgStreak: number;
+  goldPlusClients: number;
+  completedToday: number;
+  totalPhotos: number;
+  totalProducts: number;
+  activeTreatmentPlans: number;
+}
+
+interface AnalyticsTrendData {
+  date: string;
+  completions: number;
+  photos: number;
+}
+
+interface AnalyticsProductData {
+  category: string;
+  count: number;
+}
+
+/**
+ * GET /professional/analytics
+ * Get comprehensive analytics data for the professional dashboard
+ */
+router.get('/analytics', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const timePeriod = req.query.period as string || '30';
+
+    console.log(`📊 Fetching analytics for professional: ${professionalId}, period: ${timePeriod}`);
+
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    if (timePeriod !== 'all') {
+      startDate.setDate(startDate.getDate() - parseInt(timePeriod));
+    } else {
+      startDate.setFullYear(startDate.getFullYear() - 10);
+    }
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+
+    // Step 1: Get client relationships
+    const relationships = await query<{ client_id: string; created_at: string }>(
+      `SELECT client_id, created_at FROM client_professional_relationships 
+       WHERE professional_id = $1 AND status = 'active'`,
+      [professionalId]
+    );
+
+    const clientIds = relationships.map(r => r.client_id);
+
+    if (clientIds.length === 0) {
+      console.log(`✅ No clients found`);
+      res.status(200).json({
+        success: true,
+        data: {
+          clients: [],
+          overviewMetrics: {
+            totalClients: 0,
+            avgCompliance: 0,
+            avgStreak: 0,
+            goldPlusClients: 0,
+            completedToday: 0,
+            totalPhotos: 0,
+            totalProducts: 0,
+            activeTreatmentPlans: 0,
+          },
+          trendData: [],
+          productAnalytics: [],
+          previousMetrics: {},
+        },
+      } as ApiResponse);
+      return;
+    }
+
+    // Step 2: Fetch all data in parallel
+    const [
+      profilesResult,
+      gamificationResult,
+      completionsResult,
+      todayCompletionsResult,
+      photosResult,
+      productsResult,
+      treatmentPlansResult,
+    ] = await Promise.all([
+      // User profiles
+      query<{
+        id: string;
+        full_name: string | null;
+        email: string | null;
+        avatar_url: string | null;
+        created_at: string;
+      }>(
+        `SELECT id, full_name, email, avatar_url, created_at FROM user_profiles WHERE id = ANY($1)`,
+        [clientIds]
+      ),
+
+      // Gamification data
+      query<{
+        user_id: string;
+        current_streak: number;
+        longest_streak: number;
+        points: number;
+        level: string;
+        total_routines_completed: number;
+        last_completion_date: string | null;
+      }>(
+        `SELECT * FROM user_gamification WHERE user_id = ANY($1)`,
+        [clientIds]
+      ),
+
+      // Routine completions for the period
+      query<{ client_id: string; completion_date: string; routine_type: string }>(
+        `SELECT client_id, completion_date, routine_type FROM routine_completions 
+         WHERE client_id = ANY($1) AND completion_date >= $2 AND completion_date <= $3`,
+        [clientIds, startDateStr, endDateStr]
+      ),
+
+      // Today's completions
+      query<{ client_id: string }>(
+        `SELECT DISTINCT client_id FROM routine_completions 
+         WHERE client_id = ANY($1) AND completion_date = $2`,
+        [clientIds, today]
+      ),
+
+      // Progress photos for the period
+      query<{ id: string; client_id: string; created_at: string }>(
+        `SELECT id, client_id, created_at FROM progress_photos 
+         WHERE client_id = ANY($1) AND created_at >= $2 AND created_at <= $3`,
+        [clientIds, startDate.toISOString(), endDate.toISOString()]
+      ),
+
+      // Products (professional's library)
+      query<{ id: string; category: string | null }>(
+        `SELECT id, category FROM products WHERE professional_id = $1 AND is_active = true`,
+        [professionalId]
+      ),
+
+      // Treatment plans
+      query<{ id: string; status: string }>(
+        `SELECT id, status FROM treatment_plans WHERE professional_id = $1`,
+        [professionalId]
+      ),
+    ]);
+
+    const todayClientIds = new Set(todayCompletionsResult.map(c => c.client_id));
+
+    // Create lookup maps
+    const gamificationMap = new Map<string, typeof gamificationResult[0]>();
+    gamificationResult.forEach(g => gamificationMap.set(g.user_id, g));
+
+    const relationshipMap = new Map<string, typeof relationships[0]>();
+    relationships.forEach(r => relationshipMap.set(r.client_id, r));
+
+    // Calculate compliance for each client
+    const daysInPeriod = timePeriod === 'all' ? 365 : parseInt(timePeriod);
+    const expectedCompletions = daysInPeriod * 2; // AM and PM routines
+
+    // Build client analytics
+    const clients: AnalyticsClientData[] = profilesResult.map(profile => {
+      const gamification = gamificationMap.get(profile.id);
+      const clientCompletions = completionsResult.filter(c => c.client_id === profile.id);
+      const compliance = Math.min(100, Math.round((clientCompletions.length / expectedCompletions) * 100));
+      const relationship = relationshipMap.get(profile.id);
+
+      return {
+        id: profile.id,
+        name: profile.full_name || 'Unknown',
+        email: profile.email || '',
+        avatar_url: profile.avatar_url,
+        compliance,
+        currentStreak: gamification?.current_streak || 0,
+        longestStreak: gamification?.longest_streak || 0,
+        level: gamification?.level || 'Bronze',
+        points: gamification?.points || 0,
+        totalRoutinesCompleted: gamification?.total_routines_completed || 0,
+        lastCompletionDate: gamification?.last_completion_date || null,
+        joinedAt: relationship?.created_at || profile.created_at,
+        routineCompletedToday: todayClientIds.has(profile.id),
+      };
+    });
+
+    // Calculate overview metrics
+    const avgCompliance = clients.length > 0
+      ? Math.round(clients.reduce((a, c) => a + c.compliance, 0) / clients.length)
+      : 0;
+    const avgStreak = clients.length > 0
+      ? Math.round(clients.reduce((a, c) => a + c.currentStreak, 0) / clients.length)
+      : 0;
+    const goldPlusClients = clients.filter(c =>
+      ['Gold', 'Platinum', 'Diamond'].includes(c.level)
+    ).length;
+    const completedToday = todayClientIds.size;
+    const activePlans = treatmentPlansResult.filter(tp => tp.status === 'active').length;
+
+    const overviewMetrics: AnalyticsOverviewMetrics = {
+      totalClients: clients.length,
+      avgCompliance,
+      avgStreak,
+      goldPlusClients,
+      completedToday,
+      totalPhotos: photosResult.length,
+      totalProducts: productsResult.length,
+      activeTreatmentPlans: activePlans,
+    };
+
+    // Calculate trend data (daily completions and photos for last 30 days max)
+    const trendMap = new Map<string, { completions: number; photos: number }>();
+    const days = timePeriod === 'all' ? 30 : Math.min(parseInt(timePeriod), 30);
+
+    for (let i = 0; i < days; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      trendMap.set(dateStr, { completions: 0, photos: 0 });
+    }
+
+    completionsResult.forEach(c => {
+      const existing = trendMap.get(c.completion_date);
+      if (existing) {
+        existing.completions++;
+      }
+    });
+
+    photosResult.forEach(p => {
+      const dateStr = new Date(p.created_at).toISOString().split('T')[0];
+      const existing = trendMap.get(dateStr);
+      if (existing) {
+        existing.photos++;
+      }
+    });
+
+    const trendData: AnalyticsTrendData[] = Array.from(trendMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Calculate product analytics by category
+    const categoryMap = new Map<string, number>();
+    productsResult.forEach(p => {
+      const cat = p.category || 'Uncategorized';
+      categoryMap.set(cat, (categoryMap.get(cat) || 0) + 1);
+    });
+
+    const productAnalytics: AnalyticsProductData[] = Array.from(categoryMap.entries())
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Calculate previous period metrics for comparison
+    let previousMetrics: { avgCompliance?: number } = {};
+    
+    if (timePeriod !== 'all') {
+      const prevStartDate = new Date(startDate);
+      prevStartDate.setDate(prevStartDate.getDate() - parseInt(timePeriod));
+      const prevStartDateStr = prevStartDate.toISOString().split('T')[0];
+
+      const prevCompletionsResult = await query<{ client_id: string }>(
+        `SELECT client_id FROM routine_completions 
+         WHERE client_id = ANY($1) AND completion_date >= $2 AND completion_date < $3`,
+        [clientIds, prevStartDateStr, startDateStr]
+      );
+
+      const prevCompliance = clients.length > 0 && prevCompletionsResult
+        ? Math.round((prevCompletionsResult.length / (expectedCompletions * clients.length)) * 100)
+        : 0;
+
+      previousMetrics = { avgCompliance: prevCompliance };
+    }
+
+    console.log(`✅ Analytics data fetched: ${clients.length} clients`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        clients,
+        overviewMetrics,
+        trendData,
+        productAnalytics,
+        previousMetrics,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch analytics data',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// PROFESSIONAL NOTIFICATIONS ENDPOINTS
+// ============================================================================
+
+interface ProfessionalNotification {
+  id: string;
+  client_id: string;
+  professional_id: string;
+  content: string;
+  read_status: boolean;
+  sender_type: string | null;
+  created_at: string;
+  client_name: string | null;
+  client_avatar: string | null;
+}
+
+/**
+ * GET /professional/notifications/unread
+ * Get unread notes from clients for the professional
+ */
+router.get('/notifications/unread', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`🔔 Fetching unread notifications for professional: ${professionalId}`);
+
+    // Fetch unread notes from clients (sender_type = 'client' or null)
+    const notes = await query<{
+      id: string;
+      client_id: string;
+      professional_id: string;
+      content: string;
+      read_status: boolean;
+      sender_type: string | null;
+      created_at: string;
+    }>(
+      `SELECT id, client_id, professional_id, content, read_status, sender_type, created_at
+       FROM routine_notes
+       WHERE professional_id = $1 
+         AND read_status = false
+         AND professional_deleted = false
+         AND (sender_type = 'client' OR sender_type IS NULL)
+       ORDER BY created_at DESC`,
+      [professionalId]
+    );
+
+    if (notes.length === 0) {
+      console.log(`ℹ️ No unread notifications for professional: ${professionalId}`);
+      res.status(200).json({
+        success: true,
+        data: { notifications: [], count: 0 },
+      } as ApiResponse);
+      return;
+    }
+
+    // Get unique client IDs
+    const clientIds = [...new Set(notes.map(n => n.client_id))];
+
+    // Fetch client profiles
+    const clients = await query<{
+      id: string;
+      full_name: string | null;
+      avatar_url: string | null;
+    }>(
+      `SELECT id, full_name, avatar_url FROM user_profiles WHERE id = ANY($1)`,
+      [clientIds]
+    );
+
+    const clientsMap = new Map(clients.map(c => [c.id, c]));
+
+    // Map notifications with client info
+    const notificationsWithClientInfo: ProfessionalNotification[] = notes.map(note => {
+      const client = clientsMap.get(note.client_id);
+      return {
+        ...note,
+        client_name: client?.full_name || 'Unknown Client',
+        client_avatar: client?.avatar_url || null,
+      };
+    });
+
+    console.log(`✅ Found ${notificationsWithClientInfo.length} unread notifications`);
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        notifications: notificationsWithClientInfo,
+        count: notificationsWithClientInfo.length,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching unread notifications:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch notifications',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /professional/notifications/:noteId/read
+ * Mark a single notification as read
+ */
+router.patch('/notifications/:noteId/read', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { noteId } = req.params;
+
+    console.log(`📝 Marking notification ${noteId} as read for professional: ${professionalId}`);
+
+    const result = await query(
+      `UPDATE routine_notes 
+       SET read_status = true 
+       WHERE id = $1 AND professional_id = $2
+       RETURNING id`,
+      [noteId, professionalId]
+    );
+
+    if (result.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Notification not found',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Notification marked as read: ${noteId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Notification marked as read',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error marking notification as read:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to mark notification as read',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /professional/notifications/mark-all-read
+ * Mark all unread notifications as read
+ */
+router.patch('/notifications/mark-all-read', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`📝 Marking all notifications as read for professional: ${professionalId}`);
+
+    const result = await query(
+      `UPDATE routine_notes 
+       SET read_status = true 
+       WHERE professional_id = $1 
+         AND read_status = false
+         AND professional_deleted = false
+         AND (sender_type = 'client' OR sender_type IS NULL)
+       RETURNING id`,
+      [professionalId]
+    );
+
+    console.log(`✅ Marked ${result.length} notifications as read`);
+
+    res.status(200).json({
+      success: true,
+      message: `${result.length} notification(s) marked as read`,
+      data: { count: result.length },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error marking all notifications as read:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to mark notifications as read',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// CLIENT INVITATION ENDPOINT
+// ============================================================================
+
+import { sendClientInvitationEmail } from '../lib/email.js';
+
+interface PendingInvitation {
+  id: string;
+  professional_id: string;
+  email: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
+/**
+ * POST /professional/clients/invite
+ * Invite a client by email
+ */
+router.post('/clients/invite', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      } as ApiResponse);
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    console.log(`📧 Inviting client: ${normalizedEmail} by professional: ${professionalId}`);
+
+    // Get professional's profile for the invitation email
+    const professional = await queryOne<{
+      id: string;
+      full_name: string;
+      business_name: string;
+    }>(
+      `SELECT id, full_name, business_name FROM user_profiles WHERE id = $1`,
+      [professionalId]
+    );
+
+    if (!professional) {
+      res.status(404).json({
+        success: false,
+        error: 'Professional profile not found',
+      } as ApiResponse);
+      return;
+    }
+
+    // Check if a user with this email already exists
+    const existingUser = await queryOne<{
+      id: string;
+      email: string;
+      role: string;
+      full_name: string;
+    }>(
+      `SELECT id, email, role, full_name FROM user_profiles WHERE email = $1`,
+      [normalizedEmail]
+    );
+
+    if (existingUser) {
+      // User exists - check if relationship already exists
+      const existingRelationship = await queryOne<ClientProfessionalRelationship>(
+        `SELECT * FROM client_professional_relationships 
+         WHERE professional_id = $1 AND client_id = $2`,
+        [professionalId, existingUser.id]
+      );
+
+      if (existingRelationship) {
+        if (existingRelationship.status === 'active') {
+          res.status(400).json({
+            success: false,
+            error: 'This client is already connected to your account.',
+          } as ApiResponse);
+          return;
+        }
+        // Reactivate the relationship if it was inactive
+        await query(
+          `UPDATE client_professional_relationships 
+           SET status = 'active', updated_at = NOW() 
+           WHERE id = $1`,
+          [existingRelationship.id]
+        );
+      } else {
+        // Create new relationship
+        await query(
+          `INSERT INTO client_professional_relationships 
+           (professional_id, client_id, status, created_at, updated_at)
+           VALUES ($1, $2, 'active', NOW(), NOW())`,
+          [professionalId, existingUser.id]
+        );
+      }
+
+      console.log(`✅ Client ${existingUser.full_name} added directly (already registered)`);
+
+      res.status(200).json({
+        success: true,
+        message: `${existingUser.full_name} has been added to your client list.`,
+        alreadyRegistered: true,
+      } as ApiResponse);
+      return;
+    }
+
+    // User doesn't exist - check for pending invitation
+    const existingInvitation = await queryOne<PendingInvitation>(
+      `SELECT * FROM pending_client_invitations 
+       WHERE professional_id = $1 AND email = $2 AND status = 'pending'
+       AND expires_at > NOW()`,
+      [professionalId, normalizedEmail]
+    );
+
+    if (existingInvitation) {
+      res.status(400).json({
+        success: false,
+        error: 'An invitation has already been sent to this email address and is still pending.',
+        alreadyInvited: true,
+      } as ApiResponse);
+      return;
+    }
+
+    // Create pending invitation (expires in 7 days)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await query(
+      `INSERT INTO pending_client_invitations 
+       (professional_id, email, status, created_at, expires_at)
+       VALUES ($1, $2, 'pending', NOW(), $3)
+       ON CONFLICT (professional_id, email) 
+       DO UPDATE SET status = 'pending', expires_at = $3, created_at = NOW()`,
+      [professionalId, normalizedEmail, expiresAt.toISOString()]
+    );
+
+    // Send invitation email
+    const emailResult = await sendClientInvitationEmail(
+      normalizedEmail,
+      professional.full_name || 'Your Skincare Professional',
+      professional.business_name || 'SkinAura PRO'
+    );
+
+    if (!emailResult.success) {
+      console.error('❌ Failed to send invitation email:', emailResult.error);
+      // Still return success since invitation was created
+    }
+
+    console.log(`✅ Invitation sent to ${normalizedEmail}`);
+
+    res.status(200).json({
+      success: true,
+      message: `Invitation sent to ${normalizedEmail}. They will receive an email with instructions to create their account.`,
+      alreadyRegistered: false,
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error inviting client:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to send invitation',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// PRODUCT BULK IMPORT ENDPOINT
+// ============================================================================
+
+interface BulkProductInput {
+  name: string;
+  brand: string | null;
+  category: string | null;
+  description: string | null;
+  price: number | null;
+  image_url: string | null;
+  purchase_url: string | null;
+  ingredients: string[];
+  skin_types: string[];
+  concerns: string[];
+  is_active: boolean;
+  is_global: boolean;
+}
+
+/**
+ * POST /professional/products/bulk-import
+ * Bulk import products from CSV
+ */
+router.post('/products/bulk-import', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { products } = req.body as { products: BulkProductInput[] };
+
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Products array is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📦 Bulk importing ${products.length} products for professional: ${professionalId}`);
+
+    const insertedProducts: any[] = [];
+    const errors: string[] = [];
+
+    // Process products in batches of 10
+    const batchSize = 10;
+    for (let i = 0; i < products.length; i += batchSize) {
+      const batch = products.slice(i, i + batchSize);
+      const batchNumber = Math.floor(i / batchSize) + 1;
+
+      try {
+        // Build bulk insert query
+        const values: any[] = [];
+        const placeholders: string[] = [];
+        let paramIndex = 1;
+
+        for (const product of batch) {
+          placeholders.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, $${paramIndex + 6}, $${paramIndex + 7}, $${paramIndex + 8}, $${paramIndex + 9}, $${paramIndex + 10}, $${paramIndex + 11})`);
+          values.push(
+            professionalId,
+            product.name,
+            product.brand || null,
+            product.category || null,
+            product.description || null,
+            product.price || null,
+            product.image_url || null,
+            product.purchase_url || null,
+            product.ingredients || [],
+            product.skin_types || [],
+            product.is_active !== false,
+            product.is_global === true
+          );
+          paramIndex += 12;
+        }
+
+        const insertQuery = `
+          INSERT INTO products 
+            (professional_id, name, brand, category, description, price, image_url, purchase_url, ingredients, skin_types, is_active, is_global)
+          VALUES ${placeholders.join(', ')}
+          RETURNING id, name
+        `;
+
+        const result = await query<{ id: string; name: string }>(insertQuery, values);
+        insertedProducts.push(...result);
+
+      } catch (batchError: any) {
+        console.error(`❌ Batch ${batchNumber} error:`, batchError);
+        errors.push(`Batch ${batchNumber}: ${batchError.message || 'Unknown error'}`);
+      }
+    }
+
+    const successCount = insertedProducts.length;
+    const failedCount = products.length - successCount;
+
+    console.log(`✅ Bulk import complete: ${successCount} success, ${failedCount} failed`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        success: successCount,
+        failed: failedCount,
+        errors,
+        products: insertedProducts,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error bulk importing products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to import products',
+    } as ApiResponse);
+  }
+});
+
 export default router;

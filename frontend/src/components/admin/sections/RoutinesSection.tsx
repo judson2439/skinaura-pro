@@ -21,7 +21,8 @@ import {
   Moon,
   Calendar,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 import { AdminRoutineTemplate, SCHEDULE_TYPES } from '../types';
 import RoutineDetailModal from '../modals/RoutineDetailModal';
 import RoutineDeleteModal from '../modals/RoutineDeleteModal';
@@ -31,6 +32,7 @@ interface RoutinesSectionProps {
 }
 
 const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) => {
+  const { authToken } = useAuth();
   const [routines, setRoutines] = useState<AdminRoutineTemplate[]>([]);
   const [filteredRoutines, setFilteredRoutines] = useState<AdminRoutineTemplate[]>([]);
   const [isLoadingRoutines, setIsLoadingRoutines] = useState(false);
@@ -48,69 +50,23 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   const [selectedRoutines, setSelectedRoutines] = useState<Set<string>>(new Set());
   const routinesPerPage = 10;
 
-  // Fetch routines from database
+  // Fetch routines from backend API
   const fetchRoutines = async () => {
+    if (!authToken) return;
+
     setIsLoadingRoutines(true);
     try {
-      // Fetch routine templates with professional info
-      const { data: routinesData, error: routinesError } = await supabase
-        .from('routine_templates')
-        .select(`
-          *,
-          user_profiles:professional_id (
-            full_name,
-            email
-          )
-        `)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { routines: AdminRoutineTemplate[]; total: number };
+      }>('/api/admin/routines');
 
-      if (routinesError) throw routinesError;
-
-      // Fetch steps count for each routine
-      const routineIds = (routinesData || []).map(r => r.id);
-      
-      let stepsCountMap: Record<string, number> = {};
-      let assignmentsCountMap: Record<string, number> = {};
-
-      if (routineIds.length > 0) {
-        // Get steps count
-        const { data: stepsData, error: stepsError } = await supabase
-          .from('routine_steps')
-          .select('routine_id')
-          .in('routine_id', routineIds);
-
-        if (!stepsError && stepsData) {
-          stepsCountMap = stepsData.reduce((acc, step) => {
-            acc[step.routine_id] = (acc[step.routine_id] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-        }
-
-        // Get assignments count
-        const { data: assignmentsData, error: assignmentsError } = await supabase
-          .from('client_routine_assignments')
-          .select('routine_id')
-          .in('routine_id', routineIds);
-
-        if (!assignmentsError && assignmentsData) {
-          assignmentsCountMap = assignmentsData.reduce((acc, assignment) => {
-            acc[assignment.routine_id] = (acc[assignment.routine_id] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-        }
+      if (response.data.success && response.data.data) {
+        setRoutines(response.data.data.routines || []);
+        setTotalRoutines(response.data.data.total || 0);
+        onRoutinesLoaded?.(response.data.data.routines || []);
       }
-
-      const transformedRoutines: AdminRoutineTemplate[] = (routinesData || []).map((r: any) => ({
-        ...r,
-        professional_name: r.user_profiles?.full_name || null,
-        professional_email: r.user_profiles?.email || null,
-        steps_count: stepsCountMap[r.id] || 0,
-        assignments_count: assignmentsCountMap[r.id] || 0,
-      }));
-
-      setRoutines(transformedRoutines);
-      setTotalRoutines(transformedRoutines.length);
-      onRoutinesLoaded?.(transformedRoutines);
     } catch (error) {
       console.error('Error fetching routines:', error);
       setRoutines([]);
@@ -152,7 +108,7 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   // Fetch routines on mount
   useEffect(() => {
     fetchRoutines();
-  }, []);
+  }, [authToken]);
 
   // Paginated routines
   const paginatedRoutines = filteredRoutines.slice(
@@ -190,62 +146,23 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   };
 
   const confirmDeleteRoutine = async () => {
-    if (!routineToDelete) return;
+    if (!routineToDelete || !authToken) return;
     
     setIsDeletingRoutine(true);
     try {
-      // First, get all step IDs for this routine
-      const { data: stepsData, error: stepsError } = await supabase
-        .from('routine_steps')
-        .select('id')
-        .eq('routine_id', routineToDelete.id);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.delete<{
+        success: boolean;
+        error?: string;
+      }>(`/api/admin/routines/${routineToDelete.id}`);
 
-      if (stepsError) throw stepsError;
-
-      // Delete linked products for all steps
-      if (stepsData && stepsData.length > 0) {
-        const stepIds = stepsData.map(s => s.id);
-        const { error: productsError } = await supabase
-          .from('routine_step_products')
-          .delete()
-          .in('routine_step_id', stepIds);
-
-        if (productsError) {
-          console.error('Error deleting step products:', productsError);
-        }
+      if (response.data.success) {
+        setRoutines(routines.filter(r => r.id !== routineToDelete.id));
+        setIsRoutineDeleteModalOpen(false);
+        setRoutineToDelete(null);
+      } else {
+        throw new Error(response.data.error || 'Failed to delete routine');
       }
-
-      // Delete all steps
-      const { error: deleteStepsError } = await supabase
-        .from('routine_steps')
-        .delete()
-        .eq('routine_id', routineToDelete.id);
-
-      if (deleteStepsError) {
-        console.error('Error deleting steps:', deleteStepsError);
-      }
-
-      // Delete all client assignments
-      const { error: assignmentsError } = await supabase
-        .from('client_routine_assignments')
-        .delete()
-        .eq('routine_id', routineToDelete.id);
-
-      if (assignmentsError) {
-        console.error('Error deleting assignments:', assignmentsError);
-      }
-
-      // Finally, delete the routine template
-      const { error: routineError } = await supabase
-        .from('routine_templates')
-        .delete()
-        .eq('id', routineToDelete.id);
-
-      if (routineError) throw routineError;
-
-      setRoutines(routines.filter(r => r.id !== routineToDelete.id));
-      setIsRoutineDeleteModalOpen(false);
-      setRoutineToDelete(null);
     } catch (error) {
       console.error('Error deleting routine:', error);
       alert('Failed to delete routine. Please try again.');
@@ -273,51 +190,26 @@ const RoutinesSection: React.FC<RoutinesSectionProps> = ({ onRoutinesLoaded }) =
   };
 
   const handleBulkDeleteRoutines = async () => {
-    if (selectedRoutines.size === 0) return;
+    if (selectedRoutines.size === 0 || !authToken) return;
     
     if (!confirm(`Are you sure you want to delete ${selectedRoutines.size} routine(s)? This will also delete all associated steps and assignments.`)) return;
 
     setIsDeletingRoutine(true);
     try {
-      for (const routineId of selectedRoutines) {
-        // Get all step IDs for this routine
-        const { data: stepsData } = await supabase
-          .from('routine_steps')
-          .select('id')
-          .eq('routine_id', routineId);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.post<{
+        success: boolean;
+        error?: string;
+      }>('/api/admin/routines/bulk-delete', {
+        routineIds: Array.from(selectedRoutines),
+      });
 
-        // Delete linked products for all steps
-        if (stepsData && stepsData.length > 0) {
-          const stepIds = stepsData.map(s => s.id);
-          await supabase
-            .from('routine_step_products')
-            .delete()
-            .in('routine_step_id', stepIds);
-        }
-
-        // Delete all steps
-        await supabase
-          .from('routine_steps')
-          .delete()
-          .eq('routine_id', routineId);
-
-        // Delete all client assignments
-        await supabase
-          .from('client_routine_assignments')
-          .delete()
-          .eq('routine_id', routineId);
+      if (response.data.success) {
+        setRoutines(routines.filter(r => !selectedRoutines.has(r.id)));
+        setSelectedRoutines(new Set());
+      } else {
+        throw new Error(response.data.error || 'Failed to delete routines');
       }
-
-      // Delete the routine templates
-      const { error } = await supabase
-        .from('routine_templates')
-        .delete()
-        .in('id', Array.from(selectedRoutines));
-
-      if (error) throw error;
-
-      setRoutines(routines.filter(r => !selectedRoutines.has(r.id)));
-      setSelectedRoutines(new Set());
     } catch (error) {
       console.error('Error deleting routines:', error);
       alert('Failed to delete routines. Please try again.');

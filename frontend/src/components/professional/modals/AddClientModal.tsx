@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Loader2, AlertCircle, Mail, CheckCircle, Send, Clock } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 
 // ============================================================================
 // TYPES
@@ -21,23 +22,12 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
   onClose,
   onClientAdded,
 }) => {
+  const { authToken } = useAuth();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alreadyInvited, setAlreadyInvited] = useState(false);
   const [success, setSuccess] = useState<{ message: string; alreadyRegistered?: boolean } | null>(null);
-  const [professionalId, setProfessionalId] = useState<string | null>(null);
-
-  // Get the current user's professional ID on mount
-  useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setProfessionalId(user.id);
-      }
-    };
-    getCurrentUser();
-  }, []);
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -55,7 +45,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
       return;
     }
 
-    if (!professionalId) {
+    if (!authToken) {
       setError('Unable to identify your account. Please try again.');
       return;
     }
@@ -66,22 +56,24 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
     setSuccess(null);
 
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke('invite-client', {
-        body: { 
-          professional_id: professionalId,
-          email: email.trim().toLowerCase() 
-        },
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.post<{
+        success: boolean;
+        message?: string;
+        error?: string;
+        alreadyInvited?: boolean;
+        alreadyRegistered?: boolean;
+      }>('/api/professional/clients/invite', {
+        email: email.trim().toLowerCase(),
       });
 
-      if (invokeError) {
-        throw new Error(invokeError.message || 'Failed to send invitation');
-      }
+      const data = response.data;
 
       if (!data.success) {
         // Check if it's an "already invited" error
         if (data.alreadyInvited) {
           setAlreadyInvited(true);
-          setError(data.error);
+          setError(data.error || 'Invitation already sent');
           return;
         }
         throw new Error(data.error || 'Failed to send invitation');
@@ -89,7 +81,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
 
       // Success!
       setSuccess({
-        message: data.message,
+        message: data.message || 'Invitation sent successfully',
         alreadyRegistered: data.alreadyRegistered,
       });
 
@@ -101,8 +93,14 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
       // Clear email field
       setEmail('');
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error inviting client:', err);
+      // Handle API error responses
+      if (err.data?.alreadyInvited) {
+        setAlreadyInvited(true);
+        setError(err.data?.error || 'Invitation already sent');
+        return;
+      }
       setError(err instanceof Error ? err.message : 'An error occurred while sending the invitation');
     } finally {
       setLoading(false);

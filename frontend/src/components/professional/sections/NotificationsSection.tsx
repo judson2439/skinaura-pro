@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import ClientChatModal from '../modals/ClientChatModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -312,10 +313,11 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
                 {/* Avatar */}
                 <div className="flex-shrink-0 relative">
                   {group.client_avatar ? (
-                    <img
+                    <EncryptedImage
                       src={group.client_avatar}
                       alt={group.client_name}
                       className="w-14 h-14 rounded-full object-cover border-2 border-gray-100"
+                      fallbackClassName="w-14 h-14 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-gray-100"
                     />
                   ) : (
                     <div className="w-14 h-14 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-gray-100">

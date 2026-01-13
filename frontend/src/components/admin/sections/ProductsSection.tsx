@@ -19,16 +19,19 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 import { Product, PRODUCT_CATEGORIES } from '../types';
 import ProductDetailModal from '../modals/ProductDetailModal';
 import ProductDeleteModal from '../modals/ProductDeleteModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface ProductsSectionProps {
   onProductsLoaded?: (products: Product[]) => void;
 }
 
 const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) => {
+  const { authToken } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
@@ -46,32 +49,23 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const productsPerPage = 10;
 
-  // Fetch products from database
+  // Fetch products from backend API
   const fetchProducts = async () => {
+    if (!authToken) return;
+
     setIsLoadingProducts(true);
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select(`
-          *,
-          user_profiles:professional_id (
-            full_name,
-            email
-          )
-        `)
-        .order('created_at', { ascending: false });
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { products: Product[]; total: number };
+      }>('/api/admin/products');
 
-      if (error) throw error;
-
-      const transformedProducts: Product[] = (data || []).map((p: any) => ({
-        ...p,
-        professional_name: p.user_profiles?.full_name || null,
-        professional_email: p.user_profiles?.email || null,
-      }));
-
-      setProducts(transformedProducts);
-      setTotalProducts(transformedProducts.length);
-      onProductsLoaded?.(transformedProducts);
+      if (response.data.success && response.data.data) {
+        setProducts(response.data.data.products || []);
+        setTotalProducts(response.data.data.total || 0);
+        onProductsLoaded?.(response.data.data.products || []);
+      }
     } catch (error) {
       console.error('Error fetching products:', error);
       setProducts([]);
@@ -115,7 +109,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   // Fetch products on mount
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [authToken]);
 
   // Paginated products
   const paginatedProducts = filteredProducts.slice(
@@ -143,25 +137,29 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   };
 
   const handleSaveProduct = async (updatedProduct: Product) => {
+    if (!authToken) return;
+
     try {
-      const { error } = await supabase
-        .from('products')
-        .update({
-          name: updatedProduct.name,
-          brand: updatedProduct.brand,
-          category: updatedProduct.category,
-          description: updatedProduct.description,
-          price: updatedProduct.price,
-          is_active: updatedProduct.is_active,
-          is_global: updatedProduct.is_global,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', updatedProduct.id);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.put<{
+        success: boolean;
+        error?: string;
+      }>(`/api/admin/products/${updatedProduct.id}`, {
+        name: updatedProduct.name,
+        brand: updatedProduct.brand,
+        category: updatedProduct.category,
+        description: updatedProduct.description,
+        price: updatedProduct.price,
+        is_active: updatedProduct.is_active,
+        is_global: updatedProduct.is_global,
+      });
 
-      if (error) throw error;
-
-      setProducts(products.map(p => p.id === updatedProduct.id ? { ...p, ...updatedProduct } : p));
-      setIsProductDetailModalOpen(false);
+      if (response.data.success) {
+        setProducts(products.map(p => p.id === updatedProduct.id ? { ...p, ...updatedProduct, updated_at: new Date().toISOString() } : p));
+        setIsProductDetailModalOpen(false);
+      } else {
+        throw new Error(response.data.error || 'Failed to update product');
+      }
     } catch (error) {
       console.error('Error updating product:', error);
       alert('Failed to update product. Please try again.');
@@ -174,20 +172,23 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   };
 
   const confirmDeleteProduct = async () => {
-    if (!productToDelete) return;
+    if (!productToDelete || !authToken) return;
     
     setIsDeletingProduct(true);
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', productToDelete.id);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.delete<{
+        success: boolean;
+        error?: string;
+      }>(`/api/admin/products/${productToDelete.id}`);
 
-      if (error) throw error;
-
-      setProducts(products.filter(p => p.id !== productToDelete.id));
-      setIsProductDeleteModalOpen(false);
-      setProductToDelete(null);
+      if (response.data.success) {
+        setProducts(products.filter(p => p.id !== productToDelete.id));
+        setIsProductDeleteModalOpen(false);
+        setProductToDelete(null);
+      } else {
+        throw new Error(response.data.error || 'Failed to delete product');
+      }
     } catch (error) {
       console.error('Error deleting product:', error);
       alert('Failed to delete product. Please try again.');
@@ -215,21 +216,26 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
   };
 
   const handleBulkDeleteProducts = async () => {
-    if (selectedProducts.size === 0) return;
+    if (selectedProducts.size === 0 || !authToken) return;
     
     if (!confirm(`Are you sure you want to delete ${selectedProducts.size} product(s)?`)) return;
 
     setIsDeletingProduct(true);
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .in('id', Array.from(selectedProducts));
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.post<{
+        success: boolean;
+        error?: string;
+      }>('/api/admin/products/bulk-delete', {
+        productIds: Array.from(selectedProducts),
+      });
 
-      if (error) throw error;
-
-      setProducts(products.filter(p => !selectedProducts.has(p.id)));
-      setSelectedProducts(new Set());
+      if (response.data.success) {
+        setProducts(products.filter(p => !selectedProducts.has(p.id)));
+        setSelectedProducts(new Set());
+      } else {
+        throw new Error(response.data.error || 'Failed to delete products');
+      }
     } catch (error) {
       console.error('Error deleting products:', error);
       alert('Failed to delete products. Please try again.');
@@ -472,10 +478,11 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           {product.image_url ? (
-                            <img
+                            <EncryptedImage
                               src={product.image_url}
                               alt={product.name}
                               className="w-10 h-10 rounded-lg object-cover"
+                              fallbackClassName="w-10 h-10 rounded-lg bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                             />
                           ) : (
                             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">

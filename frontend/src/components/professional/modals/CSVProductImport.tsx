@@ -9,7 +9,8 @@ import {
   X,
   Info,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 
 // ============================================================================
@@ -122,6 +123,7 @@ const parseArrayField = (value: string): string[] => {
 // ============================================================================
 
 const CSVProductImport: React.FC<CSVProductImportProps> = ({ userId, onImportComplete }) => {
+  const { authToken } = useAuth();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -325,49 +327,37 @@ const CSVProductImport: React.FC<CSVProductImportProps> = ({ userId, onImportCom
 
   // Import products to database
   const handleImport = async () => {
-    if (parsedProducts.length === 0 || !userId) return;
+    if (parsedProducts.length === 0 || !authToken) return;
 
     setImporting(true);
-    const errors: string[] = [];
-    let successCount = 0;
-    let failedCount = 0;
 
     try {
-      // Insert products in batches of 10
-      const batchSize = 10;
-      
-      for (let i = 0; i < parsedProducts.length; i += batchSize) {
-        const batch = parsedProducts.slice(i, i + batchSize);
-        
-        const productsToInsert = batch.map(product => ({
-          professional_id: userId,
-          name: product.name,
-          brand: product.brand || null,
-          category: product.category || null,
-          description: product.description || null,
-          price: product.price || null,
-          image_url: product.image_url || null,
-          purchase_url: product.purchase_url || null,
-          ingredients: product.ingredients || [],
-          skin_types: product.skin_types || [],
-          concerns: [],
-          is_active: true,
-          is_global: false,
-        }));
+      // Prepare products for bulk import
+      const productsToInsert = parsedProducts.map(product => ({
+        name: product.name,
+        brand: product.brand || null,
+        category: product.category || null,
+        description: product.description || null,
+        price: product.price || null,
+        image_url: product.image_url || null,
+        purchase_url: product.purchase_url || null,
+        ingredients: product.ingredients || [],
+        skin_types: product.skin_types || [],
+        concerns: [],
+        is_active: true,
+        is_global: false,
+      }));
 
-        const { data, error } = await supabase
-          .from('products')
-          .insert(productsToInsert)
-          .select();
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.post<{
+        success: boolean;
+        data?: { success: number; failed: number; errors: string[] };
+        error?: string;
+      }>('/api/professional/products/bulk-import', { products: productsToInsert });
 
-        if (error) {
-          console.error('Batch insert error:', error);
-          errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`);
-          failedCount += batch.length;
-        } else {
-          successCount += data?.length || batch.length;
-        }
-      }
+      const successCount = response.data.data?.success || 0;
+      const failedCount = response.data.data?.failed || 0;
+      const errors = response.data.data?.errors || [];
 
       setResult({
         success: successCount,

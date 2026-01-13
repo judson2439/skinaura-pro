@@ -18,16 +18,19 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 import { UserProfile } from '../types';
 import UserDetailModal from '../modals/UserDetailModal';
 import DeleteConfirmModal from '../modals/DeleteConfirmModal';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface UsersSectionProps {
   onUsersLoaded?: (users: UserProfile[]) => void;
 }
 
 const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
+  const { authToken } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
@@ -44,25 +47,23 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const usersPerPage = 10;
 
-  // Fetch users from database
+  // Fetch users from backend API
   const fetchUsers = async () => {
+    if (!authToken) return;
+    
     setIsLoadingUsers(true);
     try {
-      const { count } = await supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact', head: true });
-      
-      setTotalUsers(count || 0);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { users: UserProfile[]; total: number };
+      }>('/api/admin/users');
 
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setUsers(data || []);
-      onUsersLoaded?.(data || []);
+      if (response.data.success && response.data.data) {
+        setUsers(response.data.data.users || []);
+        setTotalUsers(response.data.data.total || 0);
+        onUsersLoaded?.(response.data.data.users || []);
+      }
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {
@@ -95,7 +96,7 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   // Fetch users on mount
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [authToken]);
 
   // Paginated users
   const paginatedUsers = filteredUsers.slice(
@@ -118,24 +119,28 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   };
 
   const handleSaveUser = async (updatedUser: UserProfile) => {
+    if (!authToken) return;
+    
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          full_name: updatedUser.full_name,
-          phone: updatedUser.phone,
-          role: updatedUser.role,
-          skin_type: updatedUser.skin_type,
-          business_name: updatedUser.business_name,
-          license_number: updatedUser.license_number,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', updatedUser.id);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.put<{
+        success: boolean;
+        error?: string;
+      }>(`/api/admin/users/${updatedUser.id}`, {
+        full_name: updatedUser.full_name,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        skin_type: updatedUser.skin_type,
+        business_name: updatedUser.business_name,
+        license_number: updatedUser.license_number,
+      });
 
-      if (error) throw error;
-
-      setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
-      setIsDetailModalOpen(false);
+      if (response.data.success) {
+        setUsers(users.map(u => u.id === updatedUser.id ? { ...updatedUser, updated_at: new Date().toISOString() } : u));
+        setIsDetailModalOpen(false);
+      } else {
+        throw new Error(response.data.error || 'Failed to update user');
+      }
     } catch (error) {
       console.error('Error updating user:', error);
       alert('Failed to update user. Please try again.');
@@ -148,20 +153,23 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   };
 
   const confirmDeleteUser = async () => {
-    if (!userToDelete) return;
+    if (!userToDelete || !authToken) return;
     
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .delete()
-        .eq('id', userToDelete.id);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.delete<{
+        success: boolean;
+        error?: string;
+      }>(`/api/admin/users/${userToDelete.id}`);
 
-      if (error) throw error;
-
-      setUsers(users.filter(u => u.id !== userToDelete.id));
-      setIsDeleteModalOpen(false);
-      setUserToDelete(null);
+      if (response.data.success) {
+        setUsers(users.filter(u => u.id !== userToDelete.id));
+        setIsDeleteModalOpen(false);
+        setUserToDelete(null);
+      } else {
+        throw new Error(response.data.error || 'Failed to delete user');
+      }
     } catch (error) {
       console.error('Error deleting user:', error);
       alert('Failed to delete user. Please try again.');
@@ -189,21 +197,26 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
   };
 
   const handleBulkDelete = async () => {
-    if (selectedUsers.size === 0) return;
+    if (selectedUsers.size === 0 || !authToken) return;
     
     if (!confirm(`Are you sure you want to delete ${selectedUsers.size} user(s)?`)) return;
 
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .delete()
-        .in('id', Array.from(selectedUsers));
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.post<{
+        success: boolean;
+        error?: string;
+      }>('/api/admin/users/bulk-delete', {
+        userIds: Array.from(selectedUsers),
+      });
 
-      if (error) throw error;
-
-      setUsers(users.filter(u => !selectedUsers.has(u.id)));
-      setSelectedUsers(new Set());
+      if (response.data.success) {
+        setUsers(users.filter(u => !selectedUsers.has(u.id)));
+        setSelectedUsers(new Set());
+      } else {
+        throw new Error(response.data.error || 'Failed to delete users');
+      }
     } catch (error) {
       console.error('Error deleting users:', error);
       alert('Failed to delete users. Please try again.');
@@ -431,10 +444,11 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           {user.avatar_url ? (
-                            <img
+                            <EncryptedImage
                               src={user.avatar_url}
                               alt={user.full_name || 'User'}
                               className="w-10 h-10 rounded-full object-cover"
+                              fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                             />
                           ) : (
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">

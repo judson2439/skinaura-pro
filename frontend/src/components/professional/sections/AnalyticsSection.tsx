@@ -26,8 +26,8 @@ import {
   ArrowDownRight,
   Eye,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { API_CONFIG } from '@/config/api';
 
 // ============================================================================
 // TYPES
@@ -109,7 +109,7 @@ const BRAND_COLORS: Record<string, string> = {
 const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   onNavigateToView,
 }) => {
-  const { user } = useAuth();
+  const { authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [timePeriod, setTimePeriod] = useState('30');
@@ -131,42 +131,38 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
   const [productAnalytics, setProductAnalytics] = useState<ProductAnalytics[]>([]);
   const [previousMetrics, setPreviousMetrics] = useState<Partial<OverviewMetrics>>({});
 
-  // Calculate date range based on time period
-  const getDateRange = () => {
-    const endDate = new Date();
-    const startDate = new Date();
-    if (timePeriod !== 'all') {
-      startDate.setDate(startDate.getDate() - parseInt(timePeriod));
-    } else {
-      startDate.setFullYear(startDate.getFullYear() - 10); // 10 years back for "all time"
-    }
-    return { startDate, endDate };
-  };
-
-  // Fetch all analytics data
+  // Fetch all analytics data from backend API
   const fetchAnalyticsData = async () => {
-    if (!user?.id) return;
+    if (!authToken) return;
     
     try {
-      const { startDate, endDate } = getDateRange();
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
+      const response = await fetch(
+        `${API_CONFIG.baseUrl}/api/professional/analytics?period=${timePeriod}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+        }
+      );
 
-      // Fetch clients with their relationships
-      const { data: relationships, error: relError } = await supabase
-        .from('client_professional_relationships')
-        .select('client_id, created_at')
-        .eq('professional_id', user.id)
-        .eq('status', 'active');
+      if (!response.ok) {
+        throw new Error('Failed to fetch analytics data');
+      }
 
-      if (relError) throw relError;
+      const result = await response.json();
 
-      const clientIds = relationships?.map(r => r.client_id) || [];
-      
-      if (clientIds.length === 0) {
-        setClients([]);
-        setOverviewMetrics({
+      if (result.success && result.data) {
+        const { 
+          clients: clientsData, 
+          overviewMetrics: metrics, 
+          trendData: trends, 
+          productAnalytics: products,
+          previousMetrics: prevMetrics 
+        } = result.data;
+
+        setClients(clientsData || []);
+        setOverviewMetrics(metrics || {
           totalClients: 0,
           avgCompliance: 0,
           avgStreak: 0,
@@ -176,195 +172,10 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
           totalProducts: 0,
           activeTreatmentPlans: 0,
         });
-        setLoading(false);
-        return;
+        setTrendData(trends || []);
+        setProductAnalytics(products || []);
+        setPreviousMetrics(prevMetrics || {});
       }
-
-      // Fetch user profiles
-      const { data: profiles, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('id, full_name, email, avatar_url, created_at')
-        .in('id', clientIds);
-
-      if (profileError) throw profileError;
-
-      // Fetch gamification data
-      const { data: gamificationData, error: gamError } = await supabase
-        .from('user_gamification')
-        .select('*')
-        .in('user_id', clientIds);
-
-      if (gamError) throw gamError;
-
-      // Fetch routine completions for the period
-      const { data: completions, error: compError } = await supabase
-        .from('routine_completions')
-        .select('client_id, completion_date, routine_type')
-        .in('client_id', clientIds)
-        .gte('completion_date', startDateStr)
-        .lte('completion_date', endDateStr);
-
-      if (compError) throw compError;
-
-      // Fetch today's completions
-      const { data: todayCompletions, error: todayError } = await supabase
-        .from('routine_completions')
-        .select('client_id')
-        .in('client_id', clientIds)
-        .eq('completion_date', today);
-
-      if (todayError) throw todayError;
-
-      const todayClientIds = new Set(todayCompletions?.map(c => c.client_id) || []);
-
-      // Fetch progress photos
-      const { data: photos, error: photoError } = await supabase
-        .from('progress_photos')
-        .select('id, client_id, created_at')
-        .in('client_id', clientIds)
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString());
-
-      if (photoError) throw photoError;
-
-      // Fetch products
-      const { data: products, error: prodError } = await supabase
-        .from('products')
-        .select('id, category')
-        .eq('professional_id', user.id)
-        .eq('is_active', true);
-
-      if (prodError) throw prodError;
-
-      // Fetch treatment plans
-      const { data: treatmentPlans, error: tpError } = await supabase
-        .from('treatment_plans')
-        .select('id, status')
-        .eq('professional_id', user.id);
-
-      if (tpError) throw tpError;
-
-      // Calculate compliance for each client
-      const daysInPeriod = timePeriod === 'all' ? 365 : parseInt(timePeriod);
-      const expectedCompletions = daysInPeriod * 2; // AM and PM routines
-
-      // Build client analytics
-      const clientAnalytics: ClientAnalytics[] = (profiles || []).map(profile => {
-        const gamification = gamificationData?.find(g => g.user_id === profile.id);
-        const clientCompletions = completions?.filter(c => c.client_id === profile.id) || [];
-        const compliance = Math.min(100, Math.round((clientCompletions.length / expectedCompletions) * 100));
-        const relationship = relationships?.find(r => r.client_id === profile.id);
-
-        return {
-          id: profile.id,
-          name: profile.full_name || 'Unknown',
-          email: profile.email || '',
-          avatar_url: profile.avatar_url,
-          compliance,
-          currentStreak: gamification?.current_streak || 0,
-          longestStreak: gamification?.longest_streak || 0,
-          level: gamification?.level || 'Bronze',
-          points: gamification?.points || 0,
-          totalRoutinesCompleted: gamification?.total_routines_completed || 0,
-          lastCompletionDate: gamification?.last_completion_date,
-          joinedAt: relationship?.created_at || profile.created_at,
-          routineCompletedToday: todayClientIds.has(profile.id),
-        };
-      });
-
-      setClients(clientAnalytics);
-
-      // Calculate overview metrics
-      const avgCompliance = clientAnalytics.length > 0
-        ? Math.round(clientAnalytics.reduce((a, c) => a + c.compliance, 0) / clientAnalytics.length)
-        : 0;
-      const avgStreak = clientAnalytics.length > 0
-        ? Math.round(clientAnalytics.reduce((a, c) => a + c.currentStreak, 0) / clientAnalytics.length)
-        : 0;
-      const goldPlusClients = clientAnalytics.filter(c => 
-        ['Gold', 'Platinum', 'Diamond'].includes(c.level)
-      ).length;
-      const completedToday = todayClientIds.size;
-      const activePlans = treatmentPlans?.filter(tp => tp.status === 'active').length || 0;
-
-      setOverviewMetrics({
-        totalClients: clientAnalytics.length,
-        avgCompliance,
-        avgStreak,
-        goldPlusClients,
-        completedToday,
-        totalPhotos: photos?.length || 0,
-        totalProducts: products?.length || 0,
-        activeTreatmentPlans: activePlans,
-      });
-
-      // Calculate trend data (daily completions and photos)
-      const trendMap = new Map<string, { completions: number; photos: number }>();
-      const days = timePeriod === 'all' ? 30 : parseInt(timePeriod);
-      
-      for (let i = 0; i < Math.min(days, 30); i++) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        trendMap.set(dateStr, { completions: 0, photos: 0 });
-      }
-
-      completions?.forEach(c => {
-        const existing = trendMap.get(c.completion_date);
-        if (existing) {
-          existing.completions++;
-        }
-      });
-
-      photos?.forEach(p => {
-        const dateStr = new Date(p.created_at).toISOString().split('T')[0];
-        const existing = trendMap.get(dateStr);
-        if (existing) {
-          existing.photos++;
-        }
-      });
-
-      const trendArray: TrendData[] = Array.from(trendMap.entries())
-        .map(([date, data]) => ({ date, ...data }))
-        .sort((a, b) => a.date.localeCompare(b.date));
-
-      setTrendData(trendArray);
-
-      // Calculate product analytics by category
-      const categoryMap = new Map<string, number>();
-      products?.forEach(p => {
-        const cat = p.category || 'Uncategorized';
-        categoryMap.set(cat, (categoryMap.get(cat) || 0) + 1);
-      });
-
-      const productAnalyticsArray: ProductAnalytics[] = Array.from(categoryMap.entries())
-        .map(([category, count]) => ({ category, count }))
-        .sort((a, b) => b.count - a.count);
-
-      setProductAnalytics(productAnalyticsArray);
-
-      // Calculate previous period metrics for comparison
-      if (timePeriod !== 'all') {
-        const prevStartDate = new Date(startDate);
-        prevStartDate.setDate(prevStartDate.getDate() - parseInt(timePeriod));
-        const prevStartDateStr = prevStartDate.toISOString().split('T')[0];
-
-        const { data: prevCompletions } = await supabase
-          .from('routine_completions')
-          .select('client_id')
-          .in('client_id', clientIds)
-          .gte('completion_date', prevStartDateStr)
-          .lt('completion_date', startDateStr);
-
-        const prevCompliance = clientAnalytics.length > 0 && prevCompletions
-          ? Math.round((prevCompletions.length / (expectedCompletions * clientAnalytics.length)) * 100)
-          : 0;
-
-        setPreviousMetrics({
-          avgCompliance: prevCompliance,
-        });
-      }
-
     } catch (error) {
       console.error('Error fetching analytics:', error);
     } finally {
@@ -375,7 +186,7 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
 
   useEffect(() => {
     fetchAnalyticsData();
-  }, [user?.id, timePeriod]);
+  }, [authToken, timePeriod]);
 
   const handleRefresh = () => {
     setRefreshing(true);

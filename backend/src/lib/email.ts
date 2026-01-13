@@ -232,10 +232,136 @@ export const sendWelcomeEmail = async (
   }
 };
 
+/**
+ * Send client invitation email
+ */
+export const sendClientInvitationEmail = async (
+  toEmail: string,
+  professionalName: string,
+  businessName: string
+): Promise<EmailResult> => {
+  if (!mg || !env.MAILGUN_API_KEY || !env.MAILGUN_DOMAIN) {
+    console.warn('⚠️ Mailgun not configured - invitation email not sent');
+    console.log(`📧 [DEV] Invitation email for ${toEmail} from ${professionalName} (${businessName})`);
+    return { 
+      success: true, 
+      messageId: 'dev-mode',
+    };
+  }
+
+  try {
+    const signupUrl = `${env.FRONTEND_URL}?signup=client`;
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You've Been Invited - SkinAura PRO</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td align="center" style="padding: 40px 0;">
+        <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #CFAFA3 0%, #E8D5D0 100%); border-radius: 16px 16px 0 0;">
+              <h1 style="margin: 0; color: #2D2A3E; font-size: 28px; font-weight: 700;">SkinAura PRO</h1>
+              <p style="margin: 10px 0 0; color: #5D5A6E; font-size: 14px;">Professional Skincare Management</p>
+            </td>
+          </tr>
+          
+          <!-- Content -->
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 20px; color: #2D2A3E; font-size: 24px; font-weight: 600;">You've Been Invited!</h2>
+              <p style="margin: 0 0 20px; color: #666; font-size: 16px; line-height: 1.6;">
+                <strong>${professionalName}</strong> from <strong>${businessName}</strong> has invited you to join SkinAura PRO as their client.
+              </p>
+              <p style="margin: 0 0 30px; color: #666; font-size: 16px; line-height: 1.6;">
+                With SkinAura PRO, you'll be able to:
+              </p>
+              <ul style="margin: 0 0 30px; padding-left: 20px; color: #666; font-size: 16px; line-height: 1.8;">
+                <li>Track your personalized skincare routines</li>
+                <li>Document your progress with photos</li>
+                <li>Receive product recommendations from your skincare professional</li>
+                <li>Communicate directly with your skincare expert</li>
+              </ul>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${signupUrl}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #CFAFA3 0%, #B89A8E 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">Create Your Account</a>
+              </div>
+              
+              <p style="margin: 0; color: #999; font-size: 14px; line-height: 1.6;">
+                This invitation was sent by ${professionalName}. If you weren't expecting this email, you can safely ignore it.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 20px 40px 40px; text-align: center; border-top: 1px solid #eee;">
+              <p style="margin: 0; color: #999; font-size: 12px;">
+                © ${new Date().getFullYear()} SkinAura PRO. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+    const textContent = `
+You've Been Invited - SkinAura PRO
+
+${professionalName} from ${businessName} has invited you to join SkinAura PRO as their client.
+
+With SkinAura PRO, you'll be able to:
+- Track your personalized skincare routines
+- Document your progress with photos
+- Receive product recommendations from your skincare professional
+- Communicate directly with your skincare expert
+
+Create your account here: ${signupUrl}
+
+This invitation was sent by ${professionalName}. If you weren't expecting this email, you can safely ignore it.
+
+© ${new Date().getFullYear()} SkinAura PRO. All rights reserved.
+`;
+
+    const result = await mg.messages.create(env.MAILGUN_DOMAIN, {
+      from: `${env.MAILGUN_FROM_NAME} <${env.MAILGUN_FROM_EMAIL}>`,
+      to: [toEmail],
+      subject: `${professionalName} has invited you to SkinAura PRO`,
+      text: textContent,
+      html: htmlContent,
+    });
+
+    console.log(`✅ Invitation email sent to ${toEmail}, messageId: ${result.id}`);
+
+    return {
+      success: true,
+      messageId: result.id,
+    };
+  } catch (error: any) {
+    console.error('❌ Failed to send invitation email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send email',
+    };
+  }
+};
+
 export default {
   generateVerificationCode,
   getVerificationCodeExpiry,
   sendVerificationEmail,
   sendWelcomeEmail,
+  sendClientInvitationEmail,
 };
 

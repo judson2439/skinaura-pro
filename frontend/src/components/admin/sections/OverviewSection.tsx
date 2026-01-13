@@ -33,7 +33,8 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
 
 interface OverviewSectionProps {
   onRefresh?: () => Promise<void>;
@@ -84,6 +85,7 @@ interface GamificationStats {
 }
 
 const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
+  const { authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -133,159 +135,40 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
   });
 
   const fetchAllData = async () => {
+    if (!authToken) return;
+
     try {
-      // Get current date info for filtering
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())).toISOString();
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: {
+          userStats: UserStats;
+          productStats: ProductStats;
+          photoStats: PhotoStats;
+          routineStats: RoutineStats;
+          gamificationStats: GamificationStats;
+        };
+      }>('/api/admin/overview');
 
-      // Fetch user profiles
-      const { data: usersData, error: usersError } = await supabase
-        .from('user_profiles')
-        .select('id, role, created_at');
-      
-      if (!usersError && usersData) {
-        const professionals = usersData.filter(u => u.role === 'professional').length;
-        const clients = usersData.filter(u => u.role === 'client').length;
-        const admins = usersData.filter(u => u.role === 'admin').length;
-        const newThisMonth = usersData.filter(u => u.created_at && u.created_at >= startOfMonth).length;
-        const newThisWeek = usersData.filter(u => u.created_at && u.created_at >= startOfWeek).length;
-        
-        setUserStats({
-          total: usersData.length,
-          professionals,
-          clients,
-          admins,
-          newThisMonth,
-          newThisWeek,
-        });
+      if (response.data.success && response.data.data) {
+        const { userStats: users, productStats: products, photoStats: photos, routineStats: routines, gamificationStats: gamification } = response.data.data;
+
+        if (users) {
+          setUserStats(users);
+        }
+        if (products) {
+          setProductStats(products);
+        }
+        if (photos) {
+          setPhotoStats(photos);
+        }
+        if (routines) {
+          setRoutineStats(routines);
+        }
+        if (gamification) {
+          setGamificationStats(gamification);
+        }
       }
-
-      // Fetch products
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select('id, category, is_active, is_global');
-      
-      if (!productsError && productsData) {
-        const active = productsData.filter(p => p.is_active !== false).length;
-        const inactive = productsData.filter(p => p.is_active === false).length;
-        const global = productsData.filter(p => p.is_global === true).length;
-        
-        // Group by category
-        const categoryMap: { [key: string]: number } = {};
-        productsData.forEach(p => {
-          const cat = p.category || 'Uncategorized';
-          categoryMap[cat] = (categoryMap[cat] || 0) + 1;
-        });
-        const byCategory = Object.entries(categoryMap)
-          .map(([category, count]) => ({ category, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 6);
-        
-        setProductStats({
-          total: productsData.length,
-          active,
-          inactive,
-          global,
-          byCategory,
-        });
-      }
-
-      // Fetch progress photos
-      const { data: photosData, error: photosError } = await supabase
-        .from('progress_photos')
-        .select('id, photo_type, created_at');
-      
-      if (!photosError && photosData) {
-        const before = photosData.filter(p => p.photo_type === 'before').length;
-        const after = photosData.filter(p => p.photo_type === 'after').length;
-        const progress = photosData.filter(p => p.photo_type === 'progress').length;
-        const thisMonth = photosData.filter(p => p.created_at && p.created_at >= startOfMonth).length;
-        
-        // Get photos with comments
-        const { count: commentsCount } = await supabase
-          .from('photo_comments')
-          .select('photo_id', { count: 'exact', head: true });
-        
-        // Get photos with annotations
-        const { count: annotationsCount } = await supabase
-          .from('photo_annotations')
-          .select('photo_id', { count: 'exact', head: true });
-        
-        setPhotoStats({
-          total: photosData.length,
-          before,
-          after,
-          progress,
-          withComments: commentsCount || 0,
-          withAnnotations: annotationsCount || 0,
-          thisMonth,
-        });
-      }
-
-      // Fetch routine templates
-      const { data: routinesData, error: routinesError } = await supabase
-        .from('routine_templates')
-        .select('id, is_active, created_at');
-      
-      if (!routinesError && routinesData) {
-        const active = routinesData.filter(r => r.is_active !== false).length;
-        const inactive = routinesData.filter(r => r.is_active === false).length;
-        const thisMonth = routinesData.filter(r => r.created_at && r.created_at >= startOfMonth).length;
-        
-        setRoutineStats({
-          total: routinesData.length,
-          active,
-          inactive,
-          thisMonth,
-        });
-      }
-
-      // Fetch gamification data
-      const { data: gamificationData, error: gamificationError } = await supabase
-        .from('user_gamification')
-        .select('user_id, points, current_streak, longest_streak, total_routines_completed, level');
-      
-      if (!gamificationError && gamificationData) {
-        const totalPoints = gamificationData.reduce((sum, g) => sum + (g.points || 0), 0);
-        const totalRoutinesCompleted = gamificationData.reduce((sum, g) => sum + (g.total_routines_completed || 0), 0);
-        const avgStreak = gamificationData.length > 0 
-          ? Math.round(gamificationData.reduce((sum, g) => sum + (g.current_streak || 0), 0) / gamificationData.length)
-          : 0;
-        const maxStreak = Math.max(...gamificationData.map(g => g.longest_streak || 0), 0);
-        const activeUsers = gamificationData.filter(g => (g.current_streak || 0) > 0).length;
-        
-        // Group by level
-        const levelMap: { [key: number]: number } = {};
-        gamificationData.forEach(g => {
-          const level = g.level || 1;
-          levelMap[level] = (levelMap[level] || 0) + 1;
-        });
-        const topLevels = Object.entries(levelMap)
-          .map(([level, count]) => ({ level: parseInt(level), count }))
-          .sort((a, b) => b.level - a.level)
-          .slice(0, 5);
-        
-        setGamificationStats({
-          totalPoints,
-          totalBadges: 0,
-          totalRoutinesCompleted,
-          avgStreak,
-          maxStreak,
-          activeUsers,
-          topLevels,
-        });
-      }
-
-      // Fetch badges count
-      const { count: badgesCount } = await supabase
-        .from('user_badges')
-        .select('id', { count: 'exact', head: true });
-      
-      if (badgesCount) {
-        setGamificationStats(prev => ({ ...prev, totalBadges: badgesCount }));
-      }
-
     } catch (error) {
       console.error('Error fetching overview data:', error);
     } finally {
@@ -295,7 +178,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
 
   useEffect(() => {
     fetchAllData();
-  }, []);
+  }, [authToken]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   Menu,
@@ -59,7 +59,7 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
   unreadNotifications = 0,
 }) => {
   const navigate = useNavigate();
-  const { signOut, profile, user } = useAuth();
+  const { signOut, profile, authToken } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -70,55 +70,24 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
 
   // Fetch recent notifications when dropdown opens
   const fetchRecentNotifications = async () => {
-    if (!user?.id) return;
+    if (!authToken) return;
     
     setLoadingNotifications(true);
     try {
-      // Fetch recent unread messages from professionals
-      const { data: notes, error } = await supabase
-        .from('routine_notes')
-        .select('*')
-        .eq('client_id', user.id)
-        .eq('client_deleted', false)
-        .eq('sender_type', 'professional')
-        .eq('read_status', false)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.get<{
+        success: boolean;
+        data?: { notifications: NotificationItem[] };
+      }>('/api/client/notifications/recent?limit=5');
 
-      if (error) {
-        console.error('Error fetching notifications:', error);
-        return;
-      }
-
-      if (notes && notes.length > 0) {
-        // Get unique professional IDs
-        const professionalIds = [...new Set(notes.map(note => note.professional_id))];
-
-        // Fetch professional profiles
-        const { data: professionalProfiles } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, avatar_url')
-          .in('id', professionalIds);
-
-        // Map notes to notification items
-        const notificationItems: NotificationItem[] = notes.map(note => {
-          const professionalProfile = professionalProfiles?.find(p => p.id === note.professional_id);
-          return {
-            id: note.id,
-            professional_id: note.professional_id,
-            professional_name: professionalProfile?.full_name || 'Your Professional',
-            professional_avatar: professionalProfile?.avatar_url || null,
-            content: note.content,
-            created_at: note.created_at,
-          };
-        });
-
-        setNotifications(notificationItems);
+      if (response.data.success && response.data.data?.notifications) {
+        setNotifications(response.data.data.notifications);
       } else {
         setNotifications([]);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
+      setNotifications([]);
     } finally {
       setLoadingNotifications(false);
     }
@@ -249,10 +218,11 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
                           >
                             <div className="flex-shrink-0">
                               {notification.professional_avatar ? (
-                                <img
+                                <EncryptedImage
                                   src={notification.professional_avatar}
                                   alt={notification.professional_name}
                                   className="w-10 h-10 rounded-full object-cover border border-gray-100"
+                                  fallbackClassName="w-10 h-10 rounded-full border border-gray-100 bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                                 />
                               ) : (
                                 <div className="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center">

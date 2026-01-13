@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Edit, Save } from 'lucide-react';
 import { UserProfile } from '../types';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface UserDetailModalProps {
   user: UserProfile | null;
@@ -51,10 +52,11 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
         <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-3">
             {editedUser.avatar_url ? (
-              <img
+              <EncryptedImage
                 src={editedUser.avatar_url}
                 alt={editedUser.full_name || 'User'}
                 className="w-12 h-12 rounded-full object-cover"
+                fallbackClassName="w-12 h-12 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
               />
             ) : (
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">

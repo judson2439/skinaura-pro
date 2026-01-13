@@ -32,7 +32,9 @@ import {
   Flag,
   Play,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -166,6 +168,8 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
   onClose,
   onUpdate
 }) => {
+  const { authToken } = useAuth();
+  
   // State
   const [activeTab, setActiveTab] = useState<'overview' | 'routines' | 'products' | 'treatment-plans' | 'photos' | 'notes'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -181,6 +185,48 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteContent, setEditingNoteContent] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotoRecord | null>(null);
+
+  // API helper function using apiClient
+  const apiRequest = async <T,>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<{ success: boolean; data?: T; error?: string }> => {
+    try {
+      apiClient.setAuthToken(authToken);
+      
+      const method = (options.method || 'GET').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+      let response;
+      
+      if (method === 'GET') {
+        response = await apiClient.get<{ success: boolean; data?: T; error?: string }>(endpoint);
+      } else if (method === 'POST') {
+        response = await apiClient.post<{ success: boolean; data?: T; error?: string }>(
+          endpoint,
+          options.body ? JSON.parse(options.body as string) : undefined
+        );
+      } else if (method === 'PUT') {
+        response = await apiClient.put<{ success: boolean; data?: T; error?: string }>(
+          endpoint,
+          options.body ? JSON.parse(options.body as string) : undefined
+        );
+      } else if (method === 'PATCH') {
+        response = await apiClient.patch<{ success: boolean; data?: T; error?: string }>(
+          endpoint,
+          options.body ? JSON.parse(options.body as string) : undefined
+        );
+      } else if (method === 'DELETE') {
+        response = await apiClient.delete<{ success: boolean; data?: T; error?: string }>(endpoint);
+      } else {
+        throw new Error(`Unsupported method: ${method}`);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('API request error:', error);
+      return { success: false, error: 'Network error' };
+    }
+  };
 
   // Real data states
   const [clientStats, setClientStats] = useState<ClientStats>({
@@ -218,319 +264,29 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
   const fetchClientData = async () => {
     setLoadingData(true);
     try {
-      await Promise.all([
-        fetchGamificationStats(),
-        fetchTreatmentPlans(),
-        fetchAssignedRoutines(),
-        fetchClientProducts(),
-        fetchClientPhotos(),
-        fetchClientNotes(),
-      ]);
+      const result = await apiRequest<{
+        stats: ClientStats;
+        treatmentPlans: TreatmentPlan[];
+        assignedRoutines: AssignedRoutine[];
+        products: ClientProduct[];
+        photos: PhotoRecord[];
+        notes: Note[];
+      }>(`/api/professional/clients/${client.id}/profile`);
+
+      if (result.success && result.data) {
+        setClientStats(result.data.stats);
+        setTreatmentPlans(result.data.treatmentPlans || []);
+        setAssignedRoutines(result.data.assignedRoutines || []);
+        setClientProducts(result.data.products || []);
+        setClientPhotos(result.data.photos || []);
+        setNotes(result.data.notes || []);
+      } else {
+        console.error('Error fetching client data:', result.error);
+      }
     } catch (error) {
       console.error('Error fetching client data:', error);
     } finally {
       setLoadingData(false);
-    }
-  };
-
-  // Fetch gamification stats from user_gamification table
-  const fetchGamificationStats = async () => {
-    try {
-      const { data: gamData, error: gamError } = await supabase
-        .from('user_gamification')
-        .select('*')
-        .eq('user_id', client.id)
-        .single();
-
-      if (gamError && gamError.code !== 'PGRST116') {
-        console.error('Error fetching gamification:', gamError);
-      }
-
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
-      const { data: completionsData, error: completionsError } = await supabase
-        .from('routine_completions')
-        .select('completion_date')
-        .eq('client_id', client.id)
-        .gte('completion_date', thirtyDaysAgo.toISOString().split('T')[0]);
-
-      if (completionsError) {
-        console.error('Error fetching completions:', completionsError);
-      }
-
-      const uniqueDays = new Set(completionsData?.map(c => c.completion_date) || []);
-      const complianceRate = Math.round((uniqueDays.size / 30) * 100);
-
-      if (gamData) {
-        setClientStats({
-          current_streak: gamData.current_streak || 0,
-          longest_streak: gamData.longest_streak || 0,
-          points: gamData.points || 0,
-          level: gamData.level || 'Bronze',
-          total_routines_completed: gamData.total_routines_completed || 0,
-          compliance_rate: complianceRate,
-        });
-      } else {
-        setClientStats({
-          current_streak: 0,
-          longest_streak: 0,
-          points: 0,
-          level: 'Bronze',
-          total_routines_completed: 0,
-          compliance_rate: complianceRate,
-        });
-      }
-    } catch (error) {
-      console.error('Error in fetchGamificationStats:', error);
-    }
-  };
-
-  // Fetch treatment plans from treatment_plans table
-  const fetchTreatmentPlans = async () => {
-    try {
-      const { data: plansData, error: plansError } = await supabase
-        .from('treatment_plans')
-        .select('*')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false });
-
-      if (plansError) {
-        console.error('Error fetching treatment plans:', plansError);
-        return;
-      }
-
-      if (!plansData || plansData.length === 0) {
-        setTreatmentPlans([]);
-        return;
-      }
-
-      const planIds = plansData.map(p => p.id);
-
-      const { data: milestonesData, error: milestonesError } = await supabase
-        .from('treatment_plan_milestones')
-        .select('*')
-        .in('plan_id', planIds)
-        .order('order_index', { ascending: true });
-
-      if (milestonesError) {
-        console.error('Error fetching milestones:', milestonesError);
-      }
-
-      const { data: productsData, error: productsError } = await supabase
-        .from('treatment_plan_products')
-        .select('*')
-        .in('plan_id', planIds);
-
-      if (productsError) {
-        console.error('Error fetching products:', productsError);
-      }
-
-      const milestonesMap: Record<string, any[]> = {};
-      const productsMap: Record<string, any[]> = {};
-
-      (milestonesData || []).forEach(m => {
-        if (!milestonesMap[m.plan_id]) milestonesMap[m.plan_id] = [];
-        milestonesMap[m.plan_id].push({
-          id: m.id,
-          title: m.title,
-          description: m.description || undefined,
-          target_date: m.target_date,
-          completed: m.completed || false,
-          completed_at: m.completed_at || undefined,
-        });
-      });
-
-      (productsData || []).forEach(p => {
-        if (!productsMap[p.plan_id]) productsMap[p.plan_id] = [];
-        productsMap[p.plan_id].push({
-          id: p.id,
-          product_name: p.product_name,
-          product_brand: p.product_brand || undefined,
-          product_category: p.product_category || undefined,
-          priority: p.priority || 'recommended',
-          usage_instructions: p.usage_instructions || undefined,
-        });
-      });
-
-      const mappedPlans: TreatmentPlan[] = plansData.map(plan => ({
-        id: plan.id,
-        title: plan.title,
-        description: plan.description || undefined,
-        status: plan.status || 'active',
-        start_date: plan.start_date,
-        end_date: plan.end_date,
-        goals: plan.goals || [],
-        milestones: milestonesMap[plan.id] || [],
-        products: productsMap[plan.id] || [],
-        notes: plan.notes || undefined,
-        created_at: plan.created_at,
-        updated_at: plan.updated_at || plan.created_at,
-      }));
-
-      setTreatmentPlans(mappedPlans);
-    } catch (error) {
-      console.error('Error in fetchTreatmentPlans:', error);
-    }
-  };
-
-  // Fetch assigned routines from client_routine_assignments table
-  const fetchAssignedRoutines = async () => {
-    try {
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('client_routine_assignments')
-        .select('*')
-        .eq('client_id', client.id)
-        .eq('is_active', true);
-
-      if (assignmentsError) {
-        console.error('Error fetching assignments:', assignmentsError);
-        return;
-      }
-
-      if (!assignmentsData || assignmentsData.length === 0) {
-        setAssignedRoutines([]);
-        return;
-      }
-
-      const routineIds = assignmentsData.map(a => a.routine_id);
-
-      const { data: routinesData, error: routinesError } = await supabase
-        .from('routine_templates')
-        .select('*')
-        .in('id', routineIds);
-
-      if (routinesError) {
-        console.error('Error fetching routines:', routinesError);
-        return;
-      }
-
-      const { data: stepsData, error: stepsError } = await supabase
-        .from('routine_steps')
-        .select('*')
-        .in('routine_id', routineIds)
-        .order('step_order', { ascending: true });
-
-      if (stepsError) {
-        console.error('Error fetching steps:', stepsError);
-      }
-
-      const stepsMap: Record<string, any[]> = {};
-      (stepsData || []).forEach(step => {
-        if (!stepsMap[step.routine_id]) stepsMap[step.routine_id] = [];
-        stepsMap[step.routine_id].push({
-          id: step.id,
-          step_order: step.step_order,
-          product_name: step.step_name,
-          product_type: step.product_category || null,
-          instructions: step.description || null,
-        });
-      });
-
-      const mappedRoutines: AssignedRoutine[] = assignmentsData.map(assignment => {
-        const routine = routinesData?.find(r => r.id === assignment.routine_id);
-        return {
-          id: assignment.id,
-          routine_id: assignment.routine_id,
-          routine_name: routine?.name || 'Unknown Routine',
-          schedule_type: routine?.schedule_type || 'daily',
-          assigned_at: assignment.assigned_at || assignment.created_at,
-          is_active: assignment.is_active,
-          steps: stepsMap[assignment.routine_id] || [],
-          professional_notes: assignment.notes || null,
-        };
-      });
-
-      setAssignedRoutines(mappedRoutines);
-    } catch (error) {
-      console.error('Error in fetchAssignedRoutines:', error);
-    }
-  };
-
-  // Fetch client products from client_products table
-  const fetchClientProducts = async () => {
-    try {
-      const { data: productsData, error: productsError } = await supabase
-        .from('client_products')
-        .select('*')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false });
-
-      if (productsError) {
-        console.error('Error fetching client products:', productsError);
-        return;
-      }
-
-      const mappedProducts: ClientProduct[] = (productsData || []).map(p => ({
-        id: p.id,
-        name: p.name,
-        brand: p.brand || undefined,
-        category: p.category || undefined,
-        image_url: p.image_url || undefined,
-        notes: p.notes || undefined,
-        added_via: p.added_via || 'manual',
-        days_used: p.days_used || 0,
-        created_at: p.created_at,
-      }));
-
-      setClientProducts(mappedProducts);
-    } catch (error) {
-      console.error('Error in fetchClientProducts:', error);
-    }
-  };
-
-  // Fetch client photos from progress_photos table
-  const fetchClientPhotos = async () => {
-    try {
-      const { data: photosData, error: photosError } = await supabase
-        .from('progress_photos')
-        .select('*')
-        .eq('client_id', client.id)
-        .order('taken_at', { ascending: false });
-
-      if (photosError) {
-        console.error('Error fetching photos:', photosError);
-        return;
-      }
-
-      const mappedPhotos: PhotoRecord[] = (photosData || []).map(p => ({
-        id: p.id,
-        photo_url: p.photo_url,
-        photo_type: p.photo_type || 'progress',
-        title: p.title || undefined,
-        taken_at: p.taken_at || p.created_at,
-      }));
-
-      setClientPhotos(mappedPhotos);
-    } catch (error) {
-      console.error('Error in fetchClientPhotos:', error);
-    }
-  };
-
-  // Fetch client notes from client_notes table
-  const fetchClientNotes = async () => {
-    try {
-      const { data: notesData, error: notesError } = await supabase
-        .from('client_notes')
-        .select('*')
-        .eq('client_id', client.id)
-        .order('created_at', { ascending: false });
-
-      if (notesError) {
-        console.error('Error fetching notes:', notesError);
-        return;
-      }
-
-      const mappedNotes: Note[] = (notesData || []).map(n => ({
-        id: n.id,
-        content: n.content,
-        created_at: n.created_at,
-        updated_at: n.updated_at || undefined,
-      }));
-
-      setNotes(mappedNotes);
-    } catch (error) {
-      console.error('Error in fetchClientNotes:', error);
     }
   };
 
@@ -598,18 +354,18 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
   const handleSaveClient = async () => {
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
+      const result = await apiRequest(`/api/professional/clients/${client.id}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify({
           full_name: editedClient.full_name,
           phone: editedClient.phone,
           skin_type: editedClient.skin_type,
           concerns: editedClient.concerns,
-        })
-        .eq('id', client.id);
+        }),
+      });
 
-      if (error) {
-        console.error('Error updating client:', error);
+      if (!result.success) {
+        console.error('Error updating client:', result.error);
         return;
       }
 
@@ -627,28 +383,24 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
     if (!newNote.trim()) return;
     setAddingNote(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      
-      const { data, error } = await supabase
-        .from('client_notes')
-        .insert({
-          client_id: client.id,
-          professional_id: userData?.user?.id,
-          content: newNote.trim(),
-        })
-        .select()
-        .single();
+      const result = await apiRequest<{ note: Note }>(
+        `/api/professional/clients/${client.id}/notes`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ content: newNote.trim() }),
+        }
+      );
 
-      if (error) {
-        console.error('Error adding note:', error);
+      if (!result.success || !result.data?.note) {
+        console.error('Error adding note:', result.error);
         return;
       }
 
       const note: Note = {
-        id: data.id,
-        content: data.content,
-        created_at: data.created_at,
-        updated_at: data.updated_at || undefined,
+        id: result.data.note.id,
+        content: result.data.note.content,
+        created_at: result.data.note.created_at,
+        updated_at: result.data.note.updated_at || undefined,
       };
       setNotes([note, ...notes]);
       setNewNote('');
@@ -662,24 +414,22 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
     if (!editingNoteContent.trim()) return;
     setSavingNote(true);
     try {
-      const { data, error } = await supabase
-        .from('client_notes')
-        .update({
-          content: editingNoteContent.trim(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', noteId)
-        .select()
-        .single();
+      const result = await apiRequest<{ note: Note }>(
+        `/api/professional/clients/${client.id}/notes/${noteId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ content: editingNoteContent.trim() }),
+        }
+      );
 
-      if (error) {
-        console.error('Error updating note:', error);
+      if (!result.success || !result.data?.note) {
+        console.error('Error updating note:', result.error);
         return;
       }
 
       setNotes(notes.map(n => 
         n.id === noteId 
-          ? { ...n, content: data.content, updated_at: data.updated_at }
+          ? { ...n, content: result.data!.note.content, updated_at: result.data!.note.updated_at }
           : n
       ));
       setEditingNoteId(null);
@@ -694,13 +444,13 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
     if (!confirm('Are you sure you want to delete this note?')) return;
     
     try {
-      const { error } = await supabase
-        .from('client_notes')
-        .delete()
-        .eq('id', noteId);
+      const result = await apiRequest(
+        `/api/professional/clients/${client.id}/notes/${noteId}`,
+        { method: 'DELETE' }
+      );
 
-      if (error) {
-        console.error('Error deleting note:', error);
+      if (!result.success) {
+        console.error('Error deleting note:', result.error);
         return;
       }
 
@@ -742,14 +492,11 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
           <div className="flex items-center gap-4">
             <div className="relative">
               {client.avatar_url ? (
-                <img
+                <EncryptedImage
                   src={client.avatar_url}
                   alt={client.full_name || 'Client'}
-                  className="w-16 h-16 rounded-xl object-cover"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(client.full_name || 'U')}&background=CFAFA3&color=fff`;
-                  }}
+                  className="w-16 h-16 rounded-xl object-cover"                  
+                  fallbackClassName="w-16 h-16 rounded-xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                 />
               ) : (
                 <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">
@@ -1286,7 +1033,16 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
                       {filteredProducts.map((product) => (
                         <div key={product.id} className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
                           <div className="relative h-32 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
-                            <Package className="w-12 h-12 text-gray-300" />
+                            {product.image_url ? (
+                              <EncryptedImage
+                                src={product.image_url}
+                                alt={product.name}
+                                className="w-full h-full object-cover"
+                                fallbackClassName="w-full h-full bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center"
+                              />
+                            ) : (
+                              <Package className="w-12 h-12 text-gray-300" />
+                            )}
                             <div className="absolute top-3 left-3">
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                                 product.added_via === 'photo' ? 'bg-purple-100 text-purple-700' : 'bg-[#CFAFA3]/20 text-[#CFAFA3]'
@@ -1522,11 +1278,16 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {clientPhotos.map(photo => (
-                        <div key={photo.id} className="relative group rounded-xl overflow-hidden aspect-square bg-gray-100">
-                          <img
+                        <div 
+                          key={photo.id} 
+                          className="relative group rounded-xl overflow-hidden aspect-square bg-gray-100 cursor-pointer"
+                          onClick={() => setSelectedPhoto(photo)}
+                        >
+                          <EncryptedImage
                             src={photo.photo_url}
                             alt={photo.title || 'Progress photo'}
                             className="w-full h-full object-cover"
+                            fallbackClassName="w-full h-full bg-gray-100 flex items-center justify-center"
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                             <div className="absolute bottom-0 left-0 right-0 p-3">
@@ -1669,6 +1430,55 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Photo Lightbox Modal */}
+      {selectedPhoto && (
+        <div 
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <button
+            onClick={() => setSelectedPhoto(null)}
+            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+          >
+            <X className="w-6 h-6 text-white" />
+          </button>
+          
+          <div className="max-w-4xl max-h-[90vh] w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="relative">
+              <EncryptedImage
+                src={selectedPhoto.photo_url}
+                alt={selectedPhoto.title || 'Progress photo'}
+                className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
+                fallbackClassName="w-full h-96 bg-gray-800 flex items-center justify-center rounded-lg"
+              />
+              
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6 rounded-b-lg">
+                <div className="flex items-center gap-3">
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    selectedPhoto.photo_type === 'before' ? 'bg-blue-500 text-white' :
+                    selectedPhoto.photo_type === 'after' ? 'bg-green-500 text-white' :
+                    'bg-purple-500 text-white'
+                  }`}>
+                    {selectedPhoto.photo_type.charAt(0).toUpperCase() + selectedPhoto.photo_type.slice(1)}
+                  </span>
+                  <span className="text-white/80 text-sm">
+                    {new Date(selectedPhoto.taken_at).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </span>
+                </div>
+                {selectedPhoto.title && (
+                  <p className="text-white mt-2">{selectedPhoto.title}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -29,6 +29,7 @@ import {
 import { DatePickerSimple } from '@/components/ui/date-picker';
 import { TimePicker } from '@/components/ui/time-picker';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -342,10 +343,11 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
           <div className="sticky top-0 bg-white border-b border-gray-100 p-6 z-10">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <img
+                <EncryptedImage
                   src={client?.image || CLIENT_IMAGES[0]}
                   alt="Client"
                   className="w-12 h-12 rounded-full object-cover"
+                  fallbackClassName="w-12 h-12 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
                 />
                 <div>
                   <h3 className="text-xl font-serif font-bold text-gray-900">{plan.title}</h3>

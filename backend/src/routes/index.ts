@@ -7,6 +7,7 @@ import routineRouter from './routine.js';
 import treatmentPlanRouter from './treatmentPlan.js';
 import productRouter from './product.js';
 import aiRouter from './ai.js';
+import adminRouter from './admin.js';
 
 const router = Router();
 
@@ -40,5 +41,8 @@ router.use('/products', productRouter);
 
 // AI routes (product recognition, etc.)
 router.use('/ai', aiRouter);
+
+// Admin routes (overview, statistics)
+router.use('/admin', adminRouter);
 
 export default router;

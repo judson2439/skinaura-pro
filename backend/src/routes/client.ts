@@ -721,6 +721,88 @@ router.get('/notifications/unread-count', async (req: Request, res: Response): P
 });
 
 /**
+ * GET /client/notifications/recent
+ * Get recent unread notifications for the header dropdown
+ */
+router.get('/notifications/recent', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const limit = parseInt(req.query.limit as string) || 5;
+
+    console.log(`🔔 Fetching recent unread notifications for client: ${userId}`);
+
+    // Fetch recent unread messages from professionals
+    const notifications = await query<{
+      id: string;
+      professional_id: string;
+      content: string;
+      created_at: string;
+    }>(
+      `SELECT id, professional_id, content, created_at
+       FROM routine_notes
+       WHERE client_id = $1 
+         AND client_deleted = false
+         AND sender_type = 'professional'
+         AND read_status = false
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    );
+
+    if (notifications.length === 0) {
+      console.log(`ℹ️ No recent unread notifications for client: ${userId}`);
+      res.status(200).json({
+        success: true,
+        data: { notifications: [] },
+      } as ApiResponse);
+      return;
+    }
+
+    // Get unique professional IDs
+    const professionalIds = [...new Set(notifications.map(n => n.professional_id))];
+
+    // Fetch professional profiles
+    const professionals = await query<{
+      id: string;
+      full_name: string | null;
+      avatar_url: string | null;
+    }>(
+      `SELECT id, full_name, avatar_url FROM user_profiles WHERE id = ANY($1)`,
+      [professionalIds]
+    );
+
+    const professionalsMap = new Map(professionals.map(p => [p.id, p]));
+
+    // Map notifications with professional info
+    const notificationsWithProfessionals = notifications.map(n => {
+      const professional = professionalsMap.get(n.professional_id);
+      return {
+        id: n.id,
+        professional_id: n.professional_id,
+        professional_name: professional?.full_name || 'Your Professional',
+        professional_avatar: professional?.avatar_url || null,
+        content: n.content,
+        created_at: n.created_at,
+      };
+    });
+
+    console.log(`✅ Found ${notificationsWithProfessionals.length} recent unread notifications`);
+
+    res.status(200).json({
+      success: true,
+      data: { notifications: notificationsWithProfessionals },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching recent notifications:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch recent notifications',
+    } as ApiResponse);
+  }
+});
+
+/**
  * GET /client/notifications
  * Get all notifications for a client
  */

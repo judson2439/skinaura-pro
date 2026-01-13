@@ -18,7 +18,9 @@ import {
   ZoomOut,
   RotateCw,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { apiClient } from '@/lib/apiClient';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -81,6 +83,7 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
   user,
   onClose,
 }) => {
+  const { authToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [comments, setComments] = useState<PhotoComment[]>([]);
   const [annotations, setAnnotations] = useState<PhotoAnnotation[]>([]);
@@ -88,72 +91,32 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
   const [zoom, setZoom] = useState(1);
   const [showMarkup, setShowMarkup] = useState(false);
 
-  // Fetch comments and annotations
+  // Fetch comments and annotations from backend API
   useEffect(() => {
     const fetchPhotoDetails = async () => {
+      if (!authToken) return;
+
       setLoading(true);
       try {
-        // Fetch comments
-        const { data: commentsData, error: commentsError } = await supabase
-          .from('photo_comments')
-          .select('*')
-          .eq('photo_id', photo.id)
-          .order('created_at', { ascending: true });
+        apiClient.setAuthToken(authToken);
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { comments: PhotoComment[]; annotations: PhotoAnnotation[] };
+        }>(`/api/admin/progress-photos/${photo.id}/details`);
 
-        if (commentsError) {
-          console.error('Error fetching comments:', commentsError);
-        } else if (commentsData && commentsData.length > 0) {
-          // Get professional names
-          const professionalIds = [...new Set(commentsData.map(c => c.professional_id))];
-          const { data: profilesData } = await supabase
-            .from('user_profiles')
-            .select('id, full_name, avatar_url')
-            .in('id', professionalIds);
-
-          const profileMap = new Map(
-            (profilesData || []).map(p => [p.id, { name: p.full_name, avatar: p.avatar_url }])
-          );
-
-          const mappedComments: PhotoComment[] = commentsData.map(c => ({
-            id: c.id,
-            photo_id: c.photo_id,
-            professional_id: c.professional_id,
-            content: c.content,
-            created_at: c.created_at,
-            professional_name: profileMap.get(c.professional_id)?.name || 'Professional',
-            professional_avatar: profileMap.get(c.professional_id)?.avatar || undefined,
+        if (response.data.success && response.data.data) {
+          // Map comments with fallback for professional name
+          const mappedComments: PhotoComment[] = (response.data.data.comments || []).map((c: PhotoComment) => ({
+            ...c,
+            professional_name: c.professional_name || 'Professional',
+            professional_avatar: c.professional_avatar || undefined,
           }));
           setComments(mappedComments);
-        }
 
-        // Fetch annotations
-        const { data: annotationsData, error: annotationsError } = await supabase
-          .from('photo_annotations')
-          .select('*')
-          .eq('photo_id', photo.id)
-          .order('created_at', { ascending: false });
-
-        if (annotationsError) {
-          console.error('Error fetching annotations:', annotationsError);
-        } else if (annotationsData && annotationsData.length > 0) {
-          // Get professional names
-          const professionalIds = [...new Set(annotationsData.map(a => a.professional_id))];
-          const { data: profilesData } = await supabase
-            .from('user_profiles')
-            .select('id, full_name')
-            .in('id', professionalIds);
-
-          const profileMap = new Map(
-            (profilesData || []).map(p => [p.id, p.full_name])
-          );
-
-          const mappedAnnotations: PhotoAnnotation[] = annotationsData.map(a => ({
-            id: a.id,
-            photo_id: a.photo_id,
-            professional_id: a.professional_id,
-            markup_image: a.markup_image,
-            created_at: a.created_at,
-            professional_name: profileMap.get(a.professional_id) || 'Professional',
+          // Map annotations with fallback for professional name
+          const mappedAnnotations: PhotoAnnotation[] = (response.data.data.annotations || []).map((a: PhotoAnnotation) => ({
+            ...a,
+            professional_name: a.professional_name || 'Professional',
           }));
           setAnnotations(mappedAnnotations);
         }
@@ -165,7 +128,7 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
     };
 
     fetchPhotoDetails();
-  }, [photo.id]);
+  }, [photo.id, authToken]);
 
   const latestMarkup = annotations.length > 0 ? annotations[0] : null;
   const displayImage = showMarkup && latestMarkup ? latestMarkup.markup_image : photo.photo_url;
@@ -240,15 +203,11 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
                   className="transition-transform duration-200"
                   style={{ transform: `scale(${zoom})` }}
                 >
-                  <img
+                  <EncryptedImage
                     src={displayImage}
                     alt={photo.title || 'Progress photo'}
                     className="max-w-full max-h-[500px] object-contain"
-                    onError={(e) => {
-                      if (showMarkup && latestMarkup) {
-                        (e.target as HTMLImageElement).src = photo.photo_url;
-                      }
-                    }}
+                    fallbackClassName="max-w-full max-h-[500px] bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                   />
                 </div>
 
@@ -294,10 +253,11 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
                 {user && (
                   <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
                     {user.avatar_url ? (
-                      <img
+                      <EncryptedImage
                         src={user.avatar_url}
                         alt={user.full_name || 'User'}
                         className="w-10 h-10 rounded-full object-cover"
+                        fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                       />
                     ) : (
                       <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
@@ -370,10 +330,11 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
                           className="flex items-center justify-between text-sm bg-white p-2 rounded-lg"
                         >
                           <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <img
+                            <EncryptedImage
                               src={ann.markup_image}
                               alt="Markup thumbnail"
                               className="w-10 h-10 rounded object-cover border border-gray-200"
+                              fallbackClassName="w-10 h-10 rounded object-cover border border-gray-200 bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                             />
                             <div className="flex-1 min-w-0">
                               <p className="text-gray-700 font-medium truncate">
@@ -512,10 +473,11 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
 
             {/* Image */}
             <div className="flex items-center justify-center h-full pt-16">
-              <img
+              <EncryptedImage
                 src={viewingMarkup.markup_image}
                 alt="Markup"
                 className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
+                fallbackClassName="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
               />
             </div>
           </div>
