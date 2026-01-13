@@ -391,10 +391,11 @@ const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-2">
                               {comment.professional_avatar ? (
-                                <img
+                                <EncryptedImage
                                   src={comment.professional_avatar}
                                   alt={comment.professional_name}
                                   className="w-6 h-6 rounded-full object-cover"
+                                  fallbackClassName="w-6 h-6 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
                                 />
                               ) : (
                                 <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">

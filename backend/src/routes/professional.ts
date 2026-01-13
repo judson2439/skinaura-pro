@@ -2486,20 +2486,27 @@ router.patch('/notifications/mark-all-read', async (req: Request, res: Response)
 // CLIENT INVITATION ENDPOINT
 // ============================================================================
 
-import { sendClientInvitationEmail } from '../lib/email.js';
+import { 
+  sendClientInvitationEmail,
+  generateInvitationToken,
+  getInvitationTokenExpiry,
+  sendClientInvitationWithTokenEmail,
+} from '../lib/email.js';
 
-interface PendingInvitation {
+interface ClientInvitation {
   id: string;
-  professional_id: string;
   email: string;
+  professional_id: string;
   status: string;
   created_at: string;
   expires_at: string;
+  accepted_at: string | null;
+  token: string;
 }
 
 /**
  * POST /professional/clients/invite
- * Invite a client by email
+ * Invite a client by email - generates token and saves to client_invitations table
  */
 router.post('/clients/invite', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -2589,9 +2596,9 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // User doesn't exist - check for pending invitation
-    const existingInvitation = await queryOne<PendingInvitation>(
-      `SELECT * FROM pending_client_invitations 
+    // User doesn't exist - check for pending invitation in client_invitations table
+    const existingInvitation = await queryOne<ClientInvitation>(
+      `SELECT * FROM client_invitations 
        WHERE professional_id = $1 AND email = $2 AND status = 'pending'
        AND expires_at > NOW()`,
       [professionalId, normalizedEmail]
@@ -2606,24 +2613,31 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Create pending invitation (expires in 7 days)
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    // Generate unique invitation token
+    const invitationToken = generateInvitationToken();
+    const expiresAt = getInvitationTokenExpiry();
 
+    // Delete any expired invitations for this email/professional combo
     await query(
-      `INSERT INTO pending_client_invitations 
-       (professional_id, email, status, created_at, expires_at)
-       VALUES ($1, $2, 'pending', NOW(), $3)
-       ON CONFLICT (professional_id, email) 
-       DO UPDATE SET status = 'pending', expires_at = $3, created_at = NOW()`,
-      [professionalId, normalizedEmail, expiresAt.toISOString()]
+      `DELETE FROM client_invitations 
+       WHERE professional_id = $1 AND email = $2 AND expires_at <= NOW()`,
+      [professionalId, normalizedEmail]
     );
 
-    // Send invitation email
-    const emailResult = await sendClientInvitationEmail(
+    // Create invitation in client_invitations table
+    await query(
+      `INSERT INTO client_invitations 
+       (email, professional_id, status, token, created_at, expires_at)
+       VALUES ($1, $2, 'pending', $3, NOW(), $4)`,
+      [normalizedEmail, professionalId, invitationToken, expiresAt.toISOString()]
+    );
+
+    // Send invitation email with token link
+    const emailResult = await sendClientInvitationWithTokenEmail(
       normalizedEmail,
       professional.full_name || 'Your Skincare Professional',
-      professional.business_name || 'SkinAura PRO'
+      professional.business_name || 'SkinAura PRO',
+      invitationToken
     );
 
     if (!emailResult.success) {
@@ -2631,11 +2645,11 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       // Still return success since invitation was created
     }
 
-    console.log(`✅ Invitation sent to ${normalizedEmail}`);
+    console.log(`✅ Invitation with token sent to ${normalizedEmail}`);
 
     res.status(200).json({
       success: true,
-      message: `Invitation sent to ${normalizedEmail}. They will receive an email with instructions to create their account.`,
+      message: `Invitation sent to ${normalizedEmail}. They will receive an email with a link to create their account.`,
       alreadyRegistered: false,
     } as ApiResponse);
 

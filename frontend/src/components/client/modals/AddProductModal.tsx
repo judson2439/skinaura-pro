@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { X, Plus, Loader2, Camera, Upload, Image as ImageIcon } from 'lucide-react';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // CONSTANTS
@@ -134,10 +135,11 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
             </label>
             {photoPreview ? (
               <div className="relative rounded-xl overflow-hidden border border-gray-200">
-                <img 
+                <EncryptedImage 
                   src={photoPreview} 
                   alt="Product preview" 
                   className="w-full h-40 object-cover"
+                  fallbackClassName="w-full h-40 object-cover bg-[#CFAFA3]/20 flex items-center justify-center"
                 />
                 <button
                   onClick={handleRemovePhoto}

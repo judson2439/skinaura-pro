@@ -14,7 +14,11 @@ import {
   sendPhoneVerificationCode,
   verifyPhoneCode,
   resendPhoneVerificationCode,
+  requestPasswordReset,
+  verifyResetToken,
+  resetPassword,
 } from '../lib/auth.js';
+import { query, queryOne } from '../config/database.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -915,6 +919,513 @@ router.post('/admin/signin', async (req: Request, res: Response): Promise<void> 
     res.status(500).json({
       success: false,
       error: 'Internal server error during sign-in',
+    } as AuthResponse);
+  }
+});
+
+// ============================================================================
+// PASSWORD RESET ROUTES
+// ============================================================================
+
+interface ForgotPasswordRequest {
+  email: string;
+}
+
+interface VerifyResetTokenRequest {
+  token: string;
+}
+
+interface ResetPasswordRequest {
+  token: string;
+  password: string;
+}
+
+/**
+ * POST /auth/forgot-password
+ * Request password reset email
+ */
+router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body as ForgotPasswordRequest;
+
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      } as AuthResponse);
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid email format',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`🔐 Password reset request for: ${email}`);
+
+    const result = await requestPasswordReset(email.trim().toLowerCase());
+
+    // Always return success (don't reveal if email exists)
+    res.status(200).json({
+      success: true,
+      message: 'If an account with that email exists, we\'ve sent password reset instructions.',
+    } as AuthResponse);
+
+  } catch (error) {
+    console.error('❌ Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as AuthResponse);
+  }
+});
+
+/**
+ * POST /auth/verify-reset-token
+ * Verify password reset token is valid
+ */
+router.post('/verify-reset-token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.body as VerifyResetTokenRequest;
+
+    if (!token) {
+      res.status(400).json({
+        success: false,
+        error: 'Reset token is required',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`🔐 Verifying reset token`);
+
+    const result = await verifyResetToken(token);
+
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: result.error || 'Invalid or expired reset link',
+      } as AuthResponse);
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Token is valid',
+      data: {
+        userId: result.userId,
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ Verify reset token error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as AuthResponse);
+  }
+});
+
+/**
+ * POST /auth/reset-password
+ * Reset password with token
+ */
+router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, password } = req.body as ResetPasswordRequest;
+
+    if (!token || !password) {
+      res.status(400).json({
+        success: false,
+        error: 'Token and new password are required',
+      } as AuthResponse);
+      return;
+    }
+
+    // Password validation
+    if (password.length < 8) {
+      res.status(400).json({
+        success: false,
+        error: 'Password must be at least 8 characters',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`🔐 Password reset attempt`);
+
+    const result = await resetPassword(token, password);
+
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: result.error || 'Failed to reset password',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`✅ Password reset successful`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successful! You can now sign in with your new password.',
+    } as AuthResponse);
+
+  } catch (error) {
+    console.error('❌ Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as AuthResponse);
+  }
+});
+
+// ============================================================================
+// INVITATION TOKEN VERIFICATION ROUTES
+// ============================================================================
+
+interface VerifyInvitationTokenRequest {
+  token: string;
+}
+
+interface InvitedClientSignupRequest {
+  token: string;
+  email: string;
+  password: string;
+  fullName: string;
+  phone?: string;
+  skinType?: string;
+  concerns?: string[];
+  avatarEncrypted?: string;
+  avatarIv?: string;
+  avatarMimeType?: string;
+}
+
+/**
+ * POST /auth/verify-invitation-token
+ * Verify if an invitation token is valid and not expired
+ */
+router.post('/verify-invitation-token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.body as VerifyInvitationTokenRequest;
+
+    if (!token) {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation token is required',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`🔐 Verifying invitation token`);
+
+    // Find invitation by token
+    const invitation = await query<{
+      id: string;
+      email: string;
+      professional_id: string;
+      status: string;
+      expires_at: string;
+    }>(
+      `SELECT id, email, professional_id, status, expires_at 
+       FROM client_invitations 
+       WHERE token = $1`,
+      [token]
+    );
+
+    if (!invitation || invitation.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid invitation link. Please request a new invitation from your skincare professional.',
+      } as AuthResponse);
+      return;
+    }
+
+    const inv = invitation[0];
+
+    // Check if expired
+    if (new Date(inv.expires_at) < new Date()) {
+      // Delete expired invitation
+      await query(
+        `DELETE FROM client_invitations WHERE id = $1`,
+        [inv.id]
+      );
+
+      res.status(400).json({
+        success: false,
+        error: 'This invitation has expired. Please request a new invitation from your skincare professional.',
+        data: { expired: true },
+      } as AuthResponse);
+      return;
+    }
+
+    // Check if already accepted
+    if (inv.status === 'accepted') {
+      res.status(400).json({
+        success: false,
+        error: 'This invitation has already been used. Please sign in to your account.',
+        data: { alreadyAccepted: true },
+      } as AuthResponse);
+      return;
+    }
+
+    // Get professional info
+    const professional = await queryOne<{
+      full_name: string;
+      business_name: string;
+    }>(
+      `SELECT full_name, business_name FROM user_profiles WHERE id = $1`,
+      [inv.professional_id]
+    );
+
+    console.log(`✅ Invitation token is valid for email: ${inv.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Invitation is valid',
+      data: {
+        email: inv.email,
+        professionalId: inv.professional_id,
+        professionalName: professional?.full_name || 'Your Skincare Professional',
+        businessName: professional?.business_name || 'SkinAura PRO',
+      },
+    });
+
+  } catch (error) {
+    console.error('❌ Verify invitation token error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    } as AuthResponse);
+  }
+});
+
+/**
+ * POST /auth/invited-client/signup
+ * Sign up as an invited client - creates account and establishes professional relationship
+ */
+router.post('/invited-client/signup', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const signupData = req.body as InvitedClientSignupRequest;
+
+    // Validate required fields
+    if (!signupData.token || !signupData.email || !signupData.password || !signupData.fullName) {
+      res.status(400).json({
+        success: false,
+        error: 'Token, email, password, and full name are required',
+      } as AuthResponse);
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(signupData.email)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid email format',
+      } as AuthResponse);
+      return;
+    }
+
+    // Password validation
+    if (signupData.password.length < 8) {
+      res.status(400).json({
+        success: false,
+        error: 'Password must be at least 8 characters',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`📝 Invited client sign-up attempt for: ${signupData.email}`);
+
+    // Verify the invitation token again
+    const invitation = await queryOne<{
+      id: string;
+      email: string;
+      professional_id: string;
+      status: string;
+      expires_at: string;
+    }>(
+      `SELECT id, email, professional_id, status, expires_at 
+       FROM client_invitations 
+       WHERE token = $1`,
+      [signupData.token]
+    );
+
+    if (!invitation) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid invitation token',
+      } as AuthResponse);
+      return;
+    }
+
+    // Check if expired
+    if (new Date(invitation.expires_at) < new Date()) {
+      await query(`DELETE FROM client_invitations WHERE id = $1`, [invitation.id]);
+      res.status(400).json({
+        success: false,
+        error: 'This invitation has expired',
+        data: { expired: true },
+      } as AuthResponse);
+      return;
+    }
+
+    // Check if already accepted
+    if (invitation.status === 'accepted') {
+      res.status(400).json({
+        success: false,
+        error: 'This invitation has already been used',
+      } as AuthResponse);
+      return;
+    }
+
+    // Verify email matches invitation
+    if (signupData.email.toLowerCase() !== invitation.email.toLowerCase()) {
+      res.status(400).json({
+        success: false,
+        error: 'Email does not match the invitation',
+      } as AuthResponse);
+      return;
+    }
+
+    // Handle pre-encrypted avatar from frontend
+    let avatarUrl: string | undefined;
+    if (signupData.avatarEncrypted && signupData.avatarIv) {
+      avatarUrl = saveEncryptedAvatar(signupData.avatarEncrypted, signupData.avatarIv, signupData.avatarMimeType) || undefined;
+    }
+
+    // Create the user account
+    const result = await createUser({
+      email: signupData.email,
+      password: signupData.password,
+      fullName: signupData.fullName,
+      phone: signupData.phone,
+      role: 'client',
+      skinType: signupData.skinType,
+      concerns: signupData.concerns,
+      avatarUrl: avatarUrl,
+    });
+
+    if (!result.success) {
+      res.status(400).json({
+        success: false,
+        error: result.error || 'Failed to create account',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`✅ Invited client account created for: ${signupData.email}`);
+
+    // Store professional_id for later use after verification
+    // We'll create the relationship after phone verification
+    // Store it in the invitation record
+    await query(
+      `UPDATE client_invitations 
+       SET status = 'pending_verification'
+       WHERE id = $1`,
+      [invitation.id]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created! Please check your email for verification code.',
+      data: {
+        user: result.user,
+        needsVerification: true,
+        professionalId: invitation.professional_id,
+        invitationId: invitation.id,
+      },
+    } as AuthResponse);
+
+  } catch (error) {
+    console.error('❌ Invited client sign-up error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during sign-up',
+    } as AuthResponse);
+  }
+});
+
+/**
+ * POST /auth/complete-invitation
+ * Complete the invitation after client has verified email and phone
+ * Creates the client_professional_relationships entry
+ */
+router.post('/complete-invitation', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { invitationId, clientId } = req.body;
+
+    if (!invitationId || !clientId) {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation ID and client ID are required',
+      } as AuthResponse);
+      return;
+    }
+
+    console.log(`📝 Completing invitation ${invitationId} for client ${clientId}`);
+
+    // Get the invitation
+    const invitation = await queryOne<{
+      id: string;
+      professional_id: string;
+      status: string;
+    }>(
+      `SELECT id, professional_id, status FROM client_invitations WHERE id = $1`,
+      [invitationId]
+    );
+
+    if (!invitation) {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation not found',
+      } as AuthResponse);
+      return;
+    }
+
+    // Check if already completed
+    if (invitation.status === 'accepted') {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation already completed',
+      } as AuthResponse);
+      return;
+    }
+
+    // Create the client_professional_relationships entry
+    await query(
+      `INSERT INTO client_professional_relationships 
+       (client_id, professional_id, status, created_at, updated_at)
+       VALUES ($1, $2, 'active', NOW(), NOW())
+       ON CONFLICT (client_id, professional_id) 
+       DO UPDATE SET status = 'active', updated_at = NOW()`,
+      [clientId, invitation.professional_id]
+    );
+
+    // Mark invitation as accepted
+    await query(
+      `UPDATE client_invitations 
+       SET status = 'accepted', accepted_at = NOW()
+       WHERE id = $1`,
+      [invitationId]
+    );
+
+    console.log(`✅ Invitation completed - client ${clientId} connected to professional ${invitation.professional_id}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully connected with your skincare professional!',
+    } as AuthResponse);
+
+  } catch (error) {
+    console.error('❌ Complete invitation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
     } as AuthResponse);
   }
 });

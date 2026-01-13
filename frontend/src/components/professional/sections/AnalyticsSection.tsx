@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { getAuthToken } from '@/lib/authStorage';
 import { API_CONFIG } from '@/config/api';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 // ============================================================================
 // TYPES
@@ -516,10 +517,11 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
             {sortedByCompliance.map((client) => (
               <div key={client.id} className="flex items-center gap-4">
                 {client.avatar_url ? (
-                  <img 
+                  <EncryptedImage 
                     src={client.avatar_url} 
                     alt={client.name} 
                     className="w-8 h-8 rounded-full object-cover" 
+                    fallbackClassName="w-8 h-8 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium">
@@ -665,10 +667,11 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
                     {idx + 1}
                   </div>
                   {client.avatar_url ? (
-                    <img 
+                    <EncryptedImage 
                       src={client.avatar_url} 
                       alt={client.name} 
                       className="w-10 h-10 rounded-full object-cover" 
+                      fallbackClassName="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
                     />
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white font-medium">
@@ -705,10 +708,11 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
               {clientsNeedingAttention.slice(0, 5).map((client) => (
                 <div key={client.id} className="flex items-center gap-3 p-3 bg-red-50 rounded-xl">
                   {client.avatar_url ? (
-                    <img 
+                    <EncryptedImage 
                       src={client.avatar_url} 
                       alt={client.name} 
                       className="w-10 h-10 rounded-full object-cover" 
+                      fallbackClassName="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
                     />
                   ) : (
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-300 to-red-400 flex items-center justify-center text-white font-medium">

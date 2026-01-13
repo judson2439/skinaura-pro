@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
+import { EncryptedImage } from './ui/encrypted-image';
 
 export interface NavItem {
   id: string;
@@ -192,10 +193,11 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center gap-2 p-1 hover:bg-gray-100 rounded-xl transition-colors"
             >
-              <img
+              <EncryptedImage
                 src={userAvatar || defaultAvatar}
                 alt={userDisplayName}
                 className="w-8 h-8 rounded-full object-cover"
+                fallbackClassName="w-8 h-8 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
               />
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>

@@ -783,10 +783,11 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-4">
               <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center overflow-hidden">
                 {selectedProduct.image_url ? (
-                  <img
+                  <EncryptedImage
                     src={selectedProduct.image_url}
                     alt={selectedProduct.name}
                     className="w-full h-full object-cover"
+                    fallbackClassName="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center overflow-hidden"
                   />
                 ) : (
                   <Package className="w-8 h-8 text-gray-400" />

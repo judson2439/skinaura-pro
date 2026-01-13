@@ -496,10 +496,11 @@ const MyClientsSection: React.FC<MyClientsSectionProps> = () => {
               </button>
             </div>
             <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
-              <img
+              <EncryptedImage
                 src={selectedClientForSMS.image}
                 alt={selectedClientForSMS.name}
                 className="w-12 h-12 rounded-full object-cover"
+                fallbackClassName="w-12 h-12 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
               />
               <div>
                 <p className="font-medium">{selectedClientForSMS.name}</p>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getAuthSession } from '@/lib/authStorage';
 import { 
   Sparkles, 
@@ -28,10 +28,34 @@ const PROFESSIONAL_IMAGES = [
 
 const Landing: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [authRole, setAuthRole] = useState<'client' | 'professional' | undefined>(undefined);
+
+  // Check for query params to open auth modal (e.g., after password reset)
+  useEffect(() => {
+    const loginParam = searchParams.get('login');
+    const signupParam = searchParams.get('signup');
+    
+    if (loginParam === 'true') {
+      setAuthMode('login');
+      setIsAuthModalOpen(true);
+      // Clear the query param after handling
+      searchParams.delete('login');
+      setSearchParams(searchParams, { replace: true });
+    } else if (signupParam) {
+      setAuthMode('signup');
+      if (signupParam === 'client' || signupParam === 'professional') {
+        setAuthRole(signupParam);
+      }
+      setIsAuthModalOpen(true);
+      // Clear the query param after handling
+      searchParams.delete('signup');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Session check on page load/refresh
   // If user is already authenticated, redirect to their dashboard

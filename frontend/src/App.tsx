@@ -9,8 +9,9 @@ import Client from "./pages/Client";
 import Professional from "./pages/Professional";
 import Admin from "./pages/Admin";
 import ConfirmEmail from "./pages/ConfirmEmail";
-import ResetPassword from "./pages/ResetPassword";
 import CompleteClientProfile from "./pages/CompleteClientProfile";
+import ResetPassword from "./pages/ResetPassword";
+import ClientConfirm from "./pages/ClientConfirm";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,8 @@ const App = () => (
             <Route path="/confirm-email" element={<ConfirmEmail />} />
             {/* Password reset route */}
             <Route path="/reset-password" element={<ResetPassword />} />
+            {/* Client invitation confirmation route */}
+            <Route path="/client-confirm" element={<ClientConfirm />} />
             {/* Complete client profile route for invited users */}
             <Route path="/complete-client-profile" element={<CompleteClientProfile />} />
             {/* Admin route */}

@@ -518,14 +518,11 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
               </button>
             </div>
             <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
-              <img
+              <EncryptedImage
                 src={selectedClientForSMS.image}
                 alt={selectedClientForSMS.name}
                 className="w-12 h-12 rounded-full object-cover"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedClientForSMS.name)}&background=CFAFA3&color=fff`;
-                }}
+                fallbackClassName="w-12 h-12 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
               />
               <div>
                 <p className="font-medium">{selectedClientForSMS.name}</p>

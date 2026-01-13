@@ -23,6 +23,7 @@ import {
 import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { AdminRoutineTemplate, AdminRoutineStep, SCHEDULE_TYPES } from '../types';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface RoutineDetailModalProps {
   routine: AdminRoutineTemplate | null;
@@ -424,10 +425,11 @@ const RoutineDetailModal: React.FC<RoutineDetailModalProps> = ({
                               <p className="text-gray-500 text-xs mb-1">Linked Product</p>
                               <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-gray-200">
                                 {step.linked_product.image_url ? (
-                                  <img
+                                  <EncryptedImage
                                     src={step.linked_product.image_url}
                                     alt={step.linked_product.name}
                                     className="w-10 h-10 rounded-lg object-cover"
+                                    fallbackClassName="w-10 h-10 rounded-lg bg-[#CFAFA3]/20 flex items-center justify-center"
                                   />
                                 ) : (
                                   <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">

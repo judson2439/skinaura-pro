@@ -12,7 +12,10 @@ import {
   generateVerificationCode, 
   getVerificationCodeExpiry, 
   sendVerificationEmail,
-  sendWelcomeEmail 
+  sendWelcomeEmail,
+  generateResetToken,
+  getResetTokenExpiry,
+  sendPasswordResetEmail,
 } from './email.js';
 import {
   generatePhoneVerificationCode,
@@ -666,6 +669,145 @@ export const authenticateUser = async (
   }
 };
 
+/**
+ * Request password reset - generates token, saves to DB, sends email
+ */
+export const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    // Find user by email
+    const user = await findUserByEmail(email);
+    
+    if (!user) {
+      // Return success even if user not found (security - don't reveal if email exists)
+      console.log(`⚠️ Password reset requested for non-existent email: ${email}`);
+      return { success: true };
+    }
+
+    // Generate unique reset token
+    const resetToken = generateResetToken();
+    const tokenExpiry = getResetTokenExpiry();
+
+    // Save token to authentications table
+    await query(
+      `UPDATE authentications 
+       SET reset_password_token = $1, reset_password_expired_at = $2 
+       WHERE user_id = $3`,
+      [resetToken, tokenExpiry, user.id]
+    );
+
+    // If no authentication record exists, create one
+    const authRecord = await queryOne<Authentication>(
+      `SELECT * FROM authentications WHERE user_id = $1`,
+      [user.id]
+    );
+
+    if (!authRecord) {
+      await query(
+        `INSERT INTO authentications (user_id, reset_password_token, reset_password_expired_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, resetToken, tokenExpiry]
+      );
+    }
+
+    // Send password reset email
+    const emailResult = await sendPasswordResetEmail(
+      user.email,
+      user.full_name,
+      resetToken
+    );
+
+    if (!emailResult.success) {
+      console.error('❌ Failed to send password reset email');
+      return { success: false, error: 'Failed to send password reset email' };
+    }
+
+    console.log(`✅ Password reset email sent to: ${email}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Request password reset error:', error);
+    return { success: false, error: 'Failed to process password reset request' };
+  }
+};
+
+/**
+ * Verify reset token and return user_id if valid
+ */
+export const verifyResetToken = async (token: string): Promise<{ 
+  success: boolean; 
+  userId?: string; 
+  error?: string 
+}> => {
+  try {
+    // Find authentication record with matching token
+    const authRecord = await queryOne<{ user_id: string; reset_password_expired_at: Date }>(
+      `SELECT user_id, reset_password_expired_at FROM authentications 
+       WHERE reset_password_token = $1`,
+      [token]
+    );
+
+    if (!authRecord) {
+      return { success: false, error: 'Invalid or expired reset link' };
+    }
+
+    // Check if token is expired
+    if (new Date(authRecord.reset_password_expired_at) < new Date()) {
+      return { success: false, error: 'Reset link has expired. Please request a new one.' };
+    }
+
+    return { success: true, userId: authRecord.user_id };
+  } catch (error) {
+    console.error('❌ Verify reset token error:', error);
+    return { success: false, error: 'Failed to verify reset token' };
+  }
+};
+
+/**
+ * Reset password using token
+ */
+export const resetPassword = async (
+  token: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    // Verify token first
+    const tokenResult = await verifyResetToken(token);
+    
+    if (!tokenResult.success || !tokenResult.userId) {
+      return { success: false, error: tokenResult.error || 'Invalid reset token' };
+    }
+
+    // Validate new password
+    if (newPassword.length < 8) {
+      return { success: false, error: 'Password must be at least 8 characters' };
+    }
+
+    // Hash new password
+    const passwordHash = await hashPassword(newPassword);
+
+    // Update user's password in auth table
+    await query(
+      `UPDATE auth SET password = $1 WHERE id = $2`,
+      [passwordHash, tokenResult.userId]
+    );
+
+    // Clear reset token from authentications table
+    await query(
+      `UPDATE authentications 
+       SET reset_password_token = NULL, reset_password_expired_at = NULL 
+       WHERE user_id = $1`,
+      [tokenResult.userId]
+    );
+
+    console.log(`✅ Password reset successful for user: ${tokenResult.userId}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Reset password error:', error);
+    return { success: false, error: 'Failed to reset password' };
+  }
+};
+
 export default {
   hashPassword,
   verifyPassword,
@@ -681,4 +823,7 @@ export default {
   verifyPhoneCode,
   resendPhoneVerificationCode,
   authenticateUser,
+  requestPasswordReset,
+  verifyResetToken,
+  resetPassword,
 };

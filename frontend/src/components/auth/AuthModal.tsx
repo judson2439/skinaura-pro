@@ -34,6 +34,7 @@ import {
   Camera,
   Shield,
 } from 'lucide-react';
+import EncryptedImage from '../ui/encrypted-image';
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -774,33 +775,30 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     setLoading(true);
     
     try {
-      const { error } = await (await import('@/lib/supabase')).supabase.auth.resetPasswordForEmail(
-        email.trim().toLowerCase(),
-        {
-          redirectTo: `${window.location.origin}/reset-password`,
-        }
+      const response = await apiClient.post<{ success: boolean; message?: string; error?: string }>(
+        '/api/auth/forgot-password',
+        { email: email.trim().toLowerCase() }
       );
 
-      if (error) {
+      if (response.data.success) {
+        setResetEmailSent(true);
+        toast({
+          title: 'Email Sent',
+          description: 'If an account with that email exists, you\'ll receive password reset instructions.',
+        });
+      } else {
         toast({
           title: 'Error',
-          description: error.message,
+          description: response.data.error || 'Failed to send reset email',
           variant: 'destructive'
         });
-        setLoading(false);
-        return;
       }
-
+    } catch (error: any) {
+      // Still show success message for security (don't reveal if email exists)
       setResetEmailSent(true);
       toast({
         title: 'Email Sent',
-        description: 'Check your email for password reset instructions.',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send reset email',
-        variant: 'destructive'
+        description: 'If an account with that email exists, you\'ll receive password reset instructions.',
       });
     } finally {
       setLoading(false);
@@ -860,11 +858,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       </div>
       <h2 className="text-2xl font-serif font-bold text-[#2D2A3E] mb-2">Welcome to SkinAura PRO</h2>
       <p className="text-gray-600 mb-8">Choose how you'd like to continue</p>
-
-      <div className="flex items-center justify-center gap-2 mb-6 text-sm text-gray-500">
-        <Shield className="w-4 h-4 text-green-500" />
-        <span>Secured with encryption & CSRF protection</span>
-      </div>
 
       <div className="space-y-4">
         <button
@@ -1037,10 +1030,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           <div className="relative">
             {avatarPreview ? (
               <div className="relative">
-                <img
+                <EncryptedImage
                   src={avatarPreview}
                   alt="Avatar preview"
                   className="w-24 h-24 rounded-full object-cover border-4 border-[#CFAFA3]/30"
+                  fallbackClassName="w-24 h-24 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
                 />
                 <button
                   type="button"
