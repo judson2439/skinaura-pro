@@ -2421,4 +2421,95 @@ router.post('/skin-analysis/upload-photo', authMiddleware, async (req: Request, 
   }
 });
 
+// ============================================================================
+// RECOMMENDED PRODUCTS ROUTES (From linked professionals)
+// ============================================================================
+
+interface RecommendedProduct {
+  id: string;
+  professional_id: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  description: string | null;
+  ingredients: string | null;
+  skin_types: string[] | null;
+  concerns: string[] | null;
+  price: number | null;
+  currency: string | null;
+  image_url: string | null;
+  purchase_url: string | null;
+  is_active: boolean;
+  is_global: boolean;
+  usage_instructions: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/**
+ * GET /client/recommended-products
+ * Get products from professionals linked to this client
+ * Fetches professional_ids from client_professional_relationships and then gets their products
+ */
+router.get('/recommended-products', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`🛍️ Fetching recommended products for client: ${userId}`);
+
+    // Step 1: Get all professional_ids linked to this client
+    const relationships = await query<{ professional_id: string }>(
+      `SELECT professional_id 
+       FROM client_professional_relationships 
+       WHERE client_id = $1 AND status = 'active'`,
+      [userId]
+    );
+
+    if (relationships.length === 0) {
+      console.log(`ℹ️ No linked professionals found for client: ${userId}`);
+      res.status(200).json({
+        success: true,
+        data: { products: [] },
+      } as ApiResponse);
+      return;
+    }
+
+    // Extract professional IDs as array
+    const professionalIds = relationships.map(r => r.professional_id);
+
+    console.log(`📋 Found ${professionalIds.length} linked professionals`);
+
+    // Step 2: Get all active products from these professionals
+    const products = await query<RecommendedProduct>(
+      `SELECT 
+        id, professional_id, name, brand, category, description, 
+        ingredients, skin_types, concerns, price, currency, 
+        image_url, purchase_url, is_active, is_global, 
+        usage_instructions, created_at, updated_at
+       FROM products 
+       WHERE professional_id = ANY($1) 
+         AND is_active = true
+       ORDER BY created_at DESC`,
+      [professionalIds]
+    );
+
+    console.log(`✅ Found ${products.length} recommended products`);
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        products,
+        professional_ids: professionalIds,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching recommended products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch recommended products',
+    } as ApiResponse);
+  }
+});
+
 export default router;
