@@ -61,9 +61,9 @@ const FaceAnalysisV2Section: React.FC = () => {
         language: 'en',
         currency: '$',
         quiz: true,
-        showProducts: false,
-        showRoutine: false,
-        showAddToCart: false,
+        showProducts: true,
+        showRoutine: true,
+        showAddToCart: true,
         defaultQuiz: { email: 'hi@getfaceage.com' },
         problems: [
           'fineWrinkles',
