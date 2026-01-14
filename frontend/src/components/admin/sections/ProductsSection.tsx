@@ -504,7 +504,7 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
-                        {product.price ? `$${product.price.toFixed(2)}` : 'N/A'}
+                        {product.price != null ? `$${Number(product.price).toFixed(2)}` : 'N/A'}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
