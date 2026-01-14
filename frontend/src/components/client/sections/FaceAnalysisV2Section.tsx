@@ -142,11 +142,18 @@ const fetchAndDecryptImage = async (imageUrl: string, token: string | null): Pro
 const FaceAnalysisV2Section: React.FC = () => {
   const faceAgeRef = useRef<FaceAgeInstance | null>(null);
   const scriptLoadedRef = useRef(false);
+  const [faceAgeReady, setFaceAgeReady] = React.useState(false);
 
   /**
    * Fetch recommended products and set them in FaceAge
    */
-  const fetchAndSetProducts = useCallback(async (faceAge: FaceAgeInstance) => {
+  const fetchAndSetProducts = useCallback(async () => {
+    const faceAge = faceAgeRef.current;
+    if (!faceAge) {
+      console.log('FaceAge not ready, skipping product fetch');
+      return;
+    }
+
     try {
       const authSession = getAuthSession();
       const token = authSession?.token || getAuthToken();
@@ -155,6 +162,8 @@ const FaceAnalysisV2Section: React.FC = () => {
         console.log('No auth token, skipping product fetch');
         return;
       }
+
+      console.log('🛍️ Fetching recommended products...');
 
       // Fetch recommended products from backend
       apiClient.setAuthToken(token);
@@ -203,6 +212,14 @@ const FaceAnalysisV2Section: React.FC = () => {
     }
   }, []);
 
+  // Fetch products when FaceAge becomes ready
+  useEffect(() => {
+    if (faceAgeReady) {
+      fetchAndSetProducts();
+    }
+  }, [faceAgeReady, fetchAndSetProducts]);
+
+  // Initialize FaceAge
   useEffect(() => {
     // Only initialize once
     if (faceAgeRef.current || scriptLoadedRef.current) return;
@@ -271,8 +288,8 @@ const FaceAnalysisV2Section: React.FC = () => {
           console.log('Advisor data:', data);
         });
 
-        // Fetch and set custom products from linked professionals
-        fetchAndSetProducts(faceAge);
+        // Signal that FaceAge is ready
+        setFaceAgeReady(true);
       } catch (error) {
         console.error('FaceAge initialization error:', error);
       }
@@ -299,7 +316,7 @@ const FaceAnalysisV2Section: React.FC = () => {
         existingScript.remove();
       }
     };
-  }, [fetchAndSetProducts]);
+  }, []);
 
   return (
     <div className="space-y-6">
