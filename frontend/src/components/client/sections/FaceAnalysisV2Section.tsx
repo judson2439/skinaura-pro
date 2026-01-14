@@ -22,6 +22,7 @@ interface FaceAgeInstance {
     getAdvisorData: (callback: (data: unknown) => void) => void;
     getImage: () => string | null;
     getRoutineGroup: () => unknown;
+    setCustomProducts: (products: unknown[]) => void;
   };
 }
 
@@ -57,7 +58,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       const options = {
         elementId: ELEMENT_ID,
         faceageId: FACE_AGE_ID,
-        displayModel: 'modal',
+        displayModel: 'section',
         language: 'en',
         currency: '$',
         quiz: true,
@@ -110,6 +111,42 @@ const FaceAnalysisV2Section: React.FC = () => {
         faceAge.API.getAdvisorData((data: unknown) => {
           console.log('Advisor data:', data);
         });
+
+        faceAge.API.setCustomProducts([
+          {
+            id: 1,
+            url: 'https://getfaceage.com',
+            image: 'https://demo.getfaceage.com/static/products/pr5.png',
+            title: 'Skin moisturizers',
+            description: 'Vitamin C. Rooster 30ml', //optional
+            routineGroups: {'morning': ['cleanser', 'serum']}, //optional
+            problems: ['acne', 'wrinkles'], //optional
+            price: 40,
+            offerPrice: 18.99, //optional
+          },
+          {
+            id: 2,
+            url: 'https://getfaceage.com',
+            image: 'https://demo.getfaceage.com/static/products/pr5.png',
+            title: 'Skin moisturizers',
+            description: 'Vitamin C. Rooster 30ml', //optional
+            routineGroups: {'morning': ['cleanser', 'serum']}, //optional
+            problems: ['acne', 'wrinkles'], //optional
+            price: 40,
+            offerPrice: 18.99, //optional
+          },
+          {
+            id: 3,
+            url: 'https://getfaceage.com',
+            image: 'https://demo.getfaceage.com/static/products/pr5.png',
+            title: 'Skin moisturizers',
+            description: 'Vitamin C. Rooster 30ml', //optional
+            routineGroups: {'morning': ['cleanser', 'serum']}, //optional
+            problems: ['acne', 'wrinkles'], //optional
+            price: 40,
+            offerPrice: 18.99, //optional
+          },  
+        ]);
       } catch (error) {
         console.error('FaceAge initialization error:', error);
       }
