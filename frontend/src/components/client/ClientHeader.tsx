@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAuthToken, getAuthSession, clearAuthSession } from '@/lib/authStorage';
+import { getAuthToken, clearAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
@@ -59,15 +59,13 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
   unreadNotifications = 0,
 }) => {
   const navigate = useNavigate();
-  const session = getAuthSession();
-  const profile = session?.user;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
-  // Use profile avatar if available
-  const avatarUrl = profile?.avatar_url || userAvatar || null;
+  // Use userAvatar prop (from parent's state) which updates when session changes
+  const avatarUrl = userAvatar || null;
 
   // Fetch recent notifications when dropdown opens
   const fetchRecentNotifications = async () => {

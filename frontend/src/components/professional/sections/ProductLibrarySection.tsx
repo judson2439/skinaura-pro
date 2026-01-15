@@ -102,6 +102,19 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Auto-open Shopify import if returning from OAuth callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    const shop = urlParams.get('shop');
+    
+    if (code && state && shop) {
+      console.log('🔐 Shopify OAuth callback detected, opening Shopify import...');
+      setActiveTab('import');
+      setImportMethod('shopify');
+    }
+  }, []);
 
   // Fetch products from backend API
   const fetchProducts = async () => {

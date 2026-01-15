@@ -4,8 +4,10 @@
  */
 
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { query, queryOne } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
@@ -3137,6 +3139,640 @@ router.delete('/routine-step-products/:linkId', async (req: Request, res: Respon
     res.status(500).json({
       success: false,
       error: 'Failed to unlink product',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// SHOPIFY INTEGRATION ENDPOINTS
+// ============================================================================
+
+interface ShopifyConnection {
+  id: string;
+  user_id: string;
+  shop_domain: string;
+  access_token: string;
+  created_at: string;
+}
+
+interface ShopifyProduct {
+  shopify_id: string;
+  title: string;
+  vendor: string;
+  product_type: string;
+  description: string;
+  price: number;
+  image_url: string | null;
+  url: string;
+  tags: string[];
+  sku: string | null;
+  inventory_quantity: number | null;
+}
+
+// Encryption key for access tokens (use a separate key for extra security)
+const SHOPIFY_ENCRYPTION_KEY = process.env.SHOPIFY_ENCRYPTION_KEY || env.JWT_SECRET;
+
+/**
+ * Encrypt access token for storage
+ */
+const encryptAccessToken = (token: string): string => {
+  const key = crypto.scryptSync(SHOPIFY_ENCRYPTION_KEY, 'shopify-salt', 32);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  
+  let encrypted = cipher.update(token, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  
+  const authTag = cipher.getAuthTag().toString('hex');
+  
+  // Format: iv:authTag:encrypted
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+};
+
+/**
+ * Decrypt access token from storage
+ */
+const decryptAccessToken = (encryptedToken: string): string => {
+  const [ivHex, authTagHex, encrypted] = encryptedToken.split(':');
+  
+  const key = crypto.scryptSync(SHOPIFY_ENCRYPTION_KEY, 'shopify-salt', 32);
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+  
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag);
+  
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  
+  return decrypted;
+};
+
+/**
+ * Normalize shop domain (e.g., "mystore.myshopify.com" or "mystore")
+ * Handles various input formats:
+ * - "mystore" → "mystore.myshopify.com"
+ * - "mystore.myshopify.com" → "mystore.myshopify.com"
+ * - "https://mystore.myshopify.com" → "mystore.myshopify.com"
+ * - "admin.shopify.com/store/mystore" → "mystore.myshopify.com"
+ * - "https://admin.shopify.com/store/mystore/..." → "mystore.myshopify.com"
+ */
+const normalizeShopDomain = (input: string): string => {
+  let domain = input.trim();
+  
+  // Remove protocol if present
+  domain = domain.replace(/^https?:\/\//, '');
+  
+  // Remove trailing slashes and paths
+  domain = domain.replace(/\/+$/, '');
+  
+  // Handle admin.shopify.com/store/SHOP_NAME format
+  const adminMatch = domain.match(/admin\.shopify\.com\/store\/([^\/]+)/i);
+  if (adminMatch) {
+    domain = `${adminMatch[1]}.myshopify.com`;
+    console.log(`📝 Converted admin URL to: ${domain}`);
+    return domain.toLowerCase();
+  }
+  
+  // Handle SHOP_NAME.myshopify.com/admin/... or similar paths
+  const myshopifyMatch = domain.match(/([^\/]+\.myshopify\.com)/i);
+  if (myshopifyMatch) {
+    domain = myshopifyMatch[1];
+    return domain.toLowerCase();
+  }
+  
+  // If no dots, assume it's just the shop name
+  if (!domain.includes('.')) {
+    domain = `${domain}.myshopify.com`;
+    return domain.toLowerCase();
+  }
+  
+  // If it contains myshopify.com somewhere, extract just the domain part
+  if (domain.includes('myshopify.com')) {
+    // Remove any path
+    domain = domain.split('/')[0];
+    return domain.toLowerCase();
+  }
+  
+  // For custom domains, warn but accept
+  console.log(`⚠️ Custom domain detected: ${domain} - this may not work with OAuth`);
+  domain = domain.split('/')[0]; // Remove any paths
+  
+  return domain.toLowerCase();
+};
+
+/**
+ * Generate nonce for OAuth state validation
+ */
+const generateNonce = (): string => {
+  return crypto.randomBytes(16).toString('hex');
+};
+
+// Store nonces temporarily (in production, use Redis or database)
+const oauthNonces = new Map<string, { userId: string; shopDomain: string; expiresAt: number }>();
+
+// Clean up expired nonces every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [nonce, data] of oauthNonces.entries()) {
+    if (data.expiresAt < now) {
+      oauthNonces.delete(nonce);
+    }
+  }
+}, 5 * 60 * 1000);
+
+/**
+ * GET /professional/shopify/status
+ * Check if the professional has a connected Shopify store
+ */
+router.get('/shopify/status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`🔍 Checking Shopify connection status for: ${professionalId}`);
+
+    const connection = await queryOne<ShopifyConnection>(
+      `SELECT id, shop_domain, created_at FROM shopify_connections WHERE user_id = $1`,
+      [professionalId]
+    );
+
+    if (connection) {
+      console.log(`✅ Shopify connected: ${connection.shop_domain}`);
+      res.status(200).json({
+        success: true,
+        data: {
+          connected: true,
+          shop_domain: connection.shop_domain,
+          connected_at: connection.created_at,
+        },
+      } as ApiResponse);
+    } else {
+      console.log(`ℹ️ No Shopify connection found`);
+      res.status(200).json({
+        success: true,
+        data: {
+          connected: false,
+        },
+      } as ApiResponse);
+    }
+
+  } catch (error) {
+    console.error('❌ Error checking Shopify status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check Shopify connection status',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/shopify/connect
+ * Initiate Shopify OAuth flow - returns the authorization URL
+ */
+router.post('/shopify/connect', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { shop_domain } = req.body;
+
+    if (!shop_domain) {
+      res.status(400).json({
+        success: false,
+        error: 'Shop domain is required',
+      } as ApiResponse);
+      return;
+    }
+
+    // Validate Shopify API credentials are configured
+    if (!env.SHOPIFY_API_KEY || !env.SHOPIFY_API_SECRET) {
+      res.status(500).json({
+        success: false,
+        error: 'Shopify integration is not configured. Please contact support.',
+      } as ApiResponse);
+      return;
+    }
+
+    const normalizedDomain = normalizeShopDomain(shop_domain);
+    console.log(`🔗 Initiating Shopify OAuth for: ${normalizedDomain}`);
+
+    // Check if already connected
+    const existingConnection = await queryOne<ShopifyConnection>(
+      `SELECT * FROM shopify_connections WHERE user_id = $1`,
+      [professionalId]
+    );
+
+    if (existingConnection) {
+      res.status(400).json({
+        success: false,
+        error: 'You already have a connected Shopify store. Please disconnect first.',
+      } as ApiResponse);
+      return;
+    }
+
+    // Generate nonce for state parameter
+    const nonce = generateNonce();
+    const storedDomain = normalizedDomain.toLowerCase().trim();
+    oauthNonces.set(nonce, {
+      userId: professionalId,
+      shopDomain: storedDomain,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+    });
+    
+    console.log(`📝 Stored nonce: ${nonce} for shop: "${storedDomain}"`);
+
+    // Build Shopify OAuth URL
+    const redirectUri = env.SHOPIFY_REDIRECT_URI || `${env.FRONTEND_URL}/shopify/callback`;
+    const scopes = env.SHOPIFY_SCOPES || 'read_products';
+    
+    const authUrl = `https://${normalizedDomain}/admin/oauth/authorize?` +
+      `client_id=${env.SHOPIFY_API_KEY}` +
+      `&scope=${scopes}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${nonce}`;
+
+    console.log(`✅ OAuth URL generated for: ${normalizedDomain}`);
+    console.log(`🔗 Full auth URL: ${authUrl}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        auth_url: authUrl,
+        shop_domain: normalizedDomain,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error initiating Shopify connection:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to initiate Shopify connection',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/shopify/callback
+ * Handle Shopify OAuth callback - exchange code for access token
+ */
+router.post('/shopify/callback', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { code, state, shop } = req.body;
+
+    console.log(`🔐 Received OAuth callback - code: ${code?.substring(0, 10)}..., state: ${state}, shop: ${shop}`);
+
+    if (!code || !state || !shop) {
+      console.error('❌ Missing OAuth parameters');
+      res.status(400).json({
+        success: false,
+        error: 'Missing required OAuth parameters',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`🔐 Processing Shopify OAuth callback for shop: ${shop}`);
+    console.log(`📋 Available nonces: ${oauthNonces.size}`);
+
+    // Validate state/nonce
+    const nonceData = oauthNonces.get(state);
+    if (!nonceData) {
+      console.error(`❌ Nonce not found for state: ${state}`);
+      console.error(`📋 Available nonce keys: ${Array.from(oauthNonces.keys()).join(', ')}`);
+      res.status(400).json({
+        success: false,
+        error: 'Invalid or expired OAuth state. Please try connecting again.',
+      } as ApiResponse);
+      return;
+    }
+    
+    console.log(`✅ Nonce found for user: ${nonceData.userId}, stored shop: ${nonceData.shopDomain}`);
+
+    // Clean up nonce
+    oauthNonces.delete(state);
+
+    // Normalize the shop domain from callback - trust Shopify's response
+    // The state parameter already validates this is a legitimate callback
+    const normalizedShop = normalizeShopDomain(shop);
+    console.log(`🔍 Shop from callback: "${normalizedShop}" (originally requested: "${nonceData.shopDomain}")`);
+    
+    // Log if there's a mismatch but don't block - user may have authorized a different store
+    const callbackShop = normalizedShop.toLowerCase().trim();
+    const storedShop = nonceData.shopDomain.toLowerCase().trim();
+    
+    if (callbackShop !== storedShop) {
+      console.log(`⚠️ Shop differs from request - callback: "${callbackShop}", requested: "${storedShop}"`);
+      console.log(`   Proceeding with authorized shop: ${callbackShop}`);
+    }
+    
+    console.log(`✅ Using shop domain: ${normalizedShop}`);
+
+    // Check if nonce has expired
+    if (nonceData.expiresAt < Date.now()) {
+      res.status(400).json({
+        success: false,
+        error: 'OAuth session expired. Please try connecting again.',
+      } as ApiResponse);
+      return;
+    }
+
+    // Exchange code for access token
+    const tokenUrl = `https://${normalizedShop}/admin/oauth/access_token`;
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: env.SHOPIFY_API_KEY,
+        client_secret: env.SHOPIFY_API_SECRET,
+        code: code,
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error('❌ Shopify token exchange failed:', errorText);
+      res.status(400).json({
+        success: false,
+        error: 'Failed to complete Shopify authorization. Please try again.',
+      } as ApiResponse);
+      return;
+    }
+
+    const tokenData = await tokenResponse.json() as { access_token: string };
+    const accessToken = tokenData.access_token;
+
+    if (!accessToken) {
+      res.status(400).json({
+        success: false,
+        error: 'No access token received from Shopify.',
+      } as ApiResponse);
+      return;
+    }
+
+    // Encrypt and store the access token
+    const encryptedToken = encryptAccessToken(accessToken);
+
+    // Delete any existing connection (shouldn't exist, but just in case)
+    await query(
+      `DELETE FROM shopify_connections WHERE user_id = $1`,
+      [nonceData.userId]
+    );
+
+    // Insert new connection
+    await query(
+      `INSERT INTO shopify_connections (user_id, shop_domain, access_token, created_at)
+       VALUES ($1, $2, $3, NOW())`,
+      [nonceData.userId, normalizedShop, encryptedToken]
+    );
+
+    console.log(`✅ Shopify store connected: ${normalizedShop} for user: ${nonceData.userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Shopify store connected successfully!',
+      data: {
+        shop_domain: normalizedShop,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error processing Shopify callback:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to complete Shopify connection',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/shopify/disconnect
+ * Disconnect the Shopify store
+ */
+router.delete('/shopify/disconnect', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`🔌 Disconnecting Shopify store for: ${professionalId}`);
+
+    const result = await query(
+      `DELETE FROM shopify_connections WHERE user_id = $1 RETURNING shop_domain`,
+      [professionalId]
+    );
+
+    if (result.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'No Shopify connection found',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Shopify store disconnected`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Shopify store disconnected successfully',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error disconnecting Shopify:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to disconnect Shopify store',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/shopify/products
+ * Fetch products from the connected Shopify store
+ */
+router.get('/shopify/products', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const cursor = req.query.cursor as string | undefined;
+
+    console.log(`📦 Fetching Shopify products for: ${professionalId}`);
+
+    // Get the connection
+    const connection = await queryOne<ShopifyConnection>(
+      `SELECT * FROM shopify_connections WHERE user_id = $1`,
+      [professionalId]
+    );
+
+    if (!connection) {
+      res.status(400).json({
+        success: false,
+        error: 'No Shopify store connected. Please connect your store first.',
+      } as ApiResponse);
+      return;
+    }
+
+    // Decrypt access token
+    let accessToken: string;
+    try {
+      accessToken = decryptAccessToken(connection.access_token);
+    } catch (decryptError) {
+      console.error('❌ Failed to decrypt access token:', decryptError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to access Shopify store. Please reconnect your store.',
+      } as ApiResponse);
+      return;
+    }
+
+    // Build GraphQL query for products
+    const graphqlQuery = `
+      query GetProducts($first: Int!, $after: String) {
+        products(first: $first, after: $after) {
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+          edges {
+            node {
+              id
+              title
+              vendor
+              productType
+              descriptionHtml
+              handle
+              tags
+              variants(first: 1) {
+                edges {
+                  node {
+                    price
+                    sku
+                    inventoryQuantity
+                  }
+                }
+              }
+              images(first: 1) {
+                edges {
+                  node {
+                    url
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    // Fetch products from Shopify
+    const shopifyResponse = await fetch(
+      `https://${connection.shop_domain}/admin/api/2024-01/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({
+          query: graphqlQuery,
+          variables: {
+            first: limit,
+            after: cursor || null,
+          },
+        }),
+      }
+    );
+
+    if (!shopifyResponse.ok) {
+      const errorText = await shopifyResponse.text();
+      console.error('❌ Shopify API error:', errorText);
+      
+      // Check if token is invalid
+      if (shopifyResponse.status === 401) {
+        res.status(401).json({
+          success: false,
+          error: 'Shopify access token is invalid or expired. Please reconnect your store.',
+        } as ApiResponse);
+        return;
+      }
+      
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch products from Shopify',
+      } as ApiResponse);
+      return;
+    }
+
+    const data = await shopifyResponse.json() as {
+      data?: {
+        products: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          edges: Array<{
+            node: {
+              id: string;
+              title: string;
+              vendor: string;
+              productType: string;
+              descriptionHtml: string;
+              handle: string;
+              tags: string[];
+              variants: { edges: Array<{ node: { price: string; sku: string | null; inventoryQuantity: number | null } }> };
+              images: { edges: Array<{ node: { url: string } }> };
+            };
+          }>;
+        };
+      };
+      errors?: Array<{ message: string }>;
+    };
+
+    if (data.errors) {
+      console.error('❌ Shopify GraphQL errors:', data.errors);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch products: ' + data.errors.map(e => e.message).join(', '),
+      } as ApiResponse);
+      return;
+    }
+
+    // Transform products to our format
+    const products: ShopifyProduct[] = (data.data?.products.edges || []).map((edge) => {
+      const node = edge.node;
+      const variant = node.variants.edges[0]?.node;
+      const image = node.images.edges[0]?.node;
+      
+      // Extract the numeric ID from the GraphQL ID (e.g., "gid://shopify/Product/123456")
+      const shopifyId = node.id.split('/').pop() || node.id;
+      
+      return {
+        shopify_id: shopifyId,
+        title: node.title,
+        vendor: node.vendor || '',
+        product_type: node.productType || '',
+        description: node.descriptionHtml || '',
+        price: parseFloat(variant?.price || '0'),
+        image_url: image?.url || null,
+        url: `https://${connection.shop_domain}/products/${node.handle}`,
+        tags: node.tags || [],
+        sku: variant?.sku || null,
+        inventory_quantity: variant?.inventoryQuantity ?? null,
+      };
+    });
+
+    const pageInfo = data.data?.products.pageInfo;
+
+    console.log(`✅ Fetched ${products.length} products from Shopify`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        products,
+        storeUrl: connection.shop_domain,
+        hasMore: pageInfo?.hasNextPage || false,
+        nextCursor: pageInfo?.endCursor || null,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching Shopify products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch products from Shopify',
     } as ApiResponse);
   }
 });

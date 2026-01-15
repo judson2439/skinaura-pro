@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken } from '@/lib/authStorage';
+import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import ClientSidebar, { CLIENT_NAV_ITEMS } from '@/components/client/ClientSidebar';
@@ -78,6 +78,22 @@ const ClientPage: React.FC = () => {
     points: 0,
     currentStreak: 0,
   });
+  
+  // Auth session state - allows re-render when session is updated (e.g., avatar change)
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
+  
+  // Listen for auth session updates (e.g., when avatar is changed in profile)
+  useEffect(() => {
+    const handleSessionUpdate = () => {
+      setAuthSession(getAuthSession());
+    };
+    
+    window.addEventListener(AUTH_SESSION_UPDATED_EVENT, handleSessionUpdate);
+    
+    return () => {
+      window.removeEventListener(AUTH_SESSION_UPDATED_EVENT, handleSessionUpdate);
+    };
+  }, []);
   const [statsLoading, setStatsLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -286,9 +302,8 @@ const ClientPage: React.FC = () => {
     );
   }
 
-  // Check for valid auth session
-  const currentAuthSession = getAuthSession();
-  const hasValidSession = currentAuthSession && currentAuthSession.token;
+  // Check for valid auth session (using state variable)
+  const hasValidSession = authSession && authSession.token;
 
   // Don't render content if not authenticated (will redirect)
   if (!hasValidSession) {
@@ -303,7 +318,7 @@ const ClientPage: React.FC = () => {
   }
 
   // Get user data from auth session, or fallback to defaults
-  const storedUser = currentAuthSession?.user;
+  const storedUser = authSession?.user;
   const userDisplayName = storedUser?.full_name || 'User';
   const userEmail = storedUser?.email || '';
   const userAvatar = storedUser?.avatar_url || undefined;

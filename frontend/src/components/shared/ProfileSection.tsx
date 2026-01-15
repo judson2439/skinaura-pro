@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getAuthSession, getAuthToken } from '@/lib/authStorage';
-import { supabase } from '@/lib/supabase';
+import { getAuthSession, getAuthToken, updateAuthSessionUser } from '@/lib/authStorage';
+import { apiClient } from '@/lib/apiClient';
+import { uploadImage } from '@/lib/encryption';
 import { useToast } from '@/hooks/use-toast';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
@@ -29,12 +30,32 @@ interface ProfileSectionProps {
 // COMPONENT
 // ============================================================================
 
+// Extended profile type with additional fields from database
+interface ProfileData {
+  id: string;
+  email: string;
+  full_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
+  role: string;
+  skin_type: string | null;
+  concerns: string[] | null;
+  business_name: string | null;
+  license_number: string | null;
+  email_verified: boolean;
+  phone_verified: boolean;
+  created_at: string;
+}
+
 const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
   const session = getAuthSession();
   const user = session?.user;
-  const profile = session?.user; // Profile data is stored in the user object
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Profile data from API
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Form state
   const [isEditing, setIsEditing] = useState(false);
@@ -42,25 +63,57 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   // Profile fields
-  const [fullName, setFullName] = useState(profile?.full_name || '');
-  const [phone, setPhone] = useState(profile?.phone || '');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
 
-  // Update form state when profile changes
+  // Set auth token on mount
   useEffect(() => {
-    if (profile) {
-      setFullName(profile.full_name || '');
-      setPhone(profile.phone || '');
+    const token = getAuthToken();
+    if (token) {
+      apiClient.setAuthToken(token);
     }
-  }, [profile]);
+  }, []);
+
+  // Fetch profile from backend
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setIsLoading(true);
+        const response = await apiClient.get<{ success: boolean; data: { user: ProfileData } }>('/api/auth/profile');
+        
+        if (response.ok && response.data.success) {
+          const userData = response.data.data.user;
+          setProfile(userData);
+          setFullName(userData.full_name || '');
+          setPhone(userData.phone || '');
+          setBusinessName(userData.business_name || '');
+          setLicenseNumber(userData.license_number || '');
+        }
+      } catch (error: any) {
+        console.error('Error fetching profile:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load profile data.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (user?.id) {
+      fetchProfile();
+    }
+  }, [user?.id, toast]);
 
   // Reset form to current profile values
   const resetForm = () => {
     setFullName(profile?.full_name || '');
     setPhone(profile?.phone || '');
-    setBusinessName('');
-    setLicenseNumber('');
+    setBusinessName(profile?.business_name || '');
+    setLicenseNumber(profile?.license_number || '');
     setIsEditing(false);
   };
 
@@ -96,37 +149,38 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
     setIsUploadingAvatar(true);
 
     try {
-      // Generate unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-
-      // Upload to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('progress-photos')
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) {
-        throw uploadError;
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error('Not authenticated');
       }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('progress-photos')
-        .getPublicUrl(filePath);
+      // Step 1: Upload image using the generic image upload endpoint
+      const uploadResult = await uploadImage(file, 'avatars', token);
 
-      // Update profile with new avatar URL
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update({ avatar_url: publicUrl })
-        .eq('id', user.id);
-
-      if (updateError) {
-        throw updateError;
+      if (!uploadResult.success || !uploadResult.data?.image_url) {
+        throw new Error(uploadResult.error || 'Failed to upload avatar image');
       }
 
-      // Reload page to refresh profile data
-      window.location.reload();
+      const avatarUrl = uploadResult.data.image_url;
+
+      // Step 2: Update profile with new avatar URL
+      const response = await apiClient.put<{ 
+        success: boolean; 
+        data: { user: ProfileData };
+        error?: string;
+      }>('/api/auth/profile', { avatar_url: avatarUrl });
+
+      if (!response.ok || !response.data.success) {
+        throw new Error(response.data.error || 'Failed to update profile');
+      }
+
+      // Update local profile state
+      setProfile(response.data.data.user);
+
+      // Update auth session with new avatar
+      updateAuthSessionUser({
+        avatar_url: avatarUrl,
+      });
 
       toast({
         title: 'Avatar updated',
@@ -155,7 +209,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
     setIsSaving(true);
 
     try {
-      const updateData: any = {
+      const updateData: Record<string, string | null> = {
         full_name: fullName.trim(),
         phone: phone.trim() || null,
       };
@@ -166,17 +220,24 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
         updateData.license_number = licenseNumber.trim() || null;
       }
 
-      const { error } = await supabase
-        .from('user_profiles')
-        .update(updateData)
-        .eq('id', user.id);
+      const response = await apiClient.put<{ 
+        success: boolean; 
+        data: { user: ProfileData };
+        error?: string;
+      }>('/api/auth/profile', updateData);
 
-      if (error) {
-        throw error;
+      if (!response.ok || !response.data.success) {
+        throw new Error(response.data.error || 'Failed to update profile');
       }
 
-      // Reload page to refresh profile data
-      window.location.reload();
+      // Update local profile state
+      setProfile(response.data.data.user);
+
+      // Update auth session with new profile data
+      updateAuthSessionUser({
+        full_name: response.data.data.user.full_name || '',
+        phone: response.data.data.user.phone || undefined,
+      });
 
       setIsEditing(false);
 
@@ -208,6 +269,15 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
       day: 'numeric',
     });
   };
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#CFAFA3]" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -301,7 +371,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
 
               {/* Email Verification Status */}
               <div className="flex items-center gap-2 mt-4 text-sm">
-                {user ? (
+                {profile?.email_verified ? (
                   <>
                     <CheckCircle className="w-4 h-4 text-green-500" />
                     <span className="text-green-600">Email verified</span>
@@ -324,7 +394,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                 <Calendar className="w-4 h-4 text-gray-400" />
                 <div>
                   <p className="text-gray-500">Member since</p>
-                  <p className="font-medium text-gray-900">{formatDate(null)}</p>
+                  <p className="font-medium text-gray-900">{formatDate(profile?.created_at || null)}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 text-sm">
@@ -417,7 +487,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                       />
                     ) : (
                       <p className="px-4 py-3 bg-gray-50 rounded-xl text-gray-900">
-                        {businessName || 'Not set'}
+                        {profile?.business_name || 'Not set'}
                       </p>
                     )}
                   </div>
@@ -438,7 +508,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                       />
                     ) : (
                       <p className="px-4 py-3 bg-gray-50 rounded-xl text-gray-900">
-                        {licenseNumber || 'Not set'}
+                        {profile?.license_number || 'Not set'}
                       </p>
                     )}
                   </div>
@@ -456,25 +526,31 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                 <p className="text-sm text-gray-500">Last changed: Unknown</p>
               </div>
               <button
-                onClick={() => {
-                  // Trigger password reset email
-                  if (user?.email) {
-                    supabase.auth.resetPasswordForEmail(user.email, {
-                      redirectTo: `${window.location.origin}/reset-password`,
-                    }).then(({ error }) => {
-                      if (error) {
-                        toast({
-                          title: 'Error',
-                          description: error.message,
-                          variant: 'destructive',
-                        });
-                      } else {
+                onClick={async () => {
+                  // Trigger password reset email via backend
+                  const email = profile?.email || user?.email;
+                  if (email) {
+                    try {
+                      const response = await apiClient.post<{ success: boolean; error?: string }>(
+                        '/api/auth/request-password-reset',
+                        { email }
+                      );
+
+                      if (response.ok && response.data.success) {
                         toast({
                           title: 'Password reset email sent',
                           description: 'Check your email for a link to reset your password.',
                         });
+                      } else {
+                        throw new Error(response.data.error || 'Failed to send password reset email');
                       }
-                    });
+                    } catch (error: any) {
+                      toast({
+                        title: 'Error',
+                        description: error.message || 'Failed to send password reset email.',
+                        variant: 'destructive',
+                      });
+                    }
                   }
                 }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors text-sm"

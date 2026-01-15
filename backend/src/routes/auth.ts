@@ -1431,4 +1431,443 @@ router.post('/complete-invitation', async (req: Request, res: Response): Promise
   }
 });
 
+// ============================================================================
+// PROFILE MANAGEMENT ENDPOINTS
+// ============================================================================
+
+// Auth middleware for profile routes
+const profileAuthMiddleware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ success: false, error: 'Authorization token required' });
+      return;
+    }
+
+    const token = authHeader.split(' ')[1];
+    const { verifyToken } = await import('../lib/auth.js');
+    const result = verifyToken(token);
+
+    if (!result.valid || !result.payload) {
+      res.status(401).json({ success: false, error: 'Invalid or expired token' });
+      return;
+    }
+
+    (req as any).userId = result.payload.sub as string;
+    next();
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(401).json({ success: false, error: 'Authentication failed' });
+  }
+};
+
+/**
+ * GET /auth/profile
+ * Get current user's profile
+ */
+router.get('/profile', profileAuthMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`👤 Fetching profile for user: ${userId}`);
+
+    const userProfile = await queryOne<{
+      id: string;
+      email: string;
+      full_name: string | null;
+      phone: string | null;
+      avatar_url: string | null;
+      role: string;
+      skin_type: string | null;
+      concerns: string[] | null;
+      business_name: string | null;
+      license_number: string | null;
+      email_verified: boolean;
+      phone_verified: boolean;
+      created_at: string;
+    }>(
+      `SELECT up.id, up.email, up.full_name, up.phone, up.avatar_url, up.role, 
+              up.skin_type, up.concerns, up.business_name, up.license_number, 
+              COALESCE(a.email_verified, false) as email_verified, 
+              COALESCE(a.phone_verified, false) as phone_verified, 
+              up.created_at
+       FROM user_profiles up
+       LEFT JOIN auth a ON up.id = a.id
+       WHERE up.id = $1`,
+      [userId]
+    );
+
+    if (!userProfile) {
+      res.status(404).json({
+        success: false,
+        error: 'Profile not found',
+      });
+      return;
+    }
+
+    console.log(`✅ Profile fetched successfully for user: ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: userProfile.id,
+          email: userProfile.email,
+          full_name: userProfile.full_name,
+          phone: userProfile.phone,
+          avatar_url: userProfile.avatar_url,
+          role: userProfile.role,
+          skin_type: userProfile.skin_type,
+          concerns: userProfile.concerns,
+          business_name: userProfile.business_name,
+          license_number: userProfile.license_number,
+          email_verified: userProfile.email_verified,
+          phone_verified: userProfile.phone_verified,
+          created_at: userProfile.created_at,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error fetching profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch profile',
+    });
+  }
+});
+
+/**
+ * PUT /auth/profile
+ * Update current user's profile
+ */
+router.put('/profile', profileAuthMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    // Handle encrypted payload
+    let data = req.body;
+    if (req.body.encrypted && req.body.iv) {
+      const decrypted = decryptRequestData(req.body as EncryptedPayload);
+      if (!decrypted.success || !decrypted.data) {
+        res.status(400).json({ success: false, error: 'Failed to decrypt request data' });
+        return;
+      }
+      data = decrypted.data;
+    }
+
+    const { full_name, phone, business_name, license_number, skin_type, concerns, avatar_url } = data;
+
+    console.log(`✏️ Updating profile for user: ${userId}`);
+
+    // Build dynamic update query
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (full_name !== undefined) {
+      updates.push(`full_name = $${paramIndex++}`);
+      values.push(full_name?.trim() || null);
+    }
+
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramIndex++}`);
+      values.push(phone?.trim() || null);
+    }
+
+    if (business_name !== undefined) {
+      updates.push(`business_name = $${paramIndex++}`);
+      values.push(business_name?.trim() || null);
+    }
+
+    if (license_number !== undefined) {
+      updates.push(`license_number = $${paramIndex++}`);
+      values.push(license_number?.trim() || null);
+    }
+
+    if (skin_type !== undefined) {
+      updates.push(`skin_type = $${paramIndex++}`);
+      values.push(skin_type?.trim() || null);
+    }
+
+    if (concerns !== undefined) {
+      updates.push(`concerns = $${paramIndex++}`);
+      values.push(concerns);
+    }
+
+    if (avatar_url !== undefined) {
+      updates.push(`avatar_url = $${paramIndex++}`);
+      values.push(avatar_url?.trim() || null);
+    }
+
+    if (updates.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'No fields to update',
+      });
+      return;
+    }
+
+    // Add updated_at
+    updates.push(`updated_at = NOW()`);
+
+    // Add user id for WHERE clause
+    values.push(userId);
+
+    const updateQuery = `
+      UPDATE user_profiles 
+      SET ${updates.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING id
+    `;
+
+    const updateResult = await queryOne<{ id: string }>(updateQuery, values);
+
+    if (!updateResult) {
+      res.status(404).json({
+        success: false,
+        error: 'Profile not found',
+      });
+      return;
+    }
+
+    // Fetch updated profile with auth data
+    const updatedProfile = await queryOne<{
+      id: string;
+      email: string;
+      full_name: string | null;
+      phone: string | null;
+      avatar_url: string | null;
+      role: string;
+      skin_type: string | null;
+      concerns: string[] | null;
+      business_name: string | null;
+      license_number: string | null;
+      email_verified: boolean;
+      phone_verified: boolean;
+      created_at: string;
+    }>(
+      `SELECT up.id, up.email, up.full_name, up.phone, up.avatar_url, up.role, 
+              up.skin_type, up.concerns, up.business_name, up.license_number, 
+              COALESCE(a.email_verified, false) as email_verified, 
+              COALESCE(a.phone_verified, false) as phone_verified, 
+              up.created_at
+       FROM user_profiles up
+       LEFT JOIN auth a ON up.id = a.id
+       WHERE up.id = $1`,
+      [userId]
+    );
+
+    if (!updatedProfile) {
+      res.status(404).json({
+        success: false,
+        error: 'Profile not found after update',
+      });
+      return;
+    }
+
+    console.log(`✅ Profile updated successfully for user: ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        user: {
+          id: updatedProfile.id,
+          email: updatedProfile.email,
+          full_name: updatedProfile.full_name,
+          phone: updatedProfile.phone,
+          avatar_url: updatedProfile.avatar_url,
+          role: updatedProfile.role,
+          skin_type: updatedProfile.skin_type,
+          concerns: updatedProfile.concerns,
+          business_name: updatedProfile.business_name,
+          license_number: updatedProfile.license_number,
+          email_verified: updatedProfile.email_verified,
+          phone_verified: updatedProfile.phone_verified,
+          created_at: updatedProfile.created_at,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error updating profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update profile',
+    });
+  }
+});
+
+/**
+ * POST /auth/profile/avatar
+ * Upload avatar for current user (expects pre-encrypted image from frontend)
+ */
+router.post('/profile/avatar', profileAuthMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    // Handle encrypted payload
+    let data = req.body;
+    if (req.body.encrypted && req.body.iv && !req.body.mimeType) {
+      // This is an encrypted request payload, not image data
+      const decrypted = decryptRequestData(req.body as EncryptedPayload);
+      if (!decrypted.success || !decrypted.data) {
+        res.status(400).json({ success: false, error: 'Failed to decrypt request data' });
+        return;
+      }
+      data = decrypted.data;
+    }
+
+    const { encrypted, iv, mimeType } = data;
+
+    if (!encrypted || !iv) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing encrypted image data or IV',
+      });
+      return;
+    }
+
+    console.log(`📷 Uploading avatar for user: ${userId}`);
+
+    // Save the encrypted avatar
+    const avatarUrl = saveEncryptedAvatar(encrypted, iv, mimeType);
+
+    if (!avatarUrl) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to save avatar',
+      });
+      return;
+    }
+
+    // Update user profile with new avatar URL
+    const updateResult = await queryOne<{ id: string }>(
+      `UPDATE user_profiles 
+       SET avatar_url = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id`,
+      [avatarUrl, userId]
+    );
+
+    if (!updateResult) {
+      res.status(404).json({
+        success: false,
+        error: 'Profile not found',
+      });
+      return;
+    }
+
+    // Fetch updated profile with auth data
+    const updatedProfile = await queryOne<{
+      id: string;
+      email: string;
+      full_name: string | null;
+      phone: string | null;
+      avatar_url: string | null;
+      role: string;
+      email_verified: boolean;
+      phone_verified: boolean;
+    }>(
+      `SELECT up.id, up.email, up.full_name, up.phone, up.avatar_url, up.role, 
+              COALESCE(a.email_verified, false) as email_verified, 
+              COALESCE(a.phone_verified, false) as phone_verified
+       FROM user_profiles up
+       LEFT JOIN auth a ON up.id = a.id
+       WHERE up.id = $1`,
+      [userId]
+    );
+
+    if (!updatedProfile) {
+      res.status(404).json({
+        success: false,
+        error: 'Profile not found after update',
+      });
+      return;
+    }
+
+    console.log(`✅ Avatar uploaded successfully for user: ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Avatar uploaded successfully',
+      data: {
+        avatar_url: avatarUrl,
+        user: {
+          id: updatedProfile.id,
+          email: updatedProfile.email,
+          full_name: updatedProfile.full_name,
+          phone: updatedProfile.phone,
+          avatar_url: updatedProfile.avatar_url,
+          role: updatedProfile.role,
+          email_verified: updatedProfile.email_verified,
+          phone_verified: updatedProfile.phone_verified,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Error uploading avatar:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload avatar',
+    });
+  }
+});
+
+/**
+ * POST /auth/request-password-reset
+ * Request a password reset email (alias for /forgot-password, for frontend consistency)
+ */
+router.post('/request-password-reset', async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Handle encrypted payload
+    let data = req.body;
+    if (req.body.encrypted && req.body.iv) {
+      const decrypted = decryptRequestData(req.body as EncryptedPayload);
+      if (!decrypted.success || !decrypted.data) {
+        res.status(400).json({ success: false, error: 'Failed to decrypt request data' });
+        return;
+      }
+      data = decrypted.data;
+    }
+
+    const { email } = data;
+
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      });
+      return;
+    }
+
+    console.log(`🔑 Password reset requested for: ${email}`);
+
+    const result = await requestPasswordReset(email);
+
+    if (!result.success) {
+      // Still return success to prevent email enumeration
+      res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, a password reset link has been sent.',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'If an account with that email exists, a password reset link has been sent.',
+    });
+  } catch (error) {
+    console.error('❌ Error requesting password reset:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process password reset request',
+    });
+  }
+});
+
 export default router;

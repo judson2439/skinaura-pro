@@ -278,6 +278,46 @@ export const getCurrentUserRole = (): 'client' | 'professional' | 'admin' | null
   return user?.role || null;
 };
 
+// Custom event name for session updates
+export const AUTH_SESSION_UPDATED_EVENT = 'skinaura_auth_session_updated';
+
+/**
+ * Dispatch event to notify components that the session has been updated
+ */
+const dispatchSessionUpdatedEvent = (): void => {
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_UPDATED_EVENT));
+};
+
+/**
+ * Update user data in the current session (after profile update)
+ */
+export const updateAuthSessionUser = (updatedUser: Partial<AuthUser>): void => {
+  try {
+    const session = getAuthSession();
+    if (!session) {
+      console.warn('No session to update');
+      return;
+    }
+
+    // Merge updated user data with existing user
+    session.user = {
+      ...session.user,
+      ...updatedUser,
+    };
+    session.lastActivity = new Date().toISOString();
+
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+
+    // Dispatch event to notify components
+    dispatchSessionUpdatedEvent();
+
+    console.log('✅ Auth session user updated');
+  } catch (error) {
+    console.error('❌ Failed to update auth session user:', error);
+  }
+};
+
 export default {
   saveAuthSession,
   getAuthSession,
@@ -290,6 +330,8 @@ export default {
   isAuthenticated,
   getCurrentUser,
   getCurrentUserRole,
+  updateAuthSessionUser,
   isTokenExpired,
   INACTIVITY_TIMEOUT_MS,
+  AUTH_SESSION_UPDATED_EVENT,
 };

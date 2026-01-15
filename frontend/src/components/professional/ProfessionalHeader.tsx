@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getAuthToken, getAuthSession, clearAuthSession } from '@/lib/authStorage';
+import { getAuthToken, clearAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
@@ -60,15 +60,13 @@ const ProfessionalHeader: React.FC<ProfessionalHeaderProps> = ({
   onNavigateToView,
 }) => {
   const navigate = useNavigate();
-  const session = getAuthSession();
-  const profile = session?.user;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [unreadNotes, setUnreadNotes] = useState<RoutineNote[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Use profile avatar if available
-  const avatarUrl = profile?.avatar_url || userAvatar || null;
+  // Use userAvatar prop (from parent's state) which updates when session changes
+  const avatarUrl = userAvatar || null;
 
   // Fetch unread notes from backend API
   const fetchUnreadNotes = useCallback(async () => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getAuthSession, clearAuthSession, isSessionExpiredByInactivity, validateAuthSession, getAuthToken } from '@/lib/authStorage';
+import { getAuthSession, clearAuthSession, isSessionExpiredByInactivity, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/apiClient';
 import ProfessionalSidebar, { PROFESSIONAL_NAV_ITEMS } from '@/components/professional/ProfessionalSidebar';
@@ -50,6 +50,9 @@ const ProfessionalPage: React.FC = () => {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [totalClients, setTotalClients] = useState(0);
+  
+  // Auth session state - allows re-render when session is updated (e.g., avatar change)
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
 
   // Client Profile Modal state
   const [showClientProfileModal, setShowClientProfileModal] = useState(false);
@@ -57,6 +60,19 @@ const ProfessionalPage: React.FC = () => {
 
   // Get active view from URL parameter
   const activeView = section || 'dashboard';
+  
+  // Listen for auth session updates (e.g., when avatar is changed in profile)
+  useEffect(() => {
+    const handleSessionUpdate = () => {
+      setAuthSession(getAuthSession());
+    };
+    
+    window.addEventListener(AUTH_SESSION_UPDATED_EVENT, handleSessionUpdate);
+    
+    return () => {
+      window.removeEventListener(AUTH_SESSION_UPDATED_EVENT, handleSessionUpdate);
+    };
+  }, []);
 
   // Fetch real client count from backend API
   const fetchClientCount = useCallback(async () => {
@@ -149,8 +165,7 @@ const ProfessionalPage: React.FC = () => {
     setIsCheckingSession(false);
   }, [navigate, toast]);
 
-  // Check for valid auth session
-  const authSession = getAuthSession();
+  // Check for valid auth session (using state variable)
   const hasValidSession = authSession && authSession.token;
 
   // Show loading state while checking session
@@ -345,6 +360,7 @@ const ProfessionalPage: React.FC = () => {
             subtitle={getPageSubtitle()}
             userDisplayName={userDisplayName}
             userEmail={userEmail}
+            userAvatar={userAvatar}
             onNavigateToView={handleNavigateToView}
           />
 
