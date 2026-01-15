@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { decryptFileToBlob } from '@/lib/encryption';
 import { apiClient } from '@/lib/apiClient';
+import { supabase } from '@/lib/supabase';
 
 // ============================================================================
 // CONSTANTS
@@ -76,10 +77,52 @@ declare global {
 // ============================================================================
 
 /**
- * Fetch and decrypt an image from the backend
- * Returns a data URL for the decrypted image
+ * Upload a blob to Supabase storage and get public URL
+ * @param blob - The image blob to upload
+ * @param productId - Product ID for unique filename
+ * @returns Public URL of the uploaded image
  */
-const fetchAndDecryptImage = async (imageUrl: string, token: string | null): Promise<string> => {
+const uploadToSupabaseStorage = async (blob: Blob, productId: string): Promise<string> => {
+  try {
+    // Generate unique filename
+    const ext = blob.type.split('/')[1] || 'jpg';
+    const fileName = `faceage-products/${productId}-${Date.now()}.${ext}`;
+
+    // Upload to Supabase storage
+    const { error: uploadError } = await supabase.storage
+      .from('progress-photos')
+      .upload(fileName, blob, {
+        contentType: blob.type,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('Supabase upload error:', uploadError);
+      throw uploadError;
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('progress-photos')
+      .getPublicUrl(fileName);
+
+    console.log(`✅ Image uploaded to Supabase: ${publicUrl}`);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading to Supabase:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch, decrypt, and upload image to cloud storage
+ * Returns a public HTTPS URL for the image
+ */
+const fetchDecryptAndUploadImage = async (
+  imageUrl: string, 
+  token: string | null,
+  productId: string
+): Promise<string> => {
   try {
     // Build full URL
     const fullUrl = imageUrl.startsWith('http') 
@@ -96,6 +139,7 @@ const fetchAndDecryptImage = async (imageUrl: string, token: string | null): Pro
     }
 
     const contentType = response.headers.get('content-type') || '';
+    let imageBlob: Blob;
 
     if (contentType.includes('application/json')) {
       // Encrypted image - decrypt client-side
@@ -105,31 +149,21 @@ const fetchAndDecryptImage = async (imageUrl: string, token: string | null): Pro
         throw new Error('Invalid encrypted image data');
       }
 
-      const decryptedBlob = await decryptFileToBlob(
+      imageBlob = await decryptFileToBlob(
         encryptedData.encrypted,
         encryptedData.iv,
         encryptedData.mimeType || 'image/jpeg'
       );
-
-      // Convert blob to data URL
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(decryptedBlob);
-      });
     } else {
       // Legacy unencrypted image
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      imageBlob = await response.blob();
     }
+
+    // Upload to Supabase and get public URL
+    const publicUrl = await uploadToSupabaseStorage(imageBlob, productId);
+    return publicUrl;
   } catch (error) {
-    console.error('Error fetching/decrypting image:', error);
+    console.error('Error fetching/decrypting/uploading image:', error);
     // Return a placeholder image on error
     return 'https://via.placeholder.com/200x200?text=No+Image';
   }
@@ -181,20 +215,24 @@ const FaceAnalysisV2Section: React.FC = () => {
       const products: RecommendedProduct[] = response.data.data.products;
       console.log(`Found ${products.length} recommended products`);
 
-      // Process products and decrypt images
+      // Process products: decrypt images and upload to cloud for public URLs
       const customProducts: FaceAgeCustomProduct[] = await Promise.all(
         products.map(async (product) => {
-          // Decrypt image if image_url exists
-          let imageDataUrl = 'https://via.placeholder.com/200x200?text=No+Image';
+          // Decrypt image and upload to cloud if image_url exists
+          let imagePublicUrl = 'https://via.placeholder.com/200x200?text=No+Image';
           
           if (product.image_url) {
-            imageDataUrl = await fetchAndDecryptImage(product.image_url, token);
+            imagePublicUrl = await fetchDecryptAndUploadImage(
+              product.image_url, 
+              token, 
+              product.id
+            );
           }
 
           return {
             id: product.id,
             url: product.purchase_url || '',
-            image: imageDataUrl,
+            image: imagePublicUrl,
             title: product.name,
             description: product.description || '',
             problems: product.concerns || [],
