@@ -53,6 +53,7 @@ const TreatmentPlansSection: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<TreatmentPlan | null>(null);
   const [updatingMilestone, setUpdatingMilestone] = useState<string | null>(null);
+  const [updatingAppointment, setUpdatingAppointment] = useState<string | null>(null);
 
   // ============================================================================
   // FETCH TREATMENT PLANS FROM DATABASE
@@ -158,6 +159,60 @@ const TreatmentPlansSection: React.FC = () => {
       console.error('Error toggling milestone:', err);
     } finally {
       setUpdatingMilestone(null);
+    }
+  };
+
+  // ============================================================================
+  // TOGGLE APPOINTMENT COMPLETION
+  // ============================================================================
+
+  const handleToggleAppointment = async (appointmentId: string, currentStatus: boolean) => {
+    const token = getAuthToken();
+    if (!selectedPlan || !token) return;
+
+    setUpdatingAppointment(appointmentId);
+
+    try {
+      const newStatus = !currentStatus;
+
+      apiClient.setAuthToken(token);
+      
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { 
+          appointment: { 
+            id: string; 
+            completed: boolean; 
+          };
+        };
+        error?: string;
+      }>(`/api/client/treatment-plans/appointments/${appointmentId}`, {
+        completed: newStatus,
+      });
+
+      if (!response.data.success) {
+        console.error('Error updating appointment:', response.data.error);
+        return;
+      }
+
+      // Update local state
+      const updatedAppointments = selectedPlan.appointments.map(a =>
+        a.id === appointmentId
+          ? { ...a, completed: newStatus }
+          : a
+      );
+
+      const updatedPlan = {
+        ...selectedPlan,
+        appointments: updatedAppointments,
+      };
+
+      setSelectedPlan(updatedPlan);
+      setPlans(plans.map(p => (p.id === updatedPlan.id ? updatedPlan : p)));
+    } catch (err) {
+      console.error('Error toggling appointment:', err);
+    } finally {
+      setUpdatingAppointment(null);
     }
   };
 
@@ -457,30 +512,40 @@ const TreatmentPlansSection: React.FC = () => {
                           <div className="space-y-2">
                             {plan.appointments.map((apt) => {
                               const isOverdue = !apt.completed && new Date(apt.scheduled_date) < new Date();
+                              const isUpdating = updatingAppointment === apt.id;
                               return (
                                 <div
                                   key={apt.id}
-                                  className={`flex items-center gap-3 p-4 rounded-xl border ${
+                                  className={`flex items-center gap-3 p-4 rounded-xl border transition-all ${
                                     apt.completed 
                                       ? 'bg-green-50 border-green-200' 
                                       : isOverdue
                                         ? 'bg-red-50 border-red-200'
-                                        : 'bg-white border-gray-100'
-                                  }`}
+                                        : 'bg-white border-gray-100 hover:border-[#CFAFA3]/50'
+                                  } ${isUpdating ? 'opacity-50' : ''}`}
                                 >
-                                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                    apt.completed 
-                                      ? 'bg-green-500 text-white' 
-                                      : isOverdue
-                                        ? 'bg-red-100'
-                                        : 'bg-[#CFAFA3]/10'
-                                  }`}>
-                                    {apt.completed ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleAppointment(apt.id, apt.completed);
+                                    }}
+                                    disabled={isUpdating}
+                                    className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-all cursor-pointer ${
+                                      apt.completed 
+                                        ? 'bg-green-500 text-white hover:bg-green-600' 
+                                        : isOverdue
+                                          ? 'bg-red-100 hover:bg-red-200'
+                                          : 'bg-[#CFAFA3]/10 hover:bg-[#CFAFA3]/20'
+                                    }`}
+                                  >
+                                    {isUpdating ? (
+                                      <Loader2 className="w-5 h-5 animate-spin" />
+                                    ) : apt.completed ? (
                                       <Check className="w-5 h-5" />
                                     ) : (
                                       <Calendar className={`w-5 h-5 ${isOverdue ? 'text-red-500' : 'text-[#CFAFA3]'}`} />
                                     )}
-                                  </div>
+                                  </button>
                                   <div className="flex-1">
                                     <p className={`font-medium ${apt.completed ? 'text-green-700' : isOverdue ? 'text-red-700' : 'text-gray-900'}`}>
                                       {apt.appointment_type}
@@ -502,7 +567,7 @@ const TreatmentPlansSection: React.FC = () => {
                                     {apt.completed && (
                                       <p className="text-xs text-green-600">Completed</p>
                                     )}
-                                    {isOverdue && (
+                                    {isOverdue && !apt.completed && (
                                       <p className="text-xs text-red-600">Overdue</p>
                                     )}
                                   </div>

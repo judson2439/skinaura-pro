@@ -1346,7 +1346,7 @@ router.get('/routines/:routineId/steps', async (req: Request, res: Response): Pr
     const steps = await query<RoutineStepData>(
       `SELECT id, routine_id, step_order, step_name, description, 
               product_category, product_recommendation, tips, 
-              duration_seconds, is_optional, created_at, updated_at
+              duration_seconds, is_optional, created_at
        FROM routine_steps
        WHERE routine_id = $1
        ORDER BY step_order ASC`,

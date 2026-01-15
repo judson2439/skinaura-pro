@@ -1983,6 +1983,61 @@ router.patch('/treatment-plans/milestones/:milestoneId', authMiddleware, async (
   }
 });
 
+// PATCH /client/treatment-plans/appointments/:appointmentId - Toggle appointment completion
+router.patch('/treatment-plans/appointments/:appointmentId', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const appointmentId = req.params.appointmentId;
+    const { completed } = req.body;
+
+    console.log(`📅 Toggling appointment ${appointmentId} completion to ${completed}`);
+
+    // Verify the appointment belongs to a plan that belongs to this client
+    const appointment = await queryOne<{ id: string; plan_id: string }>(
+      `SELECT a.id, a.plan_id 
+       FROM treatment_plan_appointments a
+       JOIN treatment_plans p ON a.plan_id = p.id
+       WHERE a.id = $1 AND p.client_id = $2`,
+      [appointmentId, userId]
+    );
+
+    if (!appointment) {
+      res.status(404).json({
+        success: false,
+        error: 'Appointment not found',
+      } as ApiResponse);
+      return;
+    }
+
+    // Update the appointment
+    await query(
+      `UPDATE treatment_plan_appointments 
+       SET completed = $1 
+       WHERE id = $2`,
+      [completed, appointmentId]
+    );
+
+    console.log(`✅ Appointment updated: ${appointmentId}`);
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        appointment: {
+          id: appointmentId,
+          completed,
+        }
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error updating appointment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update appointment',
+    } as ApiResponse);
+  }
+});
+
 // ============================================================================
 // ACHIEVEMENTS / GAMIFICATION ROUTES
 // ============================================================================
