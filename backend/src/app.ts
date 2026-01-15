@@ -35,9 +35,14 @@ app.use(helmet({
   },
 }));
 
-// CORS configuration
+// CORS configuration - always include localhost:8080 for development
+const corsOrigins: (string | RegExp)[] = ['http://localhost:8080'];
+if (env.CORS_ORIGIN && env.CORS_ORIGIN !== 'http://localhost:8080') {
+  corsOrigins.push(env.CORS_ORIGIN);
+}
+
 app.use(cors({
-  origin: env.CORS_ORIGIN,
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Encrypted'],
