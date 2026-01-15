@@ -427,6 +427,7 @@ const ClientPage: React.FC = () => {
             currentStreak={clientStats.currentStreak}
             userDisplayName={userDisplayName}
             userEmail={userEmail}
+            userAvatar={userAvatar}
             onNavigateToView={handleNavigateToView}
             unreadNotifications={unreadNotifications}
           />
