@@ -1156,7 +1156,7 @@ router.post('/verify-invitation-token', async (req: Request, res: Response): Pro
 
       res.status(400).json({
         success: false,
-        error: 'This invitation has expired. Please request a new invitation from your skincare professional.',
+        message: 'This invitation has expired. Please request a new invitation from your skincare professional.',
         data: { expired: true },
       } as AuthResponse);
       return;
@@ -1166,7 +1166,7 @@ router.post('/verify-invitation-token', async (req: Request, res: Response): Pro
     if (inv.status === 'accepted') {
       res.status(400).json({
         success: false,
-        error: 'This invitation has already been used. Please sign in to your account.',
+        message: 'This invitation has already been used. Please sign in to your account.',
         data: { alreadyAccepted: true },
       } as AuthResponse);
       return;
@@ -1268,6 +1268,7 @@ router.post('/invited-client/signup', async (req: Request, res: Response): Promi
       await query(`DELETE FROM client_invitations WHERE id = $1`, [invitation.id]);
       res.status(400).json({
         success: false,
+        message: 'This invitation has expired',
         error: 'This invitation has expired',
         data: { expired: true },
       } as AuthResponse);
