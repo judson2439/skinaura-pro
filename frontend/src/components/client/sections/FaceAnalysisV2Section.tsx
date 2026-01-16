@@ -194,9 +194,11 @@ const RadarChart: React.FC<RadarChartProps> = ({
   const levels = 5;
   const angleStep = (2 * Math.PI) / data.length;
 
+  // Invert the value: 0% problem = edge (100% health), 100% problem = center (0% health)
   const getPoint = (index: number, value: number) => {
     const angle = (index * angleStep) - (Math.PI / 2);
-    const r = (value / 100) * radius;
+    const invertedValue = 100 - value; // Lower problem values = further from center
+    const r = (invertedValue / 100) * radius;
     return {
       x: centerX + r * Math.cos(angle),
       y: centerY + r * Math.sin(angle),
@@ -785,7 +787,7 @@ const FaceAnalysisV2Section: React.FC = () => {
                 selectedProblem={selectedProblem}
               />
               <p className="text-xs text-gray-500 text-center mt-2">
-                Click on any area to see details. Higher values indicate areas that may need attention.
+                Click on any area to see details. Points closer to edge indicate healthier skin.
               </p>
             </div>
           ) : (
@@ -800,55 +802,6 @@ const FaceAnalysisV2Section: React.FC = () => {
                 <p className="text-sm mt-2">
                   Use the Face Scanner to analyze your skin and see detailed results here.
                 </p>
-              </div>
-            </div>
-          )}
-
-          {/* Skin Problems List */}
-          {analysisData && skinProblems.length > 0 && (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Eye className="w-5 h-5 text-[#007185]" />
-                <h3 className="font-serif font-bold text-lg">Detailed Breakdown</h3>
-              </div>
-              
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                {skinProblems.map((problem) => (
-                  <div 
-                    key={problem.key} 
-                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${
-                      selectedProblem?.key === problem.key 
-                        ? 'bg-[#007185]/5 ring-2 ring-[#007185]/20' 
-                        : 'bg-gray-50 hover:bg-gray-100'
-                    }`}
-                    onClick={() => setSelectedProblem(problem)}
-                  >
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                      style={{ backgroundColor: problem.color }}
-                    >
-                      {problem.value.toFixed(0)}%
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium text-gray-800 truncate">{problem.title}</span>
-                        {problem.value <= 10 ? (
-                          <TrendingDown className="w-4 h-4 text-green-500 flex-shrink-0" />
-                        ) : problem.value >= 50 ? (
-                          <TrendingUp className="w-4 h-4 text-red-500 flex-shrink-0" />
-                        ) : (
-                          <Zap className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all ${getSeverityColor(problem.value)}`}
-                          style={{ width: `${Math.min(problem.value, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}
