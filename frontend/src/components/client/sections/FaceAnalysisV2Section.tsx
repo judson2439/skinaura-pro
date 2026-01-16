@@ -3,6 +3,7 @@ import { getAuthSession, getAuthToken } from '@/lib/authStorage';
 import { decryptFileToBlob, uploadImage } from '@/lib/encryption';
 import { apiClient } from '@/lib/apiClient';
 import { supabase } from '@/lib/supabase';
+import { EncryptedImage } from '@/components/ui/encrypted-image';
 import {
   Camera,
   Loader2,
@@ -23,6 +24,9 @@ import {
   Clock,
   Lightbulb,
   ChevronDown,
+  X,
+  Calendar,
+  Layers,
 } from 'lucide-react';
 
 // ============================================================================
@@ -196,6 +200,56 @@ interface SkinProblem {
   value: number;
   color: string;
 }
+
+// History entry from database
+interface HistoryEntry {
+  id: string;
+  user_id: string;
+  original_area: string | null;
+  finewrinkles: number | null;
+  eyewrinkles: number | null;
+  deepwrinkles: number | null;
+  darkcircle: number | null;
+  eyebag: number | null;
+  pores: number | null;
+  pigment: number | null;
+  redness: number | null;
+  oiliness: number | null;
+  acne: number | null;
+  finewrinkles_area: string | null;
+  eyewrinkles_area: string | null;
+  deepwrinkles_area: string | null;
+  darkcircle_area: string | null;
+  eyebag_area: string | null;
+  pores_area: string | null;
+  pigment_area: string | null;
+  redness_area: string | null;
+  oiliness_area: string | null;
+  acne_area: string | null;
+  created_at: string;
+}
+
+// Skin problem attribute config
+interface SkinAttribute {
+  key: string;
+  label: string;
+  color: string;
+  areaKey: string;
+}
+
+// All skin attributes configuration
+const SKIN_ATTRIBUTES: SkinAttribute[] = [
+  { key: 'finewrinkles', label: 'Fine Wrinkles', color: '#71cc51', areaKey: 'finewrinkles_area' },
+  { key: 'eyewrinkles', label: 'Eye Wrinkles', color: '#85e065', areaKey: 'eyewrinkles_area' },
+  { key: 'deepwrinkles', label: 'Deep Wrinkles', color: '#ff81e3', areaKey: 'deepwrinkles_area' },
+  { key: 'darkcircle', label: 'Dark Circle', color: '#aabbcd', areaKey: 'darkcircle_area' },
+  { key: 'eyebag', label: 'Eye Bag', color: '#ff7a00', areaKey: 'eyebag_area' },
+  { key: 'pores', label: 'Pores', color: '#2af2ff', areaKey: 'pores_area' },
+  { key: 'pigment', label: 'Pigment', color: '#cd86f2', areaKey: 'pigment_area' },
+  { key: 'redness', label: 'Redness', color: '#ff5959', areaKey: 'redness_area' },
+  { key: 'oiliness', label: 'Oiliness', color: '#ffaf14', areaKey: 'oiliness_area' },
+  { key: 'acne', label: 'Acne', color: '#cb2e82', areaKey: 'acne_area' },
+];
 
 declare global {
   interface Window {
@@ -515,6 +569,13 @@ const FaceAnalysisV2Section: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'analysis' | 'history' | 'tips'>('analysis');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  
+  // History state
+  const [historyData, setHistoryData] = useState<HistoryEntry[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryEntry | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [activeAreaFilter, setActiveAreaFilter] = useState<'all' | string>('all');
 
   /**
    * Convert base64 data URL to File
@@ -646,6 +707,70 @@ const FaceAnalysisV2Section: React.FC = () => {
   };
 
   /**
+   * Fetch analysis history from database
+   */
+  const fetchHistoryData = useCallback(async () => {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) {
+      console.error('No auth token for history fetch');
+      return;
+    }
+
+    setIsLoadingHistory(true);
+    try {
+      apiClient.setAuthToken(token);
+      const response = await apiClient.get<{ success: boolean; data?: { analyses: HistoryEntry[] }; error?: string }>(
+        '/api/client/faceage-analysis/history'
+      );
+
+      if (response.ok && response.data?.success && response.data.data?.analyses) {
+        setHistoryData(response.data.data.analyses);
+        console.log(`📊 Loaded ${response.data.data.analyses.length} history entries`);
+      } else {
+        console.error('Failed to fetch history:', response.data?.error);
+        setHistoryData([]);
+      }
+    } catch (error) {
+      console.error('Error fetching history:', error);
+      setHistoryData([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, []);
+
+  /**
+   * Convert history entry to SkinProblem array for RadarChart
+   */
+  const historyToSkinProblems = (entry: HistoryEntry): SkinProblem[] => {
+    return SKIN_ATTRIBUTES.map(attr => ({
+      key: attr.key,
+      title: attr.label,
+      description: `${attr.label} analysis from saved scan`,
+      value: (entry[attr.key as keyof HistoryEntry] as number) || 0,
+      color: attr.color,
+    })).filter(p => p.value > 0).sort((a, b) => b.value - a.value);
+  };
+
+  /**
+   * Open history detail modal
+   */
+  const handleViewHistoryDetail = (entry: HistoryEntry) => {
+    setSelectedHistoryItem(entry);
+    setActiveAreaFilter('all');
+    setShowHistoryModal(true);
+  };
+
+  /**
+   * Close history detail modal
+   */
+  const handleCloseHistoryModal = () => {
+    setShowHistoryModal(false);
+    setSelectedHistoryItem(null);
+    setActiveAreaFilter('all');
+  };
+
+  /**
    * Fetch recommended products and set them in FaceAge
    */
   const fetchAndSetProducts = useCallback(async () => {
@@ -727,6 +852,20 @@ const FaceAnalysisV2Section: React.FC = () => {
       setIsLoading(false);
     }
   }, [faceAgeReady, fetchAndSetProducts]);
+
+  // Fetch history when history tab is selected
+  useEffect(() => {
+    if (activeTab === 'history' && historyData.length === 0) {
+      fetchHistoryData();
+    }
+  }, [activeTab, historyData.length, fetchHistoryData]);
+
+  // Refresh history after saving
+  useEffect(() => {
+    if (saveSuccess) {
+      fetchHistoryData();
+    }
+  }, [saveSuccess, fetchHistoryData]);
 
   // Initialize FaceAge
   useEffect(() => {
@@ -1152,12 +1291,116 @@ const FaceAnalysisV2Section: React.FC = () => {
 
               {/* History Tab */}
               {activeTab === 'history' && (
-                <div className="py-12 text-center text-gray-400">
-                  <Clock className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium text-gray-600">Analysis History</p>
-                  <p className="text-sm mt-2">
-                    Your past skin analysis results will appear here.
-                  </p>
+                <div className="space-y-4">
+                  {isLoadingHistory ? (
+                    <div className="py-12 text-center">
+                      <Loader2 className="w-10 h-10 mx-auto mb-4 text-[#007185] animate-spin" />
+                      <p className="text-gray-600">Loading history...</p>
+                    </div>
+                  ) : historyData.length === 0 ? (
+                    <div className="py-12 text-center text-gray-400">
+                      <Clock className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium text-gray-600">No Analysis History</p>
+                      <p className="text-sm mt-2">
+                        Save your skin analysis to see history here.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-5 h-5 text-[#007185]" />
+                          <h3 className="font-serif font-bold text-lg">Analysis History</h3>
+                        </div>
+                        <button
+                          onClick={fetchHistoryData}
+                          className="flex items-center gap-1 text-sm text-[#007185] hover:underline"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Refresh
+                        </button>
+                      </div>
+                      <div className="space-y-3">
+                        {historyData.map((entry) => {
+                          const problems = historyToSkinProblems(entry);
+                          const avgScore = problems.length > 0 
+                            ? Math.round(100 - (problems.reduce((sum, p) => sum + p.value, 0) / problems.length))
+                            : 0;
+                          const topConcern = problems[0];
+                          
+                          return (
+                            <div
+                              key={entry.id}
+                              className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 hover:shadow-md transition-all cursor-pointer"
+                              onClick={() => handleViewHistoryDetail(entry)}
+                            >
+                              {/* Thumbnail */}
+                              <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-200 flex-shrink-0">
+                                {entry.original_area ? (
+                                  <EncryptedImage
+                                    src={entry.original_area}
+                                    alt="Analysis photo"
+                                    className="w-full h-full object-cover"
+                                    fallbackIcon="user"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0]">
+                                    <Camera className="w-8 h-8 text-white/60" />
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Info */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Calendar className="w-4 h-4 text-gray-400" />
+                                  <p className="text-sm font-medium text-gray-800">
+                                    {new Date(entry.created_at).toLocaleDateString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                    avgScore >= 80 ? 'bg-green-100 text-green-700' :
+                                    avgScore >= 60 ? 'bg-yellow-100 text-yellow-700' :
+                                    avgScore >= 40 ? 'bg-orange-100 text-orange-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {avgScore}% Health
+                                  </span>
+                                  {topConcern && (
+                                    <span 
+                                      className="px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                                      style={{ backgroundColor: topConcern.color }}
+                                    >
+                                      Top: {topConcern.title}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* View Detail Button */}
+                              <button
+                                className="flex items-center gap-1 px-3 py-2 bg-[#007185] text-white rounded-lg text-sm font-medium hover:bg-[#005a6a] transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewHistoryDetail(entry);
+                                }}
+                              >
+                                <Eye className="w-4 h-4" />
+                                View Detail
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1275,6 +1518,268 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* History Detail Modal */}
+      {showHistoryModal && selectedHistoryItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gradient-to-r from-[#2D2A3E] to-[#3D3A4E] text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Target className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-serif font-bold text-lg">Analysis Details</h2>
+                  <p className="text-white/70 text-sm">
+                    {new Date(selectedHistoryItem.created_at).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseHistoryModal}
+                className="p-2 rounded-full hover:bg-white/20 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid lg:grid-cols-2 gap-6">
+                {/* Left: Image Overlay Section */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Layers className="w-5 h-5 text-[#007185]" />
+                    <h3 className="font-medium text-gray-800">Area Visualization</h3>
+                  </div>
+
+                  {/* Image Container with Overlay */}
+                  <div className="relative aspect-square bg-gray-100 rounded-xl overflow-hidden">
+                    {/* Base Image (original_area) */}
+                    {selectedHistoryItem.original_area && (
+                      <EncryptedImage
+                        src={selectedHistoryItem.original_area}
+                        alt="Original photo"
+                        className="absolute inset-0 w-full h-full object-cover"
+                        fallbackIcon="user"
+                      />
+                    )}
+
+                    {/* Overlay Images */}
+                    {activeAreaFilter === 'all' ? (
+                      // Show all area overlays
+                      SKIN_ATTRIBUTES.map((attr) => {
+                        const areaUrl = selectedHistoryItem[attr.areaKey as keyof HistoryEntry] as string | null;
+                        if (!areaUrl) return null;
+                        return (
+                          <div key={attr.key} className="absolute inset-0">
+                            <EncryptedImage
+                              src={areaUrl}
+                              alt={`${attr.label} area`}
+                              className="w-full h-full object-cover mix-blend-multiply"
+                              showFallback={false}
+                            />
+                          </div>
+                        );
+                      })
+                    ) : (
+                      // Show specific area overlay
+                      (() => {
+                        const attr = SKIN_ATTRIBUTES.find(a => a.key === activeAreaFilter);
+                        if (!attr) return null;
+                        const areaUrl = selectedHistoryItem[attr.areaKey as keyof HistoryEntry] as string | null;
+                        if (!areaUrl) return null;
+                        return (
+                          <div className="absolute inset-0">
+                            <EncryptedImage
+                              src={areaUrl}
+                              alt={`${attr.label} area`}
+                              className="w-full h-full object-cover mix-blend-multiply"
+                              showFallback={false}
+                            />
+                          </div>
+                        );
+                      })()
+                    )}
+
+                    {/* No image fallback */}
+                    {!selectedHistoryItem.original_area && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0]">
+                        <Camera className="w-16 h-16 text-white/60" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Filter Buttons */}
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                      Display Filters
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {/* All Skin Info Button */}
+                      <button
+                        onClick={() => setActiveAreaFilter('all')}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                          activeAreaFilter === 'all'
+                            ? 'bg-[#007185] text-white shadow-sm'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-3 h-3" />
+                          All Skin Info
+                        </span>
+                      </button>
+
+                      {/* Individual Attribute Buttons */}
+                      {SKIN_ATTRIBUTES.map((attr) => {
+                        const value = selectedHistoryItem[attr.key as keyof HistoryEntry] as number | null;
+                        const areaUrl = selectedHistoryItem[attr.areaKey as keyof HistoryEntry] as string | null;
+                        const isActive = activeAreaFilter === attr.key;
+                        const hasArea = !!areaUrl;
+
+                        return (
+                          <button
+                            key={attr.key}
+                            onClick={() => setActiveAreaFilter(attr.key)}
+                            disabled={!hasArea}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                              isActive
+                                ? 'text-white shadow-sm'
+                                : hasArea
+                                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  : 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                            }`}
+                            style={isActive ? { backgroundColor: attr.color } : undefined}
+                          >
+                            <span className="flex items-center gap-1">
+                              <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: isActive ? 'white' : attr.color }}
+                              />
+                              {attr.label}
+                              {value !== null && value > 0 && (
+                                <span className={`ml-1 ${isActive ? 'text-white/80' : 'text-gray-400'}`}>
+                                  ({value.toFixed(0)}%)
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Radar Chart and Details */}
+                <div className="space-y-4">
+                  {/* Radar Chart */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Target className="w-5 h-5 text-[#007185]" />
+                      <h3 className="font-medium text-gray-800">Analysis Overview</h3>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <RadarChart
+                        data={historyToSkinProblems(selectedHistoryItem)}
+                        size={280}
+                      />
+                      <p className="text-xs text-gray-500 text-center mt-2">
+                        Points closer to edge indicate healthier skin
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Problem Values List */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Info className="w-5 h-5 text-[#007185]" />
+                      <h3 className="font-medium text-gray-800">Detailed Values</h3>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {SKIN_ATTRIBUTES.map((attr) => {
+                        const value = selectedHistoryItem[attr.key as keyof HistoryEntry] as number | null;
+                        if (value === null || value === 0) return null;
+
+                        return (
+                          <div
+                            key={attr.key}
+                            className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${
+                              activeAreaFilter === attr.key
+                                ? 'border-[#007185] bg-[#007185]/5'
+                                : 'border-gray-100 bg-gray-50 hover:bg-gray-100'
+                            }`}
+                            onClick={() => setActiveAreaFilter(attr.key)}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: attr.color }}
+                              />
+                              <span className="text-sm text-gray-700">{attr.label}</span>
+                            </div>
+                            <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${
+                              value <= 10 ? 'bg-green-100 text-green-700' :
+                              value <= 25 ? 'bg-green-50 text-green-600' :
+                              value <= 50 ? 'bg-yellow-100 text-yellow-700' :
+                              value <= 75 ? 'bg-orange-100 text-orange-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {value.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Overall Score */}
+                  {(() => {
+                    const problems = historyToSkinProblems(selectedHistoryItem);
+                    const avgScore = problems.length > 0
+                      ? Math.round(100 - (problems.reduce((sum, p) => sum + p.value, 0) / problems.length))
+                      : 0;
+                    return (
+                      <div className="p-4 rounded-xl bg-gradient-to-br from-[#007185] to-[#005a6a] text-white">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-white/70 text-sm">Overall Skin Health</p>
+                            <p className="text-3xl font-bold">{avgScore}%</p>
+                          </div>
+                          <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
+                            <Heart className="w-8 h-8" />
+                          </div>
+                        </div>
+                        <p className="text-white/70 text-xs mt-2">
+                          Based on {problems.length} analyzed areas
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+              <button
+                onClick={handleCloseHistoryModal}
+                className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
