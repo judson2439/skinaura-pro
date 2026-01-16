@@ -552,7 +552,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       const options = {
         elementId: ELEMENT_ID,
         faceageId: FACE_AGE_ID,
-        displayModel: 'widget',
+        displayModel: 'section',
         language: 'en',
         currency: '$',
         quiz: true,
@@ -741,10 +741,10 @@ const FaceAnalysisV2Section: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content Grid */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* FaceAge Widget Container */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Main Content Grid - 1:2 ratio */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* FaceAge Widget Container - 1 column */}
+        <div className="lg:col-span-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-[#007185]" />
@@ -764,8 +764,8 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         </div>
 
-        {/* Analysis Results Section */}
-        <div className="space-y-6">
+        {/* Analysis Results Section - 2 columns */}
+        <div className="lg:col-span-2 space-y-6">
           {/* Radar Chart Section */}
           {analysisData && skinProblems.length > 0 ? (
             <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
