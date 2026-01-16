@@ -684,6 +684,7 @@ const FaceAnalysisV2Section: React.FC = () => {
         // Get analysis data when available
         faceAge.API.getAdvisorData((data: unknown) => {
           console.log('Advisor data:', data);
+          console.log('User Image:', faceAge.API.getImage());
           const advisorData = data as AdvisorDataResponse;
           setAnalysisData(advisorData);
           
@@ -812,7 +813,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       {/* Main Content Grid - 1:2 ratio */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* FaceAge Widget Container - 1 column */}
-        <div className="lg:col-span-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+        <div className="lg:col-span-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col justify-between">
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-[#007185]" />
