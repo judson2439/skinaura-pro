@@ -19,6 +19,7 @@ import {
   Zap,
   Target,
   Info,
+  CircleDot,
 } from 'lucide-react';
 
 // ============================================================================
@@ -373,6 +374,9 @@ const FaceAnalysisV2Section: React.FC = () => {
         showRoutine: true,
         showAddToCart: true,
         defaultQuiz: { email: 'hi@getfaceage.com' },
+        height: 700,
+        width: '100%',
+        margin: '0 auto',
         problems: [
           'fineWrinkles',
           'eyeWrinkles',
@@ -488,22 +492,40 @@ const FaceAnalysisV2Section: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-serif font-bold text-gray-900">AI Skin Analysis</h2>
-          <p className="text-gray-500">Get personalized insights about your skin health</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {analysisData && (
-            <button
-              onClick={handleResetAnalysis}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4 text-gray-500" />
-              <span className="text-sm font-medium">New Analysis</span>
-            </button>
-          )}
+      {/* Hero Header */}
+      <div className="bg-gradient-to-r from-[#2D2A3E] to-[#3D3A4E] rounded-2xl p-6 md:p-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <CircleDot className="w-4 h-4 text-[#CFAFA3]" />
+              <span className="text-xs font-semibold text-[#CFAFA3] uppercase tracking-wider">
+                AI Analysis
+              </span>
+            </div>
+            <h2 className="text-2xl md:text-3xl font-serif font-bold text-white mb-2">
+              SkinAura AI Facial Scanner
+            </h2>
+            <p className="text-gray-300 text-sm md:text-base">
+              Advanced AI-powered analysis to evaluate your skin health and track skincare progress
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {faceAgeReady && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-full">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                <span className="text-sm font-medium text-green-400">AI Ready</span>
+              </div>
+            )}
+            {analysisData && (
+              <button
+                onClick={handleResetAnalysis}
+                className="flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/20 rounded-xl hover:bg-white/20 transition-colors text-white"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span className="text-sm font-medium">New Analysis</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
