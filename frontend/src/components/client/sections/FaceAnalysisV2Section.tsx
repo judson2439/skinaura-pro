@@ -552,7 +552,7 @@ const FaceAnalysisV2Section: React.FC = () => {
                 <Loader2 className="w-8 h-8 text-[#CFAFA3] animate-spin" />
               </div>
             )}
-            <div id={ELEMENT_ID} className="w-full min-h-[500px]" />
+            <div id={ELEMENT_ID} className="w-full min-h-[700px]" />
           </div>
         </div>
 
