@@ -21,6 +21,7 @@ import ProgressPhotosSection from '@/components/admin/sections/ProgressPhotosSec
 import { Loader2 } from 'lucide-react';
 import { validateAuthSession, getAuthSession, clearAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
+import { useInactivityTimeout } from '@/hooks/useInactivityTimeout';
 
 // ============================================================================
 // CONSTANTS
@@ -102,6 +103,11 @@ const Admin: React.FC = () => {
     routinesCompletedAllTime: 847293,
     professionalChange: 8.2,
     clientChange: 12.5,
+  });
+
+  // Track user activity and auto-logout after 10 minutes of inactivity
+  useInactivityTimeout({
+    enabled: !isCheckingSession && !!adminProfile,
   });
 
   // Check admin session on mount

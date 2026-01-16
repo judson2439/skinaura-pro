@@ -2,11 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getAuthSession, clearAuthSession, isSessionExpiredByInactivity, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
+import { useInactivityTimeout } from '@/hooks/useInactivityTimeout';
 import { apiClient } from '@/lib/apiClient';
 import ProfessionalSidebar, { PROFESSIONAL_NAV_ITEMS } from '@/components/professional/ProfessionalSidebar';
 import ProfessionalHeader from '@/components/professional/ProfessionalHeader';
 import ProfessionalFooter from '@/components/professional/ProfessionalFooter';
 import ProfessionalDashboardSection from '@/components/professional/sections/ProfessionalDashboardSection';
+import OnboardingSection from '@/components/professional/sections/OnboardingSection';
 import MyClientsSection from '@/components/professional/sections/MyClientsSection';
 import ClientPhotosSection from '@/components/professional/sections/ClientPhotosSection';
 import ManageRoutinesSection from '@/components/professional/sections/ManageRoutinesSection';
@@ -53,6 +55,11 @@ const ProfessionalPage: React.FC = () => {
   
   // Auth session state - allows re-render when session is updated (e.g., avatar change)
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
+
+  // Track user activity and auto-logout after 10 minutes of inactivity
+  useInactivityTimeout({
+    enabled: !!authSession,
+  });
 
   // Client Profile Modal state
   const [showClientProfileModal, setShowClientProfileModal] = useState(false);
@@ -272,6 +279,13 @@ const ProfessionalPage: React.FC = () => {
           />
         );
 
+      case 'onboarding':
+        return (
+          <OnboardingSection
+            onNavigateToView={handleNavigateToView}
+          />
+        );
+
       case 'clients':
         return (
           <MyClientsSection
@@ -365,12 +379,14 @@ const ProfessionalPage: React.FC = () => {
           />
 
           {/* Page Content - Scrollable */}
-          <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-            <div className="mx-auto">
-              {renderSection()}
+          <main className="flex-1 overflow-y-auto">
+            <div className="p-4 lg:p-8">
+              <div className="mx-auto">
+                {renderSection()}
+              </div>
             </div>
+            {/* Footer inside scrollable area */}
           </main>
-          {/* Footer inside scrollable area */}
           <ProfessionalFooter />
         </div>
       </div>

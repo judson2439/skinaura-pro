@@ -11,6 +11,7 @@ import {
   Package,
   HelpCircle,
   Bell,
+  Rocket,
   LucideIcon,
 } from 'lucide-react';
 import EncryptedImage from '../ui/encrypted-image';
@@ -41,6 +42,7 @@ interface ProfessionalSidebarProps {
 
 export const PROFESSIONAL_NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'onboarding', label: 'Onboarding', icon: Rocket },
   { id: 'clients', label: 'My Clients', icon: Users },
   { id: 'photos', label: 'Client Photos', icon: Camera },
   { id: 'routines', label: 'Manage Routines', icon: Clock },

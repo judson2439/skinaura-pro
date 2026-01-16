@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
+import { useInactivityTimeout } from '@/hooks/useInactivityTimeout';
 import ClientSidebar, { CLIENT_NAV_ITEMS } from '@/components/client/ClientSidebar';
 import ClientHeader from '@/components/client/ClientHeader';
 import ClientFooter from '@/components/client/ClientFooter';
@@ -81,6 +82,11 @@ const ClientPage: React.FC = () => {
   
   // Auth session state - allows re-render when session is updated (e.g., avatar change)
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
+
+  // Track user activity and auto-logout after 10 minutes of inactivity
+  useInactivityTimeout({
+    enabled: !!authSession,
+  });
   
   // Listen for auth session updates (e.g., when avatar is changed in profile)
   useEffect(() => {
