@@ -1021,10 +1021,14 @@ const FaceAnalysisV2Section: React.FC = () => {
   }, []);
 
   // Calculate derived values
-  const tempSkinHealth = skinProblems.length > 0 ? calculateSkinHealth(skinProblems) : 0;
-  setSkinHealth(tempSkinHealth);
   const areasToFocus = skinProblems.filter(p => p.value > 50).length;
   const goodAreas = skinProblems.filter(p => p.value <= 10).length;
+
+  // Update skinHealth when skinProblems changes
+  useEffect(() => {
+    const newSkinHealth = skinProblems.length > 0 ? calculateSkinHealth(skinProblems) : 0;
+    setSkinHealth(newSkinHealth);
+  }, [skinProblems]);
 
   return (
     <div className="space-y-6">
