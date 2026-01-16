@@ -272,7 +272,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       const options = {
         elementId: ELEMENT_ID,
         faceageId: FACE_AGE_ID,
-        displayModel: 'section',
+        displayModel: 'widget',
         language: 'en',
         currency: '$',
         quiz: true,
