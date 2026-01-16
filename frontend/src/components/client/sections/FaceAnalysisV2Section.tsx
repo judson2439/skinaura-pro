@@ -591,34 +591,34 @@ const FaceAnalysisV2Section: React.FC = () => {
         if (areasData && areasData.length > 10) { // Make sure it's valid base64 data
           console.log(`📤 Uploading area SVG for ${key}...`);
           try {
-            const svgFile = svgBase64ToFile(areasData, `faceage-area-${key}-${Date.now()}.svg`);
+            const svgFile = svgBase64ToFile(areasData, `faceage-area-${key.toLowerCase()}-${Date.now()}.svg`);
             const areaResult = await uploadImage(svgFile, 'photos', token);
             if (areaResult.success && areaResult.data?.image_url) {
-              areaUrls[`${key}_area`] = areaResult.data.image_url;
+              areaUrls[`${key.toLowerCase()}_area`] = areaResult.data.image_url;
               console.log(`✅ Area SVG uploaded for ${key}:`, areaResult.data.image_url);
             }
           } catch (err) {
             console.error(`Failed to upload area SVG for ${key}:`, err);
-            areaUrls[`${key}_area`] = null;
+            areaUrls[`${key.toLowerCase()}_area`] = null;
           }
         } else {
-          areaUrls[`${key}_area`] = null;
+          areaUrls[`${key.toLowerCase()}_area`] = null;
         }
       }
 
-      // 3. Build save data with proper field names
+      // 3. Build save data with proper field names (lowercase keys)
       const saveData: Record<string, unknown> = {
         original_area: photoUrl,
       };
 
-      // Add numeric values for each problem
+      // Add numeric values for each problem (lowercase keys)
       for (const problem of skinProblems) {
-        saveData[problem.key] = problem.value;
+        saveData[problem.key.toLowerCase()] = problem.value;
       }
 
-      // Add area URLs
+      // Add area URLs (lowercase keys)
       Object.entries(areaUrls).forEach(([key, value]) => {
-        saveData[key] = value;
+        saveData[key.toLowerCase()] = value;
       });
 
       console.log('💾 Saving analysis to database...', saveData);
