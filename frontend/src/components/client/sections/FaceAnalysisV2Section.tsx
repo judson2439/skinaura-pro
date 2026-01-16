@@ -20,6 +20,9 @@ import {
   Target,
   Info,
   CircleDot,
+  Clock,
+  Lightbulb,
+  ChevronDown,
 } from 'lucide-react';
 
 // ============================================================================
@@ -30,6 +33,70 @@ const FACE_AGE_ID = 'sG3mv6Z0qLEuDJIHopSZ';
 const ELEMENT_ID = 'FaceAge-module';
 const FACE_AGE_CDN = 'https://cdn.jsdelivr.net/npm/face-age';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+
+// Skincare tips for each problem area
+const SKIN_TIPS: Record<string, string[]> = {
+  fineWrinkles: [
+    'Use a retinol serum at night',
+    'Apply sunscreen daily to prevent further damage',
+    'Stay hydrated and use hyaluronic acid',
+  ],
+  eyeWrinkles: [
+    'Use an eye cream with peptides',
+    'Wear sunglasses to prevent squinting',
+    'Get adequate sleep (7-9 hours)',
+  ],
+  deepWrinkles: [
+    'Consider professional treatments like microneedling',
+    'Use products with retinoids and vitamin C',
+    'Facial massage can help improve circulation',
+  ],
+  darkCircle: [
+    'Get enough sleep and reduce screen time',
+    'Use eye creams with vitamin K and caffeine',
+    'Stay hydrated and reduce salt intake',
+  ],
+  eyeBag: [
+    'Apply cold compresses in the morning',
+    'Elevate your head while sleeping',
+    'Reduce alcohol and salt consumption',
+  ],
+  pores: [
+    'Use niacinamide to minimize pore appearance',
+    'Exfoliate regularly with BHA/salicylic acid',
+    'Always remove makeup before bed',
+  ],
+  pigment: [
+    'Use vitamin C serum in the morning',
+    'Apply SPF 30+ sunscreen daily',
+    'Try products with arbutin or kojic acid',
+  ],
+  redness: [
+    'Use gentle, fragrance-free products',
+    'Apply products with centella asiatica',
+    'Avoid hot water and harsh exfoliants',
+  ],
+  oiliness: [
+    'Use oil-free, non-comedogenic products',
+    'Try niacinamide to regulate sebum',
+    "Don't over-wash - it can increase oil production",
+  ],
+  acne: [
+    'Use salicylic acid or benzoyl peroxide treatments',
+    'Keep skin clean but avoid over-washing',
+    'Avoid touching your face frequently',
+  ],
+  dryness: [
+    'Use a hydrating serum with hyaluronic acid',
+    'Apply moisturizer to damp skin',
+    'Use a humidifier in dry environments',
+  ],
+  sagginess: [
+    'Use products with peptides and retinol',
+    'Facial exercises can help tone muscles',
+    'Consider professional treatments like RF therapy',
+  ],
+};
 
 // ============================================================================
 // TYPES
@@ -444,6 +511,7 @@ const FaceAnalysisV2Section: React.FC = () => {
   const [analysisData, setAnalysisData] = useState<AdvisorDataResponse | null>(null);
   const [skinProblems, setSkinProblems] = useState<SkinProblem[]>([]);
   const [selectedProblem, setSelectedProblem] = useState<SkinProblem | null>(null);
+  const [activeTab, setActiveTab] = useState<'analysis' | 'history' | 'tips'>('analysis');
 
   /**
    * Fetch recommended products and set them in FaceAge
@@ -764,150 +832,274 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         </div>
 
-        {/* Analysis Results Section - 2 columns */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Radar Chart Section */}
-          {analysisData && skinProblems.length > 0 ? (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-[#007185]" />
-                  <h3 className="font-serif font-bold text-lg">Skin Analysis Chart</h3>
-                </div>
-                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                  {skinProblems.length} areas analyzed
-                </span>
-              </div>
-              
-              {/* Radar Chart */}
-              <RadarChart 
-                data={skinProblems} 
-                size={300}
-                onSelectProblem={setSelectedProblem}
-                selectedProblem={selectedProblem}
-              />
-              <p className="text-xs text-gray-500 text-center mt-2">
-                Click on any area to see details. Points closer to edge indicate healthier skin.
-              </p>
+        {/* Analysis Results Section - 2 columns with Tabs */}
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            {/* Tab Navigation */}
+            <div className="flex border-b border-gray-100">
+              <button
+                onClick={() => setActiveTab('analysis')}
+                className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-medium transition-colors ${
+                  activeTab === 'analysis'
+                    ? 'bg-[#007185]/5 text-[#007185] border-b-2 border-[#007185]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Target className="w-4 h-4" />
+                Detailed Analysis
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-medium transition-colors ${
+                  activeTab === 'history'
+                    ? 'bg-[#007185]/5 text-[#007185] border-b-2 border-[#007185]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                History
+              </button>
+              <button
+                onClick={() => setActiveTab('tips')}
+                className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-medium transition-colors ${
+                  activeTab === 'tips'
+                    ? 'bg-[#007185]/5 text-[#007185] border-b-2 border-[#007185]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <Lightbulb className="w-4 h-4" />
+                Tips
+              </button>
             </div>
-          ) : (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center gap-2 mb-6">
-                <Eye className="w-5 h-5 text-[#007185]" />
-                <h3 className="font-serif font-bold text-lg">Analysis Results</h3>
-              </div>
-              <div className="py-12 text-center text-gray-400">
-                <Camera className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium text-gray-600">No Analysis Yet</p>
-                <p className="text-sm mt-2">
-                  Use the Face Scanner to analyze your skin and see detailed results here.
-                </p>
-              </div>
-            </div>
-          )}
 
-          {/* Selected Problem Details */}
-          {selectedProblem && (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Info className="w-5 h-5 text-[#007185]" />
-                <h3 className="font-serif font-bold text-lg">About {selectedProblem.title}</h3>
-              </div>
-              <div className="flex items-start gap-4">
-                <div 
-                  className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-lg font-bold flex-shrink-0"
-                  style={{ backgroundColor: selectedProblem.color }}
-                >
-                  {selectedProblem.value.toFixed(0)}%
+            {/* Tab Content */}
+            <div className="p-6">
+              {/* Detailed Analysis Tab */}
+              {activeTab === 'analysis' && (
+                <div className="space-y-6">
+                  {/* Radar Chart Section */}
+                  {analysisData && skinProblems.length > 0 ? (
+                    <>
+                      <div>
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            <Target className="w-5 h-5 text-[#007185]" />
+                            <h3 className="font-serif font-bold text-lg">Skin Analysis Chart</h3>
+                          </div>
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                            {skinProblems.length} areas analyzed
+                          </span>
+                        </div>
+                        
+                        {/* Radar Chart */}
+                        <RadarChart 
+                          data={skinProblems} 
+                          size={300}
+                          onSelectProblem={setSelectedProblem}
+                          selectedProblem={selectedProblem}
+                        />
+                        <p className="text-xs text-gray-500 text-center mt-2">
+                          Click on any area to see details. Points closer to edge indicate healthier skin.
+                        </p>
+                      </div>
+
+                      {/* Selected Problem Details */}
+                      {selectedProblem && (
+                        <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Info className="w-4 h-4 text-[#007185]" />
+                            <h4 className="font-medium text-gray-800">About {selectedProblem.title}</h4>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <div 
+                              className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                              style={{ backgroundColor: selectedProblem.color }}
+                            >
+                              {selectedProblem.value.toFixed(0)}%
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm text-gray-600 leading-relaxed">
+                                {selectedProblem.description}
+                              </p>
+                              <div className="mt-2">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  selectedProblem.value <= 10 ? 'bg-green-100 text-green-700' :
+                                  selectedProblem.value <= 25 ? 'bg-green-50 text-green-600' :
+                                  selectedProblem.value <= 50 ? 'bg-yellow-100 text-yellow-700' :
+                                  selectedProblem.value <= 75 ? 'bg-orange-100 text-orange-700' :
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {getSeverityText(selectedProblem.value)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Top Concerns */}
+                      <div className="p-4 rounded-xl bg-orange-50 border border-orange-100">
+                        <div className="flex items-center gap-2 mb-3">
+                          <AlertCircle className="w-4 h-4 text-orange-500" />
+                          <h4 className="font-medium text-gray-800">Top Concerns</h4>
+                        </div>
+                        <div className="space-y-2">
+                          {skinProblems.slice(0, 3).map((problem, idx) => (
+                            <div 
+                              key={problem.key} 
+                              className="flex items-center gap-3 p-2 rounded-lg bg-white cursor-pointer hover:shadow-sm transition-all"
+                              onClick={() => setSelectedProblem(problem)}
+                            >
+                              <div 
+                                className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white"
+                                style={{ backgroundColor: problem.color }}
+                              >
+                                {idx + 1}
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-medium text-sm text-gray-800">{problem.title}</p>
+                              </div>
+                              <p className="font-bold text-sm text-gray-700">{problem.value.toFixed(1)}%</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-12 text-center text-gray-400">
+                      <Camera className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium text-gray-600">No Analysis Yet</p>
+                      <p className="text-sm mt-2">
+                        Use the Face Scanner to analyze your skin and see detailed results here.
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm text-gray-600 leading-relaxed">
-                    {selectedProblem.description}
+              )}
+
+              {/* History Tab */}
+              {activeTab === 'history' && (
+                <div className="py-12 text-center text-gray-400">
+                  <Clock className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium text-gray-600">Analysis History</p>
+                  <p className="text-sm mt-2">
+                    Your past skin analysis results will appear here.
                   </p>
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      selectedProblem.value <= 10 ? 'bg-green-100 text-green-700' :
-                      selectedProblem.value <= 25 ? 'bg-green-50 text-green-600' :
-                      selectedProblem.value <= 50 ? 'bg-yellow-100 text-yellow-700' :
-                      selectedProblem.value <= 75 ? 'bg-orange-100 text-orange-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {getSeverityText(selectedProblem.value)}
-                    </span>
-                  </div>
                 </div>
-              </div>
-            </div>
-          )}
+              )}
 
-          {/* Top Concerns */}
-          {analysisData && skinProblems.length > 0 && (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <AlertCircle className="w-5 h-5 text-orange-500" />
-                <h3 className="font-serif font-bold text-lg">Top Concerns</h3>
-              </div>
-              <div className="space-y-3">
-                {skinProblems.slice(0, 3).map((problem, idx) => (
-                  <div 
-                    key={problem.key} 
-                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${
-                      problem.value >= 50 ? 'bg-red-50 hover:bg-red-100' :
-                      problem.value >= 25 ? 'bg-orange-50 hover:bg-orange-100' : 
-                      'bg-yellow-50 hover:bg-yellow-100'
-                    }`}
-                    onClick={() => setSelectedProblem(problem)}
-                  >
-                    <div 
-                      className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm text-white"
-                      style={{ backgroundColor: problem.color }}
-                    >
-                      {idx + 1}
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-sm">{problem.title}</p>
-                      <p className="text-xs text-gray-500">{getSeverityText(problem.value)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-gray-900">{problem.value.toFixed(1)}%</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+              {/* Tips Tab */}
+              {activeTab === 'tips' && (
+                <div className="space-y-4">
+                  {analysisData && skinProblems.length > 0 ? (
+                    <>
+                      {/* Personalized Tips based on top concern */}
+                      {skinProblems.length > 0 && (
+                        <div className="p-4 rounded-xl bg-gradient-to-br from-[#007185]/10 to-[#007185]/5 border border-[#007185]/20">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Zap className="w-5 h-5 text-[#007185]" />
+                            <span className="font-medium text-gray-800">
+                              Top Priority: {skinProblems[0]?.title}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-3">
+                            Based on your analysis, here are personalized tips for your primary concern:
+                          </p>
+                          <ul className="space-y-2">
+                            {(SKIN_TIPS[skinProblems[0]?.key] || []).map((tip, idx) => (
+                              <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                                <CheckCircle className="w-4 h-4 text-[#007185] flex-shrink-0 mt-0.5" />
+                                {tip}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-          {/* Skin Health Tips */}
-          {analysisData && skinProblems.length > 0 && (
-            <div className="bg-gradient-to-br from-[#2D2A3E] to-[#3D3A4E] rounded-2xl p-6 text-white">
-              <div className="flex items-center gap-2 mb-4">
-                <Droplets className="w-5 h-5" />
-                <h3 className="font-serif font-bold text-lg">Quick Tips</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white/10 rounded-xl p-4">
-                  <Sun className="w-5 h-5 mb-2 text-white/60" />
-                  <p className="text-sm font-medium">Sun Protection</p>
-                  <p className="text-xs text-white/60 mt-1">Always wear SPF 30+ daily</p>
+                      {/* All Tips by Category */}
+                      <div>
+                        <h4 className="font-medium text-gray-800 mb-3 flex items-center gap-2">
+                          <Lightbulb className="w-4 h-4 text-amber-500" />
+                          All Skincare Tips
+                        </h4>
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                          {skinProblems.map((problem) => {
+                            const tips = SKIN_TIPS[problem.key] || [];
+                            if (tips.length === 0) return null;
+                            return (
+                              <details key={problem.key} className="group">
+                                <summary className="flex items-center justify-between p-3 rounded-xl bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
+                                  <div className="flex items-center gap-2">
+                                    <div 
+                                      className="w-3 h-3 rounded-full"
+                                      style={{ backgroundColor: problem.color }}
+                                    />
+                                    <span className="font-medium text-gray-700">{problem.title}</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      problem.value <= 10 ? 'bg-green-100 text-green-700' :
+                                      problem.value <= 25 ? 'bg-green-50 text-green-600' :
+                                      problem.value <= 50 ? 'bg-yellow-100 text-yellow-700' :
+                                      problem.value <= 75 ? 'bg-orange-100 text-orange-700' :
+                                      'bg-red-100 text-red-700'
+                                    }`}>
+                                      {problem.value.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                  <ChevronDown className="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" />
+                                </summary>
+                                <div className="p-3 space-y-2 bg-gray-50 rounded-b-xl -mt-1">
+                                  {tips.map((tip, idx) => (
+                                    <p key={idx} className="text-sm text-gray-600 flex items-start gap-2">
+                                      <span className="text-[#007185]">•</span>
+                                      {tip}
+                                    </p>
+                                  ))}
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Quick Tips */}
+                      <div className="p-4 rounded-xl bg-gradient-to-br from-[#2D2A3E] to-[#3D3A4E] text-white">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Droplets className="w-4 h-4" />
+                          <h4 className="font-medium">Daily Essentials</h4>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white/10 rounded-lg p-3">
+                            <Sun className="w-4 h-4 mb-1 text-white/60" />
+                            <p className="text-xs font-medium">SPF 30+ daily</p>
+                          </div>
+                          <div className="bg-white/10 rounded-lg p-3">
+                            <Droplets className="w-4 h-4 mb-1 text-white/60" />
+                            <p className="text-xs font-medium">8 glasses of water</p>
+                          </div>
+                          <div className="bg-white/10 rounded-lg p-3">
+                            <Sparkles className="w-4 h-4 mb-1 text-white/60" />
+                            <p className="text-xs font-medium">Cleanse & moisturize</p>
+                          </div>
+                          <div className="bg-white/10 rounded-lg p-3">
+                            <Heart className="w-4 h-4 mb-1 text-white/60" />
+                            <p className="text-xs font-medium">7-8 hours sleep</p>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-12 text-center text-gray-400">
+                      <Lightbulb className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium text-gray-600">Skincare Tips</p>
+                      <p className="text-sm mt-2">
+                        Complete an analysis to get personalized skincare tips.
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="bg-white/10 rounded-xl p-4">
-                  <Droplets className="w-5 h-5 mb-2 text-white/60" />
-                  <p className="text-sm font-medium">Hydration</p>
-                  <p className="text-xs text-white/60 mt-1">Drink 8 glasses of water</p>
-                </div>
-                <div className="bg-white/10 rounded-xl p-4">
-                  <Sparkles className="w-5 h-5 mb-2 text-white/60" />
-                  <p className="text-sm font-medium">Routine</p>
-                  <p className="text-xs text-white/60 mt-1">Cleanse, tone, moisturize</p>
-                </div>
-                <div className="bg-white/10 rounded-xl p-4">
-                  <Heart className="w-5 h-5 mb-2 text-white/60" />
-                  <p className="text-sm font-medium">Rest</p>
-                  <p className="text-xs text-white/60 mt-1">Get 7-8 hours of sleep</p>
-                </div>
-              </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>
