@@ -2575,6 +2575,7 @@ interface FaceAgeAnalysisEntry {
   id: string;
   user_id: string;
   original_area: string | null;
+  skin_health: number | null;
   finewrinkles: number | null;
   eyewrinkles: number | null;
   deepwrinkles: number | null;
@@ -2604,6 +2605,7 @@ router.post('/faceage-analysis', authMiddleware, async (req: Request, res: Respo
     const userId = (req as any).userId;
     const {
       original_area,
+      skin_health,
       finewrinkles,
       eyewrinkles,
       deepwrinkles,
@@ -2630,22 +2632,22 @@ router.post('/faceage-analysis', authMiddleware, async (req: Request, res: Respo
 
     const result = await queryOne<FaceAgeAnalysisEntry>(
       `INSERT INTO skin_analysis (
-        user_id, original_area,
+        user_id, original_area, skin_health,
         finewrinkles, eyewrinkles, deepwrinkles, darkcircle, eyebag,
         pores, pigment, redness, oiliness, acne,
         finewrinkles_area, eyewrinkles_area, deepwrinkles_area, darkcircle_area, eyebag_area,
         pores_area, pigment_area, redness_area, oiliness_area, acne_area,
         created_at
       ) VALUES (
-        $1, $2,
-        $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12,
-        $13, $14, $15, $16, $17,
-        $18, $19, $20, $21, $22,
+        $1, $2, $3,
+        $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13,
+        $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23,
         NOW()
       ) RETURNING *`,
       [
-        userId, original_area || null,
+        userId, original_area || null, skin_health || null,
         finewrinkles || null, eyewrinkles || null, deepwrinkles || null, darkcircle || null, eyebag || null,
         pores || null, pigment || null, redness || null, oiliness || null, acne || null,
         finewrinkles_area || null, eyewrinkles_area || null, deepwrinkles_area || null, darkcircle_area || null, eyebag_area || null,

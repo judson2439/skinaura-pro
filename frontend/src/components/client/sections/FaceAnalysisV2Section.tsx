@@ -206,6 +206,7 @@ interface HistoryEntry {
   id: string;
   user_id: string;
   original_area: string | null;
+  skin_health: number | null;
   finewrinkles: number | null;
   eyewrinkles: number | null;
   deepwrinkles: number | null;
@@ -569,6 +570,7 @@ const FaceAnalysisV2Section: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'analysis' | 'history' | 'tips'>('analysis');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [skinHealth, setSkinHealth] = useState(0);
   
   // History state
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([]);
@@ -670,6 +672,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       // 3. Build save data with proper field names (lowercase keys)
       const saveData: Record<string, unknown> = {
         original_area: photoUrl,
+        skin_health: skinHealth,
       };
 
       // Add numeric values for each problem (lowercase keys)
@@ -743,13 +746,17 @@ const FaceAnalysisV2Section: React.FC = () => {
    * Convert history entry to SkinProblem array for RadarChart
    */
   const historyToSkinProblems = (entry: HistoryEntry): SkinProblem[] => {
-    return SKIN_ATTRIBUTES.map(attr => ({
-      key: attr.key,
-      title: attr.label,
-      description: `${attr.label} analysis from saved scan`,
-      value: (entry[attr.key as keyof HistoryEntry] as number) || 0,
-      color: attr.color,
-    })).filter(p => p.value > 0).sort((a, b) => b.value - a.value);
+    return SKIN_ATTRIBUTES.map(attr => {
+      const rawValue = entry[attr.key as keyof HistoryEntry];
+      const numValue = rawValue !== null && rawValue !== undefined ? Number(rawValue) : 0;
+      return {
+        key: attr.key,
+        title: attr.label,
+        description: `${attr.label} analysis from saved scan`,
+        value: isNaN(numValue) ? 0 : numValue,
+        color: attr.color,
+      };
+    }).filter(p => p.value > 0).sort((a, b) => b.value - a.value);
   };
 
   /**
@@ -1014,7 +1021,8 @@ const FaceAnalysisV2Section: React.FC = () => {
   }, []);
 
   // Calculate derived values
-  const skinHealth = skinProblems.length > 0 ? calculateSkinHealth(skinProblems) : 0;
+  const tempSkinHealth = skinProblems.length > 0 ? calculateSkinHealth(skinProblems) : 0;
+  setSkinHealth(tempSkinHealth);
   const areasToFocus = skinProblems.filter(p => p.value > 50).length;
   const goodAreas = skinProblems.filter(p => p.value <= 10).length;
 
@@ -1323,9 +1331,13 @@ const FaceAnalysisV2Section: React.FC = () => {
                       <div className="space-y-3">
                         {historyData.map((entry) => {
                           const problems = historyToSkinProblems(entry);
-                          const avgScore = problems.length > 0 
-                            ? Math.round(100 - (problems.reduce((sum, p) => sum + p.value, 0) / problems.length))
-                            : 0;
+                          // Use stored skin_health if available, otherwise calculate
+                          const storedHealth = entry.skin_health !== null ? Number(entry.skin_health) : null;
+                          const avgScore = storedHealth !== null && !isNaN(storedHealth)
+                            ? storedHealth
+                            : (problems.length > 0
+                              ? Math.round(100 - (problems.reduce((sum, p) => sum + p.value, 0) / problems.length))
+                              : 0);
                           const topConcern = problems[0];
                           
                           return (
@@ -1641,7 +1653,8 @@ const FaceAnalysisV2Section: React.FC = () => {
 
                       {/* Individual Attribute Buttons */}
                       {SKIN_ATTRIBUTES.map((attr) => {
-                        const value = selectedHistoryItem[attr.key as keyof HistoryEntry] as number | null;
+                        const rawValue = selectedHistoryItem[attr.key as keyof HistoryEntry];
+                        const value = rawValue !== null && rawValue !== undefined ? Number(rawValue) : null;
                         const areaUrl = selectedHistoryItem[attr.areaKey as keyof HistoryEntry] as string | null;
                         const isActive = activeAreaFilter === attr.key;
                         const hasArea = !!areaUrl;
@@ -1666,7 +1679,7 @@ const FaceAnalysisV2Section: React.FC = () => {
                                 style={{ backgroundColor: isActive ? 'white' : attr.color }}
                               />
                               {attr.label}
-                              {value !== null && value > 0 && (
+                              {value !== null && !isNaN(value) && value > 0 && (
                                 <span className={`ml-1 ${isActive ? 'text-white/80' : 'text-gray-400'}`}>
                                   ({value.toFixed(0)}%)
                                 </span>
@@ -1706,8 +1719,9 @@ const FaceAnalysisV2Section: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {SKIN_ATTRIBUTES.map((attr) => {
-                        const value = selectedHistoryItem[attr.key as keyof HistoryEntry] as number | null;
-                        if (value === null || value === 0) return null;
+                        const rawValue = selectedHistoryItem[attr.key as keyof HistoryEntry];
+                        const value = rawValue !== null && rawValue !== undefined ? Number(rawValue) : null;
+                        if (value === null || isNaN(value) || value === 0) return null;
 
                         return (
                           <div
@@ -1744,9 +1758,13 @@ const FaceAnalysisV2Section: React.FC = () => {
                   {/* Overall Score */}
                   {(() => {
                     const problems = historyToSkinProblems(selectedHistoryItem);
-                    const avgScore = problems.length > 0
-                      ? Math.round(100 - (problems.reduce((sum, p) => sum + p.value, 0) / problems.length))
-                      : 0;
+                    // Use stored skin_health if available, otherwise calculate
+                    const storedHealth = selectedHistoryItem.skin_health !== null ? Number(selectedHistoryItem.skin_health) : null;
+                    const avgScore = storedHealth !== null && !isNaN(storedHealth)
+                      ? storedHealth
+                      : (problems.length > 0
+                        ? Math.round(100 - (problems.reduce((sum, p) => sum + p.value, 0) / problems.length))
+                        : 0);
                     return (
                       <div className="p-4 rounded-xl bg-gradient-to-br from-[#007185] to-[#005a6a] text-white">
                         <div className="flex items-center justify-between">
