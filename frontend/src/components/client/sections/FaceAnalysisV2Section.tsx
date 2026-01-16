@@ -188,7 +188,7 @@ const uploadToSupabaseStorage = async (blob: Blob, productId: string): Promise<s
       .from('progress-photos')
       .getPublicUrl(fileName);
 
-    console.log(`✅ Image uploaded to Supabase: ${publicUrl}`);
+    console.log(`? Image uploaded to Supabase: ${publicUrl}`);
     return publicUrl;
   } catch (error) {
     console.error('Error uploading to Supabase:', error);
@@ -277,7 +277,7 @@ const FaceAnalysisV2Section: React.FC = () => {
         return;
       }
 
-      console.log('🛍️ Fetching recommended products...');
+      console.log('??? Fetching recommended products...');
 
       apiClient.setAuthToken(token);
       const response = await apiClient.get<{
@@ -319,7 +319,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       );
 
       faceAge.API.setCustomProducts(customProducts);
-      console.log('✅ Custom products set in FaceAge:', customProducts.length);
+      console.log('? Custom products set in FaceAge:', customProducts.length);
 
     } catch (error) {
       console.error('Error fetching recommended products:', error);
@@ -350,6 +350,15 @@ const FaceAnalysisV2Section: React.FC = () => {
       if (!window.FaceAge) {
         console.error('FaceAge not loaded');
         setIsLoading(false);
+        return;
+      }
+
+      // Check if the element exists in DOM before initializing
+      const element = document.getElementById(ELEMENT_ID);
+      if (!element) {
+        console.log('FaceAge element not found, retrying...');
+        // Retry after a short delay to wait for DOM render
+        setTimeout(initFaceAge, 100);
         return;
       }
 
@@ -442,6 +451,7 @@ const FaceAnalysisV2Section: React.FC = () => {
         });
 
         setFaceAgeReady(true);
+        setIsLoading(false);
       } catch (error) {
         console.error('FaceAge initialization error:', error);
         setIsLoading(false);
@@ -475,15 +485,6 @@ const FaceAnalysisV2Section: React.FC = () => {
   const skinHealth = skinProblems.length > 0 ? calculateSkinHealth(skinProblems) : 0;
   const areasToFocus = skinProblems.filter(p => p.value > 50).length;
   const goodAreas = skinProblems.filter(p => p.value <= 10).length;
-
-  // Loading state
-  if (isLoading && !faceAgeReady) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 text-[#CFAFA3] animate-spin" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -545,7 +546,14 @@ const FaceAnalysisV2Section: React.FC = () => {
               Take a photo or upload an image to analyze your skin
             </p>
           </div>
-          <div id={ELEMENT_ID} className="w-full min-h-[500px]" />
+          <div className="relative">
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+                <Loader2 className="w-8 h-8 text-[#CFAFA3] animate-spin" />
+              </div>
+            )}
+            <div id={ELEMENT_ID} className="w-full min-h-[500px]" />
+          </div>
         </div>
 
         {/* Analysis Results Section */}
