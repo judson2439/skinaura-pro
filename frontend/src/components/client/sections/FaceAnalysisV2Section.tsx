@@ -812,7 +812,7 @@ const FaceAnalysisV2Section: React.FC = () => {
       {/* Main Content Grid - 1:2 ratio */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* FaceAge Widget Container - 1 column */}
-        <div className="lg:col-span-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="lg:col-span-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-[#007185]" />
@@ -822,7 +822,7 @@ const FaceAnalysisV2Section: React.FC = () => {
               Take a photo or upload an image to analyze your skin
             </p>
           </div>
-          <div className="relative max-h-[700px]">
+          <div className="relative flex-1 max-h-[700px]">
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <Loader2 className="w-8 h-8 text-[#CFAFA3] animate-spin" />
@@ -830,6 +830,21 @@ const FaceAnalysisV2Section: React.FC = () => {
             )}
             <div id={ELEMENT_ID} className="w-full h-full" />
           </div>
+          {/* Footer with Save Button */}
+          {analysisData && skinProblems.length > 0 && (
+            <div className="p-4 border-t border-gray-100 bg-gray-50">
+              <button
+                onClick={() => {
+                  // TODO: Implement save functionality
+                  console.log('Saving analysis...', { analysisData, skinProblems });
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#007185] text-white rounded-xl hover:bg-[#005a6a] transition-colors font-medium"
+              >
+                <CheckCircle className="w-5 h-5" />
+                Save Analysis
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Analysis Results Section - 2 columns with Tabs */}
