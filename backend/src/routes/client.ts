@@ -2574,22 +2574,22 @@ router.get('/recommended-products', authMiddleware, async (req: Request, res: Re
 interface FaceAgeAnalysisEntry {
   id: string;
   user_id: string;
-  photo_url: string | null;
-  fineWrinkles: number | null;
-  eyeWrinkles: number | null;
-  deepWrinkles: number | null;
-  darkCircle: number | null;
-  eyeBag: number | null;
+  original_area: string | null;
+  finewrinkles: number | null;
+  eyewrinkles: number | null;
+  deepwrinkles: number | null;
+  darkcircle: number | null;
+  eyebag: number | null;
   pores: number | null;
   pigment: number | null;
   redness: number | null;
   oiliness: number | null;
   acne: number | null;
-  fineWrinkles_area: string | null;
-  eyeWrinkles_area: string | null;
-  deepWrinkles_area: string | null;
-  darkCircle_area: string | null;
-  eyeBag_area: string | null;
+  finewrinkles_area: string | null;
+  eyewrinkles_area: string | null;
+  deepwrinkles_area: string | null;
+  darkcircle_area: string | null;
+  eyebag_area: string | null;
   pores_area: string | null;
   pigment_area: string | null;
   redness_area: string | null;
@@ -2604,21 +2604,21 @@ router.post('/faceage-analysis', authMiddleware, async (req: Request, res: Respo
     const userId = (req as any).userId;
     const {
       original_area,
-      fineWrinkles,
-      eyeWrinkles,
-      deepWrinkles,
-      darkCircle,
-      eyeBag,
+      finewrinkles,
+      eyewrinkles,
+      deepwrinkles,
+      darkcircle,
+      eyebag,
       pores,
       pigment,
       redness,
       oiliness,
       acne,
-      fineWrinkles_area,
-      eyeWrinkles_area,
-      deepWrinkles_area,
-      darkCircle_area,
-      eyeBag_area,
+      finewrinkles_area,
+      eyewrinkles_area,
+      deepwrinkles_area,
+      darkcircle_area,
+      eyebag_area,
       pores_area,
       pigment_area,
       redness_area,
@@ -2631,9 +2631,9 @@ router.post('/faceage-analysis', authMiddleware, async (req: Request, res: Respo
     const result = await queryOne<FaceAgeAnalysisEntry>(
       `INSERT INTO skin_analysis (
         user_id, original_area,
-        "fineWrinkles", "eyeWrinkles", "deepWrinkles", "darkCircle", "eyeBag",
+        finewrinkles, eyewrinkles, deepwrinkles, darkcircle, eyebag,
         pores, pigment, redness, oiliness, acne,
-        "fineWrinkles_area", "eyeWrinkles_area", "deepWrinkles_area", "darkCircle_area", "eyeBag_area",
+        finewrinkles_area, eyewrinkles_area, deepwrinkles_area, darkcircle_area, eyebag_area,
         pores_area, pigment_area, redness_area, oiliness_area, acne_area,
         created_at
       ) VALUES (
@@ -2646,9 +2646,9 @@ router.post('/faceage-analysis', authMiddleware, async (req: Request, res: Respo
       ) RETURNING *`,
       [
         userId, original_area || null,
-        fineWrinkles || null, eyeWrinkles || null, deepWrinkles || null, darkCircle || null, eyeBag || null,
+        finewrinkles || null, eyewrinkles || null, deepwrinkles || null, darkcircle || null, eyebag || null,
         pores || null, pigment || null, redness || null, oiliness || null, acne || null,
-        fineWrinkles_area || null, eyeWrinkles_area || null, deepWrinkles_area || null, darkCircle_area || null, eyeBag_area || null,
+        finewrinkles_area || null, eyewrinkles_area || null, deepwrinkles_area || null, darkcircle_area || null, eyebag_area || null,
         pores_area || null, pigment_area || null, redness_area || null, oiliness_area || null, acne_area || null,
       ]
     );
