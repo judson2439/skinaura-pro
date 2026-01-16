@@ -165,190 +165,6 @@ const calculateSkinHealth = (problems: SkinProblem[]): number => {
   return Math.round(100 - avgProblem);
 };
 
-// ============================================================================
-// RADAR CHART COMPONENT
-// ============================================================================
-
-interface RadarChartProps {
-  data: SkinProblem[];
-  size?: number;
-  onSelectProblem?: (problem: SkinProblem) => void;
-  selectedProblem?: SkinProblem | null;
-}
-
-const RadarChart: React.FC<RadarChartProps> = ({ 
-  data, 
-  size = 320, 
-  onSelectProblem,
-  selectedProblem 
-}) => {
-  if (data.length === 0) return null;
-
-  const labelPadding = 90;
-  const totalWidth = size + (labelPadding * 2);
-  const totalHeight = size + (labelPadding * 2);
-
-  const centerX = totalWidth / 2;
-  const centerY = totalHeight / 2;
-  const radius = (size / 2) - 20;
-  const levels = 5;
-  const angleStep = (2 * Math.PI) / data.length;
-
-  const getPoint = (index: number, value: number) => {
-    const angle = (index * angleStep) - (Math.PI / 2);
-    const r = (value / 100) * radius;
-    return {
-      x: centerX + r * Math.cos(angle),
-      y: centerY + r * Math.sin(angle),
-    };
-  };
-
-  // Grid lines (pentagon/polygon shapes)
-  const gridLines = [];
-  for (let level = 1; level <= levels; level++) {
-    const levelRadius = (level / levels) * radius;
-    const points = data.map((_, index) => {
-      const angle = (index * angleStep) - (Math.PI / 2);
-      return `${centerX + levelRadius * Math.cos(angle)},${centerY + levelRadius * Math.sin(angle)}`;
-    }).join(' ');
-    gridLines.push(
-      <polygon
-        key={`grid-${level}`}
-        points={points}
-        fill="none"
-        stroke="#e5e7eb"
-        strokeWidth="1"
-      />
-    );
-  }
-
-  // Axis lines from center to each vertex
-  const axisLines = data.map((_, index) => {
-    const angle = (index * angleStep) - (Math.PI / 2);
-    const endX = centerX + radius * Math.cos(angle);
-    const endY = centerY + radius * Math.sin(angle);
-    return (
-      <line
-        key={`axis-${index}`}
-        x1={centerX}
-        y1={centerY}
-        x2={endX}
-        y2={endY}
-        stroke="#e5e7eb"
-        strokeWidth="1"
-      />
-    );
-  });
-
-  // Data polygon points
-  const dataPoints = data.map((problem, index) => {
-    const point = getPoint(index, problem.value);
-    return `${point.x},${point.y}`;
-  }).join(' ');
-
-  // Labels around the chart
-  const labels = data.map((problem, index) => {
-    const angle = (index * angleStep) - (Math.PI / 2);
-    const labelRadius = radius + 35;
-    const x = centerX + labelRadius * Math.cos(angle);
-    const y = centerY + labelRadius * Math.sin(angle);
-
-    let textAnchor: 'start' | 'middle' | 'end' = 'middle';
-    if (x < centerX - 10) textAnchor = 'end';
-    else if (x > centerX + 10) textAnchor = 'start';
-
-    const isSelected = selectedProblem?.key === problem.key;
-
-    return (
-      <g key={`label-${index}`}>
-        <text
-          x={x}
-          y={y - 8}
-          textAnchor={textAnchor}
-          dominantBaseline="middle"
-          className={`text-[10px] font-medium cursor-pointer transition-all ${
-            isSelected ? 'fill-[#007185]' : 'fill-gray-600'
-          }`}
-          onClick={() => onSelectProblem?.(problem)}
-        >
-          {problem.title}
-        </text>
-        <text
-          x={x}
-          y={y + 6}
-          textAnchor={textAnchor}
-          dominantBaseline="middle"
-          className={`text-[9px] font-bold ${
-            problem.value <= 10 ? 'fill-green-500' :
-            problem.value <= 25 ? 'fill-green-400' :
-            problem.value <= 50 ? 'fill-yellow-500' :
-            problem.value <= 75 ? 'fill-orange-500' : 'fill-red-500'
-          }`}
-        >
-          {problem.value.toFixed(1)}%
-        </text>
-      </g>
-    );
-  });
-
-  // Dots at each data point
-  const dots = data.map((problem, index) => {
-    const point = getPoint(index, problem.value);
-    const isSelected = selectedProblem?.key === problem.key;
-    return (
-      <circle
-        key={`dot-${index}`}
-        cx={point.x}
-        cy={point.y}
-        r={isSelected ? 7 : 5}
-        fill={problem.color}
-        stroke="#fff"
-        strokeWidth="2"
-        className="cursor-pointer transition-all"
-        onClick={() => onSelectProblem?.(problem)}
-      />
-    );
-  });
-
-  return (
-    <div className="flex justify-center w-full overflow-hidden">
-      <svg
-        width={totalWidth}
-        height={totalHeight}
-        viewBox={`0 0 ${totalWidth} ${totalHeight}`}
-        className="max-w-full"
-        style={{ minWidth: '280px' }}
-      >
-        {/* Grid */}
-        {gridLines}
-        {axisLines}
-
-        {/* Data area */}
-        <polygon
-          points={dataPoints}
-          fill="rgba(0, 113, 133, 0.2)"
-          stroke="#007185"
-          strokeWidth="2"
-        />
-
-        {/* Data points */}
-        {dots}
-
-        {/* Labels */}
-        {labels}
-
-        {/* Center circle */}
-        <circle
-          cx={centerX}
-          cy={centerY}
-          r="4"
-          fill="#007185"
-        />
-      </svg>
-    </div>
-  );
-};
-
 /**
  * Upload a blob to Supabase storage and get public URL
  */
@@ -764,29 +580,54 @@ const FaceAnalysisV2Section: React.FC = () => {
 
         {/* Analysis Results Section */}
         <div className="space-y-6">
-          {/* Radar Chart Section */}
+          {/* Skin Problems Breakdown */}
           {analysisData && skinProblems.length > 0 ? (
             <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-[#007185]" />
-                  <h3 className="font-serif font-bold text-lg">Skin Analysis Chart</h3>
-                </div>
-                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                  {skinProblems.length} areas analyzed
-                </span>
+              <div className="flex items-center gap-2 mb-6">
+                <Eye className="w-5 h-5 text-[#007185]" />
+                <h3 className="font-serif font-bold text-lg">Detailed Analysis</h3>
               </div>
               
-              {/* Radar Chart */}
-              <RadarChart 
-                data={skinProblems} 
-                size={300}
-                onSelectProblem={setSelectedProblem}
-                selectedProblem={selectedProblem}
-              />
-              <p className="text-xs text-gray-500 text-center mt-2">
-                Click on any area to see details. Higher values indicate areas that may need attention.
-              </p>
+              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                {skinProblems.map((problem) => (
+                  <div 
+                    key={problem.key} 
+                    className={`space-y-2 p-3 rounded-xl cursor-pointer transition-all ${
+                      selectedProblem?.key === problem.key 
+                        ? 'bg-gray-50 ring-2 ring-[#007185]/20' 
+                        : 'hover:bg-gray-50'
+                    }`}
+                    onClick={() => setSelectedProblem(problem)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: problem.color }}
+                        />
+                        <span className="text-sm font-medium text-gray-700">{problem.title}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-gray-900">{problem.value.toFixed(1)}%</span>
+                        {problem.value <= 10 ? (
+                          <TrendingDown className="w-4 h-4 text-green-500" />
+                        ) : problem.value >= 50 ? (
+                          <TrendingUp className="w-4 h-4 text-red-500" />
+                        ) : (
+                          <Zap className="w-4 h-4 text-yellow-500" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all ${getSeverityColor(problem.value)}`}
+                        style={{ width: `${Math.min(problem.value, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500">{getSeverityText(problem.value)}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
@@ -800,55 +641,6 @@ const FaceAnalysisV2Section: React.FC = () => {
                 <p className="text-sm mt-2">
                   Use the Face Scanner to analyze your skin and see detailed results here.
                 </p>
-              </div>
-            </div>
-          )}
-
-          {/* Skin Problems List */}
-          {analysisData && skinProblems.length > 0 && (
-            <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Eye className="w-5 h-5 text-[#007185]" />
-                <h3 className="font-serif font-bold text-lg">Detailed Breakdown</h3>
-              </div>
-              
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                {skinProblems.map((problem) => (
-                  <div 
-                    key={problem.key} 
-                    className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${
-                      selectedProblem?.key === problem.key 
-                        ? 'bg-[#007185]/5 ring-2 ring-[#007185]/20' 
-                        : 'bg-gray-50 hover:bg-gray-100'
-                    }`}
-                    onClick={() => setSelectedProblem(problem)}
-                  >
-                    <div 
-                      className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                      style={{ backgroundColor: problem.color }}
-                    >
-                      {problem.value.toFixed(0)}%
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium text-gray-800 truncate">{problem.title}</span>
-                        {problem.value <= 10 ? (
-                          <TrendingDown className="w-4 h-4 text-green-500 flex-shrink-0" />
-                        ) : problem.value >= 50 ? (
-                          <TrendingUp className="w-4 h-4 text-red-500 flex-shrink-0" />
-                        ) : (
-                          <Zap className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all ${getSeverityColor(problem.value)}`}
-                          style={{ width: `${Math.min(problem.value, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}
