@@ -2567,4 +2567,137 @@ router.get('/recommended-products', authMiddleware, async (req: Request, res: Re
   }
 });
 
+// ============================================================================
+// FACEAGE V2 SKIN ANALYSIS ROUTES
+// ============================================================================
+
+interface FaceAgeAnalysisEntry {
+  id: string;
+  user_id: string;
+  photo_url: string | null;
+  fineWrinkles: number | null;
+  eyeWrinkles: number | null;
+  deepWrinkles: number | null;
+  darkCircle: number | null;
+  eyeBag: number | null;
+  pores: number | null;
+  pigment: number | null;
+  redness: number | null;
+  oiliness: number | null;
+  acne: number | null;
+  fineWrinkles_area: string | null;
+  eyeWrinkles_area: string | null;
+  deepWrinkles_area: string | null;
+  darkCircle_area: string | null;
+  eyeBag_area: string | null;
+  pores_area: string | null;
+  pigment_area: string | null;
+  redness_area: string | null;
+  oiliness_area: string | null;
+  acne_area: string | null;
+  created_at: string;
+}
+
+// POST /client/faceage-analysis - Save FaceAge V2 skin analysis
+router.post('/faceage-analysis', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const {
+      original_area,
+      fineWrinkles,
+      eyeWrinkles,
+      deepWrinkles,
+      darkCircle,
+      eyeBag,
+      pores,
+      pigment,
+      redness,
+      oiliness,
+      acne,
+      fineWrinkles_area,
+      eyeWrinkles_area,
+      deepWrinkles_area,
+      darkCircle_area,
+      eyeBag_area,
+      pores_area,
+      pigment_area,
+      redness_area,
+      oiliness_area,
+      acne_area,
+    } = req.body;
+
+    console.log(`🔬 Saving FaceAge V2 analysis for user: ${userId}`);
+
+    const result = await queryOne<FaceAgeAnalysisEntry>(
+      `INSERT INTO skin_analysis (
+        user_id, original_area,
+        "fineWrinkles", "eyeWrinkles", "deepWrinkles", "darkCircle", "eyeBag",
+        pores, pigment, redness, oiliness, acne,
+        "fineWrinkles_area", "eyeWrinkles_area", "deepWrinkles_area", "darkCircle_area", "eyeBag_area",
+        pores_area, pigment_area, redness_area, oiliness_area, acne_area,
+        created_at
+      ) VALUES (
+        $1, $2,
+        $3, $4, $5, $6, $7,
+        $8, $9, $10, $11, $12,
+        $13, $14, $15, $16, $17,
+        $18, $19, $20, $21, $22,
+        NOW()
+      ) RETURNING *`,
+      [
+        userId, original_area || null,
+        fineWrinkles || null, eyeWrinkles || null, deepWrinkles || null, darkCircle || null, eyeBag || null,
+        pores || null, pigment || null, redness || null, oiliness || null, acne || null,
+        fineWrinkles_area || null, eyeWrinkles_area || null, deepWrinkles_area || null, darkCircle_area || null, eyeBag_area || null,
+        pores_area || null, pigment_area || null, redness_area || null, oiliness_area || null, acne_area || null,
+      ]
+    );
+
+    console.log(`✅ FaceAge V2 analysis saved: ${result?.id}`);
+
+    res.status(201).json({
+      success: true,
+      data: { analysis: result },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error saving FaceAge V2 analysis:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save skin analysis',
+    } as ApiResponse);
+  }
+});
+
+// GET /client/faceage-analysis/history - Get FaceAge V2 analysis history
+router.get('/faceage-analysis/history', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`🔬 Fetching FaceAge V2 analysis history for user: ${userId}`);
+
+    const analyses = await query<FaceAgeAnalysisEntry>(
+      `SELECT * FROM skin_analysis
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [userId]
+    );
+
+    console.log(`✅ Found ${analyses.length} FaceAge V2 analyses`);
+
+    res.status(200).json({
+      success: true,
+      data: { analyses },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching FaceAge V2 analysis history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch analysis history',
+    } as ApiResponse);
+  }
+});
+
 export default router;

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
-import { decryptFileToBlob } from '@/lib/encryption';
+import { decryptFileToBlob, uploadImage } from '@/lib/encryption';
 import { apiClient } from '@/lib/apiClient';
 import { supabase } from '@/lib/supabase';
 import {
@@ -509,9 +509,141 @@ const FaceAnalysisV2Section: React.FC = () => {
   const [faceAgeReady, setFaceAgeReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [analysisData, setAnalysisData] = useState<AdvisorDataResponse | null>(null);
+  const [userImage, setUserImage] = useState<string | null>(null);
   const [skinProblems, setSkinProblems] = useState<SkinProblem[]>([]);
   const [selectedProblem, setSelectedProblem] = useState<SkinProblem | null>(null);
   const [activeTab, setActiveTab] = useState<'analysis' | 'history' | 'tips'>('analysis');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  /**
+   * Convert base64 data URL to File
+   */
+  const base64ToFile = (base64Data: string, filename: string, mimeType: string): File => {
+    // Remove data URL prefix if present
+    const base64Content = base64Data.includes(',') 
+      ? base64Data.split(',')[1] 
+      : base64Data;
+    
+    const byteCharacters = atob(base64Content);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: mimeType });
+    return new File([blob], filename, { type: mimeType });
+  };
+
+  /**
+   * Convert base64 SVG data to File (SVG data without prefix)
+   */
+  const svgBase64ToFile = (base64Svg: string, filename: string): File => {
+    // Decode base64 to SVG string
+    const svgString = atob(base64Svg);
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    return new File([blob], filename, { type: 'image/svg+xml' });
+  };
+
+  /**
+   * Save analysis to database
+   */
+  const handleSaveAnalysis = async () => {
+    if (!analysisData || skinProblems.length === 0 || !userImage) {
+      console.error('No analysis data or user image to save');
+      return;
+    }
+
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) {
+      console.error('No auth token available');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      console.log('📸 Starting analysis save process...');
+
+      // 1. Upload user photo
+      let photoUrl: string | null = null;
+      if (userImage) {
+        console.log('📤 Uploading user photo...');
+        const photoFile = base64ToFile(userImage, `faceage-photo-${Date.now()}.jpg`, 'image/jpeg');
+        const photoResult = await uploadImage(photoFile, 'photos', token);
+        if (photoResult.success && photoResult.data?.image_url) {
+          photoUrl = photoResult.data.image_url;
+          console.log('✅ User photo uploaded:', photoUrl);
+        } else {
+          console.error('Failed to upload user photo:', photoResult.error);
+        }
+      }
+
+      // 2. Process and upload area SVGs
+      const areaUrls: Record<string, string | null> = {};
+      
+      for (const item of analysisData.analysis) {
+        const key = item.key;
+        const areasData = item.areas;
+        
+        if (areasData && areasData.length > 10) { // Make sure it's valid base64 data
+          console.log(`📤 Uploading area SVG for ${key}...`);
+          try {
+            const svgFile = svgBase64ToFile(areasData, `faceage-area-${key}-${Date.now()}.svg`);
+            const areaResult = await uploadImage(svgFile, 'photos', token);
+            if (areaResult.success && areaResult.data?.image_url) {
+              areaUrls[`${key}_area`] = areaResult.data.image_url;
+              console.log(`✅ Area SVG uploaded for ${key}:`, areaResult.data.image_url);
+            }
+          } catch (err) {
+            console.error(`Failed to upload area SVG for ${key}:`, err);
+            areaUrls[`${key}_area`] = null;
+          }
+        } else {
+          areaUrls[`${key}_area`] = null;
+        }
+      }
+
+      // 3. Build save data with proper field names
+      const saveData: Record<string, unknown> = {
+        original_area: photoUrl,
+      };
+
+      // Add numeric values for each problem
+      for (const problem of skinProblems) {
+        saveData[problem.key] = problem.value;
+      }
+
+      // Add area URLs
+      Object.entries(areaUrls).forEach(([key, value]) => {
+        saveData[key] = value;
+      });
+
+      console.log('💾 Saving analysis to database...', saveData);
+
+      // 4. Save to database
+      apiClient.setAuthToken(token);
+      const response = await apiClient.post<{ success: boolean; data?: unknown; error?: string }>(
+        '/api/client/faceage-analysis',
+        saveData
+      );
+
+      if (response.ok && response.data?.success) {
+        console.log('✅ Analysis saved successfully!');
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        console.error('Failed to save analysis:', response.data?.error);
+      }
+
+    } catch (error) {
+      console.error('Error saving analysis:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   /**
    * Fetch recommended products and set them in FaceAge
@@ -684,7 +816,9 @@ const FaceAnalysisV2Section: React.FC = () => {
         // Get analysis data when available
         faceAge.API.getAdvisorData((data: unknown) => {
           console.log('Advisor data:', data);
-          console.log('User Image:', faceAge.API.getImage());
+          const userImage = faceAge.API.getImage();
+          console.log('User Image:', userImage);
+          setUserImage(userImage || null);
           const advisorData = data as AdvisorDataResponse;
           setAnalysisData(advisorData);
           
@@ -835,15 +969,38 @@ const FaceAnalysisV2Section: React.FC = () => {
           {analysisData && skinProblems.length > 0 && (
             <div className="p-4 border-t border-gray-100 bg-gray-50">
               <button
-                onClick={() => {
-                  // TODO: Implement save functionality
-                  console.log('Saving analysis...', { analysisData, skinProblems });
-                }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#007185] text-white rounded-xl hover:bg-[#005a6a] transition-colors font-medium"
+                onClick={handleSaveAnalysis}
+                disabled={isSaving || !userImage}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-colors font-medium ${
+                  saveSuccess 
+                    ? 'bg-green-500 text-white' 
+                    : isSaving 
+                      ? 'bg-gray-400 text-white cursor-not-allowed'
+                      : 'bg-[#007185] text-white hover:bg-[#005a6a]'
+                }`}
               >
-                <CheckCircle className="w-5 h-5" />
-                Save Analysis
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Saving...
+                  </>
+                ) : saveSuccess ? (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    Saved Successfully!
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    Save Analysis
+                  </>
+                )}
               </button>
+              {!userImage && (
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  Complete the analysis to save results
+                </p>
+              )}
             </div>
           )}
         </div>
