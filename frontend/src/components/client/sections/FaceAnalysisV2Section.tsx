@@ -374,7 +374,7 @@ const FaceAnalysisV2Section: React.FC = () => {
         showRoutine: true,
         showAddToCart: true,
         defaultQuiz: { email: 'hi@getfaceage.com' },
-        height: '700px',
+        height: '550px',
         width: '100%',
         margin: '0 auto',
         problems: [
