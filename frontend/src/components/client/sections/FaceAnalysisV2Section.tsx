@@ -568,13 +568,13 @@ const FaceAnalysisV2Section: React.FC = () => {
               Take a photo or upload an image to analyze your skin
             </p>
           </div>
-          <div className="relative">
+          <div className="relative max-h-[700px]">
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <Loader2 className="w-8 h-8 text-[#CFAFA3] animate-spin" />
               </div>
             )}
-            <div id={ELEMENT_ID} className="w-full min-h-[700px]" />
+            <div id={ELEMENT_ID} className="w-full h-full" />
           </div>
         </div>
 
