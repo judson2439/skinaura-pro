@@ -8,6 +8,7 @@ import { env } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFoundHandler } from './middleware/notFoundHandler.js';
 import { decryptRequestMiddleware } from './middleware/decryptRequest.js';
+import { apiRateLimiter } from './middleware/rateLimiter.js';
 import healthRouter from './routes/health.js';
 import apiRouter from './routes/index.js';
 
@@ -63,7 +64,9 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Routes
 app.use('/health', healthRouter);
-app.use('/api', apiRouter);
+
+// Apply general rate limiting to all API routes
+app.use('/api', apiRateLimiter, apiRouter);
 
 // Error handling
 app.use(notFoundHandler);

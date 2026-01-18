@@ -3,6 +3,7 @@ import http from 'http';
 import app from './app.js';
 import { env, validateEnv } from './config/env.js';
 import { testConnection, closePool } from './config/database.js';
+import { initLoginAttemptsTable } from './lib/accountLockout.js';
 
 // Validate environment variables
 validateEnv();
@@ -13,7 +14,11 @@ const initDatabase = async (): Promise<void> => {
   const connected = await testConnection();
   if (!connected) {
     console.warn('⚠️ Database connection failed - auth features may not work');
+    return;
   }
+
+  // Initialize login attempts table for account lockout feature
+  await initLoginAttemptsTable();
 };
 
 /**

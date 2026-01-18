@@ -4,8 +4,23 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { query } from '../config/database.js';
+import { query, queryOne } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
+import { 
+  logAuditFromRequest, 
+  queryAuditLogs, 
+  getAuditStats,
+  AuditLogQueryParams,
+} from '../lib/auditLogger.js';
+import {
+  checkAccountLockStatus,
+  adminUnlockAccount,
+  getLoginAttemptHistory,
+  getFailedAttemptCount,
+  MAX_FAILED_ATTEMPTS,
+  LOCKOUT_DURATION_MINUTES,
+  ATTEMPT_WINDOW_MINUTES,
+} from '../lib/accountLockout.js';
 
 const router = Router();
 
@@ -78,6 +93,7 @@ interface OverviewData {
 
 /**
  * Auth middleware to verify JWT token and check admin role
+ * CRITICAL: This middleware now verifies the user is actually an admin
  */
 const authMiddleware = async (
   req: Request,
@@ -106,9 +122,36 @@ const authMiddleware = async (
       return;
     }
 
+    const userId = result.payload.sub as string;
+    const userEmail = result.payload.email as string;
+
+    // CRITICAL: Verify user has admin role by checking the database
+    const userProfile = await queryOne<{ role: string }>(
+      `SELECT role FROM user_profiles WHERE id = $1`,
+      [userId]
+    );
+
+    if (!userProfile || userProfile.role !== 'admin') {
+      // Log unauthorized admin access attempt
+      await logAuditFromRequest(req, 'PERMISSION_DENIED', 'system', undefined, {
+        attempted_route: req.path,
+        user_role: userProfile?.role || 'unknown',
+        reason: 'non_admin_accessing_admin_routes',
+      }, 'denied');
+
+      console.warn(`⚠️ SECURITY: Non-admin user ${userEmail} (role: ${userProfile?.role || 'unknown'}) attempted to access admin route: ${req.path}`);
+
+      res.status(403).json({
+        success: false,
+        error: 'Access denied. Admin privileges required.',
+      } as ApiResponse);
+      return;
+    }
+
     // Attach user info to request
-    (req as any).userId = result.payload.sub as string;
-    (req as any).userEmail = result.payload.email as string;
+    (req as any).userId = userId;
+    (req as any).userEmail = userEmail;
+    (req as any).userRole = 'admin';
 
     next();
   } catch (error) {
@@ -1402,6 +1445,518 @@ router.get('/routines/:routineId/steps', async (req: Request, res: Response): Pr
     res.status(500).json({
       success: false,
       error: 'Failed to fetch routine steps',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// AUDIT LOG ENDPOINTS (HIPAA Compliance)
+// ============================================================================
+
+/**
+ * GET /admin/audit-logs
+ * Query audit logs with filtering options
+ */
+router.get('/audit-logs', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminEmail = (req as any).userEmail;
+
+    // Note: Admin role is already verified by authMiddleware
+
+    // Parse query parameters
+    const params: AuditLogQueryParams = {
+      userId: req.query.userId as string,
+      userEmail: req.query.userEmail as string,
+      resourceType: req.query.resourceType as string,
+      action: req.query.action as string,
+      status: req.query.status as string,
+      startDate: req.query.startDate as string,
+      endDate: req.query.endDate as string,
+      ipAddress: req.query.ipAddress as string,
+      limit: parseInt(req.query.limit as string) || 100,
+      offset: parseInt(req.query.offset as string) || 0,
+    };
+
+    console.log(`📋 Admin ${adminEmail} querying audit logs`);
+
+    const { logs, total } = await queryAuditLogs(params);
+
+    // Log that admin accessed audit logs (meta-audit)
+    await logAuditFromRequest(req, 'VIEW_LIST', 'system', undefined, {
+      query_params: params,
+      results_count: logs.length,
+      total_matching: total,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        logs,
+        total,
+        limit: params.limit,
+        offset: params.offset,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching audit logs:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch audit logs',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /admin/audit-logs/stats
+ * Get audit log statistics for dashboard
+ */
+router.get('/audit-logs/stats', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminEmail = (req as any).userEmail;
+
+    // Note: Admin role is already verified by authMiddleware
+
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+
+    console.log(`📊 Admin ${adminEmail} fetching audit stats`);
+
+    const stats = await getAuditStats(startDate, endDate);
+
+    // Log access to audit stats
+    await logAuditFromRequest(req, 'VIEW', 'system', undefined, {
+      report_type: 'audit_stats',
+      date_range: { startDate, endDate },
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { stats },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching audit stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch audit statistics',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /admin/audit-logs/user/:userId
+ * Get audit logs for a specific user
+ */
+router.get('/audit-logs/user/:userId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminEmail = (req as any).userEmail;
+    const targetUserId = req.params.userId;
+
+    // Note: Admin role is already verified by authMiddleware
+
+    console.log(`📋 Admin ${adminEmail} querying audit logs for user: ${targetUserId}`);
+
+    const { logs, total } = await queryAuditLogs({
+      userId: targetUserId,
+      limit: parseInt(req.query.limit as string) || 100,
+      offset: parseInt(req.query.offset as string) || 0,
+    });
+
+    // Get user info
+    const userProfile = await queryOne<{ email: string; full_name: string; role: string }>(
+      `SELECT email, full_name, role FROM user_profiles WHERE id = $1`,
+      [targetUserId]
+    );
+
+    // Log that admin investigated a specific user's activity
+    await logAuditFromRequest(req, 'VIEW', 'system', targetUserId, {
+      action_type: 'user_activity_investigation',
+      target_user_email: userProfile?.email,
+      target_user_role: userProfile?.role,
+      results_count: logs.length,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user: userProfile,
+        logs,
+        total,
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching user audit logs:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user audit logs',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /admin/audit-logs/security-events
+ * Get security-related events (failed logins, permission denied, etc.)
+ */
+router.get('/audit-logs/security-events', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminEmail = (req as any).userEmail;
+
+    // Note: Admin role is already verified by authMiddleware
+
+    console.log(`🔒 Admin ${adminEmail} fetching security events`);
+
+    // Query for security-related events
+    const securityLogs = await query<{
+      id: string;
+      user_id: string;
+      user_email: string;
+      action: string;
+      resource_type: string;
+      ip_address: string;
+      user_agent: string;
+      details: Record<string, unknown>;
+      status: string;
+      error_message: string;
+      created_at: Date;
+    }>(
+      `SELECT * FROM audit_logs 
+       WHERE action IN ('LOGIN_FAILED', 'PERMISSION_DENIED', 'PASSWORD_RESET', 'PASSWORD_CHANGE')
+          OR status IN ('failure', 'denied')
+       ORDER BY created_at DESC
+       LIMIT 200`
+    );
+
+    // Log that admin accessed security report
+    await logAuditFromRequest(req, 'VIEW', 'system', undefined, {
+      report_type: 'security_events',
+      results_count: securityLogs.length,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { logs: securityLogs },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching security events:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch security events',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// ACCOUNT LOCKOUT MANAGEMENT ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /admin/locked-accounts
+ * Get list of currently locked accounts
+ */
+router.get('/locked-accounts', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminEmail = (req as any).userEmail;
+
+    console.log(`🔒 Admin ${adminEmail} fetching locked accounts`);
+
+    // Find accounts with recent failed login attempts that exceed the threshold
+    const lockedAccounts = await query<{
+      email: string;
+      failed_count: string;
+      last_attempt: Date;
+    }>(
+      `SELECT 
+        email,
+        COUNT(*) as failed_count,
+        MAX(created_at) as last_attempt
+       FROM login_attempts
+       WHERE success = false
+         AND created_at > NOW() - INTERVAL '${ATTEMPT_WINDOW_MINUTES} minutes'
+       GROUP BY email
+       HAVING COUNT(*) >= $1
+       ORDER BY MAX(created_at) DESC`,
+      [MAX_FAILED_ATTEMPTS]
+    );
+
+    // Enrich with lockout status details
+    const accountsWithStatus = await Promise.all(
+      lockedAccounts.map(async (account) => {
+        const status = await checkAccountLockStatus(account.email);
+        
+        // Get user profile if exists
+        const userProfile = await queryOne<{ id: string; full_name: string; role: string }>(
+          `SELECT id, full_name, role FROM user_profiles WHERE LOWER(email) = LOWER($1)`,
+          [account.email]
+        );
+
+        return {
+          email: account.email,
+          userId: userProfile?.id || null,
+          fullName: userProfile?.full_name || null,
+          role: userProfile?.role || null,
+          failedAttempts: parseInt(account.failed_count, 10),
+          isLocked: status.isLocked,
+          lockoutExpiresAt: status.lockoutExpiresAt?.toISOString() || null,
+          remainingMinutes: status.remainingMinutes,
+          lastAttempt: account.last_attempt,
+        };
+      })
+    );
+
+    // Filter to only currently locked accounts
+    const currentlyLocked = accountsWithStatus.filter(a => a.isLocked);
+
+    // Log access
+    await logAuditFromRequest(req, 'VIEW', 'system', undefined, {
+      report_type: 'locked_accounts',
+      locked_count: currentlyLocked.length,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        lockedAccounts: currentlyLocked,
+        config: {
+          maxFailedAttempts: MAX_FAILED_ATTEMPTS,
+          lockoutDurationMinutes: LOCKOUT_DURATION_MINUTES,
+          attemptWindowMinutes: ATTEMPT_WINDOW_MINUTES,
+        },
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching locked accounts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch locked accounts',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /admin/login-attempts/:email
+ * Get login attempt history for a specific email
+ */
+router.get('/login-attempts/:email', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.params;
+    const adminEmail = (req as any).userEmail;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📋 Admin ${adminEmail} fetching login attempts for: ${email}`);
+
+    // Get login attempt history
+    const attempts = await getLoginAttemptHistory(email, limit);
+
+    // Get current lockout status
+    const status = await checkAccountLockStatus(email);
+    const failedCount = await getFailedAttemptCount(email);
+
+    // Get user profile if exists
+    const userProfile = await queryOne<{ id: string; full_name: string; role: string }>(
+      `SELECT id, full_name, role FROM user_profiles WHERE LOWER(email) = LOWER($1)`,
+      [email]
+    );
+
+    // Log access
+    await logAuditFromRequest(req, 'VIEW', 'user_profile', userProfile?.id, {
+      action_type: 'view_login_attempts',
+      target_email: email,
+      attempts_count: attempts.length,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        email,
+        user: userProfile ? {
+          id: userProfile.id,
+          fullName: userProfile.full_name,
+          role: userProfile.role,
+        } : null,
+        lockoutStatus: {
+          isLocked: status.isLocked,
+          failedAttempts: failedCount,
+          lockoutExpiresAt: status.lockoutExpiresAt?.toISOString() || null,
+          remainingMinutes: status.remainingMinutes,
+        },
+        attempts: attempts.map(a => ({
+          id: a.id,
+          success: a.success,
+          failureReason: a.failure_reason,
+          ipAddress: a.ip_address,
+          userAgent: a.user_agent,
+          createdAt: a.created_at,
+        })),
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching login attempts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch login attempts',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /admin/unlock-account
+ * Unlock a locked account
+ */
+router.post('/unlock-account', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    const adminEmail = (req as any).userEmail;
+
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`🔓 Admin ${adminEmail} unlocking account: ${email}`);
+
+    // Check current status before unlocking
+    const statusBefore = await checkAccountLockStatus(email);
+
+    if (!statusBefore.isLocked && statusBefore.failedAttempts === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Account is not locked',
+      } as ApiResponse);
+      return;
+    }
+
+    // Unlock the account
+    const result = await adminUnlockAccount(email, adminEmail, req);
+
+    if (!result.success) {
+      res.status(500).json({
+        success: false,
+        error: result.message,
+      } as ApiResponse);
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: {
+        email,
+        previousStatus: {
+          isLocked: statusBefore.isLocked,
+          failedAttempts: statusBefore.failedAttempts,
+        },
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error unlocking account:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to unlock account',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /admin/lockout-stats
+ * Get overall account lockout statistics
+ */
+router.get('/lockout-stats', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminEmail = (req as any).userEmail;
+
+    console.log(`📊 Admin ${adminEmail} fetching lockout stats`);
+
+    // Get various lockout statistics
+    const [
+      currentlyLockedResult,
+      recentFailuresResult,
+      topOffendersResult,
+      successRateResult,
+    ] = await Promise.all([
+      // Currently locked accounts count
+      query<{ count: string }>(
+        `SELECT COUNT(DISTINCT email) as count FROM (
+          SELECT email, COUNT(*) as failed_count
+          FROM login_attempts
+          WHERE success = false
+            AND created_at > NOW() - INTERVAL '${ATTEMPT_WINDOW_MINUTES} minutes'
+          GROUP BY email
+          HAVING COUNT(*) >= $1
+        ) locked`,
+        [MAX_FAILED_ATTEMPTS]
+      ),
+
+      // Total failed attempts in last 24 hours
+      queryOne<{ count: string }>(
+        `SELECT COUNT(*) as count FROM login_attempts
+         WHERE success = false AND created_at > NOW() - INTERVAL '24 hours'`
+      ),
+
+      // Top 10 emails with most failed attempts (last 7 days)
+      query<{ email: string; count: string }>(
+        `SELECT email, COUNT(*) as count
+         FROM login_attempts
+         WHERE success = false AND created_at > NOW() - INTERVAL '7 days'
+         GROUP BY email
+         ORDER BY COUNT(*) DESC
+         LIMIT 10`
+      ),
+
+      // Success rate in last 24 hours
+      queryOne<{ total: string; successful: string }>(
+        `SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN success = true THEN 1 ELSE 0 END) as successful
+         FROM login_attempts
+         WHERE created_at > NOW() - INTERVAL '24 hours'`
+      ),
+    ]);
+
+    const total = parseInt(successRateResult?.total || '0', 10);
+    const successful = parseInt(successRateResult?.successful || '0', 10);
+    const successRate = total > 0 ? ((successful / total) * 100).toFixed(1) : '0';
+
+    res.status(200).json({
+      success: true,
+      data: {
+        currentlyLocked: parseInt(currentlyLockedResult[0]?.count || '0', 10),
+        failedAttemptsLast24h: parseInt(recentFailuresResult?.count || '0', 10),
+        successRateLast24h: `${successRate}%`,
+        totalAttemptsLast24h: total,
+        topOffenders: topOffendersResult.map(r => ({
+          email: r.email,
+          failedAttempts: parseInt(r.count, 10),
+        })),
+        config: {
+          maxFailedAttempts: MAX_FAILED_ATTEMPTS,
+          lockoutDurationMinutes: LOCKOUT_DURATION_MINUTES,
+          attemptWindowMinutes: ATTEMPT_WINDOW_MINUTES,
+        },
+      },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching lockout stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch lockout statistics',
     } as ApiResponse);
   }
 });

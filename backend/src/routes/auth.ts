@@ -18,6 +18,20 @@ import {
   verifyResetToken,
   resetPassword,
 } from '../lib/auth.js';
+import { logAudit, getClientIp, getUserAgent } from '../lib/auditLogger.js';
+import {
+  authRateLimiter,
+  signupRateLimiter,
+  passwordResetRateLimiter,
+  verificationResendRateLimiter,
+} from '../middleware/rateLimiter.js';
+import {
+  checkLoginAllowed,
+  handleFailedLogin,
+  handleSuccessfulLogin,
+  MAX_FAILED_ATTEMPTS,
+  LOCKOUT_DURATION_MINUTES,
+} from '../lib/accountLockout.js';
 import { query, queryOne } from '../config/database.js';
 import path from 'path';
 import fs from 'fs';
@@ -184,7 +198,7 @@ router.use(decryptAuthRequest);
  * POST /auth/signup
  * User registration with email verification
  */
-router.post('/signup', async (req: Request, res: Response): Promise<void> => {
+router.post('/signup', signupRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const signupData = req.body as SignUpRequest;
 
@@ -471,7 +485,7 @@ router.post('/verify-email', async (req: Request, res: Response): Promise<void> 
  * POST /auth/resend-verification
  * Resend verification email
  */
-router.post('/resend-verification', async (req: Request, res: Response): Promise<void> => {
+router.post('/resend-verification', verificationResendRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email } = req.body as ResendVerificationRequest;
 
@@ -607,7 +621,7 @@ router.post('/verify-phone', async (req: Request, res: Response): Promise<void> 
  * POST /auth/resend-phone-verification
  * Resend phone verification code
  */
-router.post('/resend-phone-verification', async (req: Request, res: Response): Promise<void> => {
+router.post('/resend-phone-verification', verificationResendRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email } = req.body as ResendPhoneVerificationRequest;
 
@@ -647,9 +661,9 @@ router.post('/resend-phone-verification', async (req: Request, res: Response): P
 
 /**
  * POST /auth/signin
- * User sign-in with role validation
+ * User sign-in with role validation and account lockout protection
  */
-router.post('/signin', async (req: Request, res: Response): Promise<void> => {
+router.post('/signin', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, selectedRole } = req.body as SignInRequest;
 
@@ -663,14 +677,57 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
 
     console.log(`🔐 Sign-in attempt for: ${email}`);
 
+    // Check if account is locked due to too many failed attempts
+    const lockoutCheck = await checkLoginAllowed(email, req);
+    if (!lockoutCheck.allowed) {
+      console.warn(`🔒 Sign-in blocked - account locked for: ${email}`);
+      res.status(429).json({
+        success: false,
+        error: lockoutCheck.message,
+        data: {
+          locked: true,
+          remainingMinutes: lockoutCheck.remainingMinutes,
+        },
+      } as AuthResponse);
+      return;
+    }
+
     const result = await authenticateUser(email, password);
 
     if (!result.success) {
+      // Handle failed login with lockout tracking
+      const lockoutResult = await handleFailedLogin(
+        email,
+        req,
+        result.needsVerification ? 'needs_verification' : 'invalid_credentials'
+      );
+
+      // Log failed login attempt
+      await logAudit({
+        userEmail: email,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: result.needsVerification ? 'needs_verification' : 'invalid_credentials',
+          selectedRole,
+          attempts_remaining: lockoutResult.attemptsRemaining,
+          account_locked: lockoutResult.locked,
+        },
+        status: 'failure',
+        errorMessage: result.error,
+      });
+
       const statusCode = result.needsVerification ? 403 : 401;
       res.status(statusCode).json({
         success: false,
-        error: result.error || 'Invalid credentials',
-        data: result.needsVerification ? { needsVerification: true } : undefined,
+        error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        data: {
+          ...(result.needsVerification ? { needsVerification: true } : {}),
+          attemptsRemaining: lockoutResult.attemptsRemaining,
+          locked: lockoutResult.locked,
+        },
       } as AuthResponse);
       return;
     }
@@ -681,6 +738,25 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
     // If selectedRole is provided, validate it matches
     if (selectedRole && actualRole !== selectedRole) {
       console.log(`⚠️ Role mismatch for ${email}: selected '${selectedRole}', actual '${actualRole}'`);
+      
+      // Log role mismatch attempt
+      await logAudit({
+        userId: result.user?.id,
+        userEmail: email,
+        userRole: actualRole,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: 'role_mismatch',
+          selectedRole,
+          actualRole,
+        },
+        status: 'failure',
+        errorMessage: 'Role mismatch',
+      });
+
       res.status(403).json({
         success: false,
         error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
@@ -699,6 +775,25 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
     } else if (actualRole === 'professional') {
       redirectTo = '/professional';
     }
+
+    // Clear failed login attempts on successful login
+    await handleSuccessfulLogin(email, req);
+
+    // Log successful login
+    await logAudit({
+      userId: result.user?.id,
+      userEmail: email,
+      userRole: actualRole,
+      action: 'LOGIN',
+      resourceType: 'session',
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+      details: { 
+        method: 'email_password',
+        redirectTo,
+      },
+      status: 'success',
+    });
 
     console.log(`✅ Sign-in successful for: ${email} (role: ${actualRole})`);
 
@@ -723,9 +818,9 @@ router.post('/signin', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /auth/client/signin
- * Client sign-in with role validation
+ * Client sign-in with role validation and account lockout protection
  */
-router.post('/client/signin', async (req: Request, res: Response): Promise<void> => {
+router.post('/client/signin', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, selectedRole } = req.body as SignInRequest;
 
@@ -739,14 +834,57 @@ router.post('/client/signin', async (req: Request, res: Response): Promise<void>
 
     console.log(`🔐 Client sign-in attempt for: ${email}`);
 
+    // Check if account is locked
+    const lockoutCheck = await checkLoginAllowed(email, req);
+    if (!lockoutCheck.allowed) {
+      console.warn(`🔒 Client sign-in blocked - account locked for: ${email}`);
+      res.status(429).json({
+        success: false,
+        error: lockoutCheck.message,
+        data: {
+          locked: true,
+          remainingMinutes: lockoutCheck.remainingMinutes,
+        },
+      } as AuthResponse);
+      return;
+    }
+
     const result = await authenticateUser(email, password);
 
     if (!result.success) {
+      // Handle failed login with lockout tracking
+      const lockoutResult = await handleFailedLogin(
+        email,
+        req,
+        result.needsVerification ? 'needs_verification' : 'invalid_credentials'
+      );
+
+      // Log failed login
+      await logAudit({
+        userEmail: email,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: result.needsVerification ? 'needs_verification' : 'invalid_credentials',
+          portal: 'client',
+          attempts_remaining: lockoutResult.attemptsRemaining,
+          account_locked: lockoutResult.locked,
+        },
+        status: 'failure',
+        errorMessage: result.error,
+      });
+
       const statusCode = result.needsVerification ? 403 : 401;
       res.status(statusCode).json({
         success: false,
-        error: result.error || 'Invalid credentials',
-        data: result.needsVerification ? { needsVerification: true } : undefined,
+        error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        data: {
+          ...(result.needsVerification ? { needsVerification: true } : {}),
+          attemptsRemaining: lockoutResult.attemptsRemaining,
+          locked: lockoutResult.locked,
+        },
       } as AuthResponse);
       return;
     }
@@ -757,6 +895,25 @@ router.post('/client/signin', async (req: Request, res: Response): Promise<void>
     
     if (actualRole !== expectedRole) {
       console.log(`⚠️ Role mismatch for ${email}: selected '${expectedRole}', actual '${actualRole}'`);
+      
+      // Log role mismatch
+      await logAudit({
+        userId: result.user?.id,
+        userEmail: email,
+        userRole: actualRole,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: 'role_mismatch',
+          expectedRole,
+          actualRole,
+          portal: 'client',
+        },
+        status: 'failure',
+      });
+
       res.status(403).json({
         success: false,
         error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
@@ -767,6 +924,25 @@ router.post('/client/signin', async (req: Request, res: Response): Promise<void>
       } as AuthResponse);
       return;
     }
+
+    // Clear failed login attempts on successful login
+    await handleSuccessfulLogin(email, req);
+
+    // Log successful login
+    await logAudit({
+      userId: result.user?.id,
+      userEmail: email,
+      userRole: actualRole,
+      action: 'LOGIN',
+      resourceType: 'session',
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+      details: { 
+        method: 'email_password',
+        portal: 'client',
+      },
+      status: 'success',
+    });
 
     console.log(`✅ Client sign-in successful for: ${email}`);
 
@@ -791,9 +967,9 @@ router.post('/client/signin', async (req: Request, res: Response): Promise<void>
 
 /**
  * POST /auth/professional/signin
- * Professional sign-in with role validation
+ * Professional sign-in with role validation and account lockout protection
  */
-router.post('/professional/signin', async (req: Request, res: Response): Promise<void> => {
+router.post('/professional/signin', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, selectedRole } = req.body as SignInRequest;
 
@@ -807,14 +983,57 @@ router.post('/professional/signin', async (req: Request, res: Response): Promise
 
     console.log(`🔐 Professional sign-in attempt for: ${email}`);
 
+    // Check if account is locked
+    const lockoutCheck = await checkLoginAllowed(email, req);
+    if (!lockoutCheck.allowed) {
+      console.warn(`🔒 Professional sign-in blocked - account locked for: ${email}`);
+      res.status(429).json({
+        success: false,
+        error: lockoutCheck.message,
+        data: {
+          locked: true,
+          remainingMinutes: lockoutCheck.remainingMinutes,
+        },
+      } as AuthResponse);
+      return;
+    }
+
     const result = await authenticateUser(email, password);
 
     if (!result.success) {
+      // Handle failed login with lockout tracking
+      const lockoutResult = await handleFailedLogin(
+        email,
+        req,
+        result.needsVerification ? 'needs_verification' : 'invalid_credentials'
+      );
+
+      // Log failed login
+      await logAudit({
+        userEmail: email,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: result.needsVerification ? 'needs_verification' : 'invalid_credentials',
+          portal: 'professional',
+          attempts_remaining: lockoutResult.attemptsRemaining,
+          account_locked: lockoutResult.locked,
+        },
+        status: 'failure',
+        errorMessage: result.error,
+      });
+
       const statusCode = result.needsVerification ? 403 : 401;
       res.status(statusCode).json({
         success: false,
-        error: result.error || 'Invalid credentials',
-        data: result.needsVerification ? { needsVerification: true } : undefined,
+        error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        data: {
+          ...(result.needsVerification ? { needsVerification: true } : {}),
+          attemptsRemaining: lockoutResult.attemptsRemaining,
+          locked: lockoutResult.locked,
+        },
       } as AuthResponse);
       return;
     }
@@ -825,6 +1044,25 @@ router.post('/professional/signin', async (req: Request, res: Response): Promise
     
     if (actualRole !== expectedRole) {
       console.log(`⚠️ Role mismatch for ${email}: selected '${expectedRole}', actual '${actualRole}'`);
+      
+      // Log role mismatch
+      await logAudit({
+        userId: result.user?.id,
+        userEmail: email,
+        userRole: actualRole,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: 'role_mismatch',
+          expectedRole,
+          actualRole,
+          portal: 'professional',
+        },
+        status: 'failure',
+      });
+
       res.status(403).json({
         success: false,
         error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
@@ -835,6 +1073,25 @@ router.post('/professional/signin', async (req: Request, res: Response): Promise
       } as AuthResponse);
       return;
     }
+
+    // Clear failed login attempts on successful login
+    await handleSuccessfulLogin(email, req);
+
+    // Log successful login
+    await logAudit({
+      userId: result.user?.id,
+      userEmail: email,
+      userRole: actualRole,
+      action: 'LOGIN',
+      resourceType: 'session',
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+      details: { 
+        method: 'email_password',
+        portal: 'professional',
+      },
+      status: 'success',
+    });
 
     console.log(`✅ Professional sign-in successful for: ${email}`);
 
@@ -859,9 +1116,9 @@ router.post('/professional/signin', async (req: Request, res: Response): Promise
 
 /**
  * POST /auth/admin/signin
- * Admin sign-in with role validation
+ * Admin sign-in with role validation and account lockout protection
  */
-router.post('/admin/signin', async (req: Request, res: Response): Promise<void> => {
+router.post('/admin/signin', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, selectedRole } = req.body as SignInRequest;
 
@@ -875,12 +1132,51 @@ router.post('/admin/signin', async (req: Request, res: Response): Promise<void> 
 
     console.log(`🔐 Admin sign-in attempt for: ${email}`);
 
+    // Check if account is locked
+    const lockoutCheck = await checkLoginAllowed(email, req);
+    if (!lockoutCheck.allowed) {
+      console.warn(`🔒 Admin sign-in blocked - account locked for: ${email}`);
+      res.status(429).json({
+        success: false,
+        error: lockoutCheck.message,
+        data: {
+          locked: true,
+          remainingMinutes: lockoutCheck.remainingMinutes,
+        },
+      } as AuthResponse);
+      return;
+    }
+
     const result = await authenticateUser(email, password);
 
     if (!result.success) {
+      // Handle failed login with lockout tracking
+      const lockoutResult = await handleFailedLogin(email, req, 'invalid_credentials');
+
+      // Log failed admin login attempt
+      await logAudit({
+        userEmail: email,
+        action: 'LOGIN_FAILED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: 'invalid_credentials',
+          portal: 'admin',
+          attempts_remaining: lockoutResult.attemptsRemaining,
+          account_locked: lockoutResult.locked,
+        },
+        status: 'failure',
+        errorMessage: result.error,
+      });
+
       res.status(401).json({
         success: false,
-        error: result.error || 'Invalid credentials',
+        error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        data: {
+          attemptsRemaining: lockoutResult.attemptsRemaining,
+          locked: lockoutResult.locked,
+        },
       } as AuthResponse);
       return;
     }
@@ -891,6 +1187,25 @@ router.post('/admin/signin', async (req: Request, res: Response): Promise<void> 
     
     if (actualRole !== expectedRole) {
       console.log(`⚠️ Role mismatch for ${email}: selected '${expectedRole}', actual '${actualRole}'`);
+      
+      // Log unauthorized admin access attempt - critical security event
+      await logAudit({
+        userId: result.user?.id,
+        userEmail: email,
+        userRole: actualRole,
+        action: 'PERMISSION_DENIED',
+        resourceType: 'session',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          reason: 'unauthorized_admin_access_attempt',
+          expectedRole,
+          actualRole,
+          portal: 'admin',
+        },
+        status: 'denied',
+      });
+
       res.status(403).json({
         success: false,
         error: `You selected the wrong role. Your account is registered as "${actualRole}". Please select the correct role to sign in.`,
@@ -901,6 +1216,25 @@ router.post('/admin/signin', async (req: Request, res: Response): Promise<void> 
       } as AuthResponse);
       return;
     }
+
+    // Clear failed login attempts on successful login
+    await handleSuccessfulLogin(email, req);
+
+    // Log successful admin login
+    await logAudit({
+      userId: result.user?.id,
+      userEmail: email,
+      userRole: actualRole,
+      action: 'LOGIN',
+      resourceType: 'session',
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+      details: { 
+        method: 'email_password',
+        portal: 'admin',
+      },
+      status: 'success',
+    });
 
     console.log(`✅ Admin sign-in successful for: ${email}`);
 
@@ -944,7 +1278,7 @@ interface ResetPasswordRequest {
  * POST /auth/forgot-password
  * Request password reset email
  */
-router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+router.post('/forgot-password', passwordResetRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email } = req.body as ForgotPasswordRequest;
 
@@ -969,6 +1303,20 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     console.log(`🔐 Password reset request for: ${email}`);
 
     const result = await requestPasswordReset(email.trim().toLowerCase());
+
+    // Log password reset request
+    await logAudit({
+      userEmail: email.trim().toLowerCase(),
+      action: 'PASSWORD_RESET',
+      resourceType: 'user_profile',
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+      details: { 
+        step: 'request',
+        success: result.success,
+      },
+      status: result.success ? 'success' : 'failure',
+    });
 
     // Always return success (don't reveal if email exists)
     res.status(200).json({
@@ -1060,12 +1408,39 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     const result = await resetPassword(token, password);
 
     if (!result.success) {
+      // Log failed password reset
+      await logAudit({
+        action: 'PASSWORD_CHANGE',
+        resourceType: 'user_profile',
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+        details: { 
+          step: 'complete',
+          reason: result.error,
+        },
+        status: 'failure',
+        errorMessage: result.error,
+      });
+
       res.status(400).json({
         success: false,
         error: result.error || 'Failed to reset password',
       } as AuthResponse);
       return;
     }
+
+    // Log successful password change
+    await logAudit({
+      action: 'PASSWORD_CHANGE',
+      resourceType: 'user_profile',
+      ipAddress: getClientIp(req),
+      userAgent: getUserAgent(req),
+      details: { 
+        step: 'complete',
+        method: 'reset_token',
+      },
+      status: 'success',
+    });
 
     console.log(`✅ Password reset successful`);
 

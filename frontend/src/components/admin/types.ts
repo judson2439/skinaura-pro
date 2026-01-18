@@ -86,7 +86,35 @@ export const PRODUCT_CATEGORIES = [
   'Body Care',
 ];
 
-export type AdminTabType = 'overview' | 'users' | 'products' | 'routines' | 'progress-photos';
+export type AdminTabType = 'overview' | 'users' | 'products' | 'routines' | 'progress-photos' | 'audit-logs';
+
+// ============================================================================
+// AUDIT LOG TYPES
+// ============================================================================
+
+export interface AuditLogRecord {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_role: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  details: Record<string, unknown>;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface AuditLogStats {
+  totalEvents: number;
+  byAction: { action: string; count: number }[];
+  byResource: { resource_type: string; count: number }[];
+  byStatus: { status: string; count: number }[];
+  topUsers: { user_email: string; count: number }[];
+}
 
 export interface AdminNavItem {
   id: AdminTabType;

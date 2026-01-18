@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, queryOne } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
+import { logAuditFromRequest } from '../lib/auditLogger.js';
 import { env } from '../config/env.js';
 
 const router = Router();
@@ -379,6 +380,13 @@ router.get('/clients', async (req: Request, res: Response): Promise<void> => {
        ORDER BY up.full_name ASC`,
       [professionalId, status]
     );
+
+    // Audit log: Professional accessing client list
+    await logAuditFromRequest(req, 'VIEW_LIST', 'user_profile', undefined, {
+      accessed_by: 'professional',
+      count: clients.length,
+      filter_status: status,
+    });
 
     console.log(`✅ Found ${clients.length} clients`);
 
@@ -1710,6 +1718,19 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
       created_at: n.created_at,
       updated_at: n.updated_at || undefined,
     }));
+
+    // Audit log: Professional accessing client's full PHI profile
+    await logAuditFromRequest(req, 'VIEW', 'user_profile', clientId, {
+      accessed_by: 'professional',
+      includes: {
+        stats: true,
+        treatment_plans: treatmentPlans.length,
+        routines: assignedRoutines.length,
+        products: products.length,
+        photos: photos.length,
+        notes: notes.length,
+      },
+    });
 
     console.log(`✅ Client profile fetched successfully`);
 

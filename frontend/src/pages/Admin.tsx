@@ -18,6 +18,7 @@ import UsersSection from '@/components/admin/sections/UsersSection';
 import ProductsSection from '@/components/admin/sections/ProductsSection';
 import RoutinesSection from '@/components/admin/sections/RoutinesSection';
 import ProgressPhotosSection from '@/components/admin/sections/ProgressPhotosSection';
+import AuditLogsSection from '@/components/admin/sections/AuditLogsSection';
 import { Loader2 } from 'lucide-react';
 import { validateAuthSession, getAuthSession, clearAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -30,7 +31,7 @@ import { useInactivityTimeout } from '@/hooks/useInactivityTimeout';
 const ADMIN_SESSION_KEY = 'glowplan_admin_session';
 
 // ============================================================================
-// TYPE DEFINITIONS
+// TYPE DEFINITIONS 
 // ============================================================================
 
 interface AdminSessionData {
@@ -253,6 +254,10 @@ const Admin: React.FC = () => {
 
         {activeTab === 'progress-photos' && (
           <ProgressPhotosSection />
+        )}
+
+        {activeTab === 'audit-logs' && (
+          <AuditLogsSection />
         )}
       </main>
     </div>

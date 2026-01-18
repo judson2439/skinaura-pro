@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
+import { logAuditFromRequest } from '../lib/auditLogger.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -1502,6 +1503,11 @@ router.get('/progress-photos', authMiddleware, async (req: Request, res: Respons
       });
     }
 
+    // Audit log: PHI access (progress photos contain health information)
+    await logAuditFromRequest(req, 'VIEW_LIST', 'progress_photo', undefined, {
+      count: photos.length,
+    });
+
     console.log(`✅ Found ${photos.length} progress photos`);
 
     res.status(200).json({
@@ -1550,6 +1556,11 @@ router.post('/progress-photos', authMiddleware, async (req: Request, res: Respon
       ]
     );
 
+    // Audit log: PHI creation (progress photo upload)
+    await logAuditFromRequest(req, 'CREATE', 'progress_photo', photo?.id, {
+      photo_type: photo_type || 'progress',
+    });
+
     console.log(`✅ Progress photo added: ${photo?.id}`);
 
     res.status(201).json({
@@ -1593,6 +1604,11 @@ router.delete('/progress-photos/:photoId', authMiddleware, async (req: Request, 
       `DELETE FROM progress_photos WHERE id = $1 AND client_id = $2`,
       [photoId, userId]
     );
+
+    // Audit log: PHI deletion (progress photo)
+    await logAuditFromRequest(req, 'DELETE', 'progress_photo', photoId, {
+      photo_type: existingPhoto.photo_type,
+    });
 
     console.log(`✅ Progress photo deleted: ${photoId}`);
 
@@ -1908,6 +1924,11 @@ router.get('/treatment-plans', authMiddleware, async (req: Request, res: Respons
       routines: routinesMap[plan.id] || [],
       appointments: appointmentsMap[plan.id] || [],
     }));
+
+    // Audit log: PHI access (treatment plans contain health information)
+    await logAuditFromRequest(req, 'VIEW_LIST', 'treatment_plan', undefined, {
+      count: plans.length,
+    });
 
     console.log(`✅ Found ${plans.length} treatment plans`);
 
@@ -2323,6 +2344,11 @@ router.get('/skin-analysis', authMiddleware, async (req: Request, res: Response)
       [userId]
     );
 
+    // Audit log: PHI access (skin analysis is health data)
+    await logAuditFromRequest(req, 'VIEW_LIST', 'skin_analysis', undefined, {
+      count: analyses.length,
+    });
+
     console.log(`✅ Found ${analyses.length} skin analysis entries`);
 
     res.status(200).json({
@@ -2407,6 +2433,11 @@ router.post('/skin-analysis', authMiddleware, async (req: Request, res: Response
         redness_tips || null, oiliness_tips || null, dryness_tips || null, sagginess_tips || null,
       ]
     );
+
+    // Audit log: PHI creation (skin analysis health data)
+    await logAuditFromRequest(req, 'CREATE', 'skin_analysis', result?.id, {
+      has_photo: !!photo_url,
+    });
 
     console.log(`✅ Skin analysis saved: ${result?.id}`);
 
