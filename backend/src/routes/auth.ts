@@ -684,6 +684,7 @@ router.post('/signin', authRateLimiter, async (req: Request, res: Response): Pro
       res.status(429).json({
         success: false,
         error: lockoutCheck.message,
+        message: lockoutCheck.message,
         data: {
           locked: true,
           remainingMinutes: lockoutCheck.remainingMinutes,
@@ -723,6 +724,7 @@ router.post('/signin', authRateLimiter, async (req: Request, res: Response): Pro
       res.status(statusCode).json({
         success: false,
         error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        message: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
         data: {
           ...(result.needsVerification ? { needsVerification: true } : {}),
           attemptsRemaining: lockoutResult.attemptsRemaining,
@@ -841,6 +843,7 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
       res.status(429).json({
         success: false,
         error: lockoutCheck.message,
+        message: lockoutCheck.message,
         data: {
           locked: true,
           remainingMinutes: lockoutCheck.remainingMinutes,
@@ -880,6 +883,7 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
       res.status(statusCode).json({
         success: false,
         error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        message: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
         data: {
           ...(result.needsVerification ? { needsVerification: true } : {}),
           attemptsRemaining: lockoutResult.attemptsRemaining,
@@ -990,6 +994,7 @@ router.post('/professional/signin', authRateLimiter, async (req: Request, res: R
       res.status(429).json({
         success: false,
         error: lockoutCheck.message,
+        message: lockoutCheck.message,
         data: {
           locked: true,
           remainingMinutes: lockoutCheck.remainingMinutes,
@@ -1029,6 +1034,7 @@ router.post('/professional/signin', authRateLimiter, async (req: Request, res: R
       res.status(statusCode).json({
         success: false,
         error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
+        message: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
         data: {
           ...(result.needsVerification ? { needsVerification: true } : {}),
           attemptsRemaining: lockoutResult.attemptsRemaining,
@@ -1138,6 +1144,7 @@ router.post('/admin/signin', authRateLimiter, async (req: Request, res: Response
       console.warn(`🔒 Admin sign-in blocked - account locked for: ${email}`);
       res.status(429).json({
         success: false,
+        message: lockoutCheck.message,
         error: lockoutCheck.message,
         data: {
           locked: true,
@@ -1172,6 +1179,7 @@ router.post('/admin/signin', authRateLimiter, async (req: Request, res: Response
 
       res.status(401).json({
         success: false,
+        message: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
         error: lockoutResult.locked ? lockoutResult.message : (result.error || 'Invalid credentials'),
         data: {
           attemptsRemaining: lockoutResult.attemptsRemaining,
