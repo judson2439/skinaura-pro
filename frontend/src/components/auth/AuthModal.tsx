@@ -139,6 +139,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   // Phone verification state
   const [phoneVerificationCode, setPhoneVerificationCode] = useState('');
   const [verificationPhone, setVerificationPhone] = useState('');
+
+  // SMS consent state
+  const [smsConsent, setSmsConsent] = useState(false);
   const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
   const [resendingPhoneCode, setResendingPhoneCode] = useState(false);
 
@@ -204,6 +207,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         if (!phoneValidation.valid) {
           newErrors.phone = phoneValidation.error!;
         }
+      }
+
+      // SMS consent is required
+      if (!smsConsent) {
+        newErrors.smsConsent = 'You must agree to receive text messages to continue';
       }
     }
 
@@ -824,6 +832,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     setVerificationEmail('');
     setPhoneVerificationCode('');
     setVerificationPhone('');
+    setSmsConsent(false);
   };
 
   const handleRoleSelect = (role: 'client' | 'professional' | 'admin') => {
@@ -1238,6 +1247,22 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             </div>
           </>
         )}
+
+        {/* SMS Consent Checkbox */}
+        <div className="flex items-start gap-3 mt-4">
+          <input
+            type="checkbox"
+            id="smsConsent"
+            checked={smsConsent}
+            onChange={(e) => setSmsConsent(e.target.checked)}
+            className="mt-1 w-4 h-4 rounded border-gray-300 text-[#CFAFA3] focus:ring-[#CFAFA3] focus:ring-2 cursor-pointer"
+          />
+          <label htmlFor="smsConsent" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
+            By checking this box, I agree to receive text messages from SkinAura PRO at the phone number provided. 
+            Message and data rates may apply. Reply STOP to unsubscribe.
+          </label>
+        </div>
+        {errors.smsConsent && <p className="text-red-500 text-xs mt-1">{errors.smsConsent}</p>}
 
         <button
           type="submit"
