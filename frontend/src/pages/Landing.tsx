@@ -467,9 +467,6 @@ const Landing: React.FC = () => {
               <a href="https://skinaura.ai" target="_blank" rel="noopener noreferrer" className="hover:text-[#CFAFA3] transition-colors">SkinAura AI</a>
               <a href="https://skinaura-ai.myshopify.com/pages/app-skin-analysis-page" target="_blank" rel="noopener noreferrer" className="hover:text-[#CFAFA3] transition-colors">SkinAura Scan</a>
               <a href="https://skinaura.circle.so/" target="_blank" rel="noopener noreferrer" className="hover:text-[#CFAFA3] transition-colors">Community</a>
-              <a href="/api-docs" className="hover:text-[#CFAFA3] transition-colors flex items-center gap-1">
-                <FileText className="w-3 h-3" /> API Docs
-              </a>
             </nav>
             <p className="text-sm text-gray-400">© 2025 SkinAura AI. Skincare is Selfcare.</p>
           </div>
