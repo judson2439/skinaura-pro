@@ -497,7 +497,6 @@ const uploadToSupabaseStorage = async (blob: Blob, productId: string): Promise<s
       .from('progress-photos')
       .getPublicUrl(fileName);
 
-    console.log(`? Image uploaded to Supabase: ${publicUrl}`);
     return publicUrl;
   } catch (error) {
     console.error('Error uploading to Supabase:', error);
@@ -628,17 +627,13 @@ const FaceAnalysisV2Section: React.FC = () => {
     setSaveSuccess(false);
 
     try {
-      console.log('📸 Starting analysis save process...');
-
       // 1. Upload user photo
       let photoUrl: string | null = null;
       if (userImage) {
-        console.log('📤 Uploading user photo...');
         const photoFile = base64ToFile(userImage, `faceage-photo-${Date.now()}.jpg`, 'image/jpeg');
         const photoResult = await uploadImage(photoFile, 'photos', token);
         if (photoResult.success && photoResult.data?.image_url) {
           photoUrl = photoResult.data.image_url;
-          console.log('✅ User photo uploaded:', photoUrl);
         } else {
           console.error('Failed to upload user photo:', photoResult.error);
         }
@@ -652,13 +647,11 @@ const FaceAnalysisV2Section: React.FC = () => {
         const areasData = item.areas;
         
         if (areasData && areasData.length > 10) { // Make sure it's valid base64 data
-          console.log(`📤 Uploading area SVG for ${key}...`);
           try {
             const svgFile = svgBase64ToFile(areasData, `faceage-area-${key.toLowerCase()}-${Date.now()}.svg`);
             const areaResult = await uploadImage(svgFile, 'photos', token);
             if (areaResult.success && areaResult.data?.image_url) {
               areaUrls[`${key.toLowerCase()}_area`] = areaResult.data.image_url;
-              console.log(`✅ Area SVG uploaded for ${key}:`, areaResult.data.image_url);
             }
           } catch (err) {
             console.error(`Failed to upload area SVG for ${key}:`, err);
@@ -685,8 +678,6 @@ const FaceAnalysisV2Section: React.FC = () => {
         saveData[key.toLowerCase()] = value;
       });
 
-      console.log('💾 Saving analysis to database...', saveData);
-
       // 4. Save to database
       apiClient.setAuthToken(token);
       const response = await apiClient.post<{ success: boolean; data?: unknown; error?: string }>(
@@ -695,7 +686,6 @@ const FaceAnalysisV2Section: React.FC = () => {
       );
 
       if (response.ok && response.data?.success) {
-        console.log('✅ Analysis saved successfully!');
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
@@ -729,7 +719,6 @@ const FaceAnalysisV2Section: React.FC = () => {
 
       if (response.ok && response.data?.success && response.data.data?.analyses) {
         setHistoryData(response.data.data.analyses);
-        console.log(`📊 Loaded ${response.data.data.analyses.length} history entries`);
       } else {
         console.error('Failed to fetch history:', response.data?.error);
         setHistoryData([]);
@@ -783,7 +772,6 @@ const FaceAnalysisV2Section: React.FC = () => {
   const fetchAndSetProducts = useCallback(async () => {
     const faceAge = faceAgeRef.current;
     if (!faceAge) {
-      console.log('FaceAge not ready, skipping product fetch');
       return;
     }
 
@@ -792,11 +780,8 @@ const FaceAnalysisV2Section: React.FC = () => {
       const token = authSession?.token || getAuthToken();
 
       if (!token) {
-        console.log('No auth token, skipping product fetch');
         return;
       }
-
-      console.log('??? Fetching recommended products...');
 
       apiClient.setAuthToken(token);
       const response = await apiClient.get<{
@@ -806,12 +791,10 @@ const FaceAnalysisV2Section: React.FC = () => {
       }>('/api/client/recommended-products');
 
       if (!response.ok || !response.data?.success || !response.data?.data?.products?.length) {
-        console.log('No recommended products found');
         return;
       }
 
       const products: RecommendedProduct[] = response.data.data.products;
-      console.log(`Found ${products.length} recommended products`);
 
       const customProducts: FaceAgeCustomProduct[] = await Promise.all(
         products.map(async (product) => {
@@ -838,7 +821,6 @@ const FaceAnalysisV2Section: React.FC = () => {
       );
 
       faceAge.API.setCustomProducts(customProducts);
-      console.log('? Custom products set in FaceAge:', customProducts.length);
 
     } catch (error) {
       console.error('Error fetching recommended products:', error);
@@ -889,7 +871,6 @@ const FaceAnalysisV2Section: React.FC = () => {
       // Check if the element exists in DOM before initializing
       const element = document.getElementById(ELEMENT_ID);
       if (!element) {
-        console.log('FaceAge element not found, retrying...');
         // Retry after a short delay to wait for DOM render
         setTimeout(initFaceAge, 100);
         return;
@@ -943,7 +924,6 @@ const FaceAnalysisV2Section: React.FC = () => {
 
         // Event listeners
         faceAge.onClickProblem((key: string) => {
-          console.log('User clicked on problem:', key);
           // Find and select the clicked problem
           setSkinProblems(prev => {
             const problem = prev.find(p => p.key === key);
@@ -955,15 +935,12 @@ const FaceAnalysisV2Section: React.FC = () => {
         });
 
         faceAge.onResetData(() => {
-          console.log('User reset data');
           handleResetAnalysis();
         });
 
         // Get analysis data when available
         faceAge.API.getAdvisorData((data: unknown) => {
-          console.log('Advisor data:', data);
           const userImage = faceAge.API.getImage();
-          console.log('User Image:', userImage);
           setUserImage(userImage || null);
           const advisorData = data as AdvisorDataResponse;
           setAnalysisData(advisorData);
@@ -1802,6 +1779,26 @@ const FaceAnalysisV2Section: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Info Card */}
+      <div className="bg-gradient-to-br from-[#2D2A3E] to-[#3D3A4E] rounded-2xl p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-xl bg-teal-500/20 flex items-center justify-center flex-shrink-0">
+            <Info className="w-6 h-6 text-teal-400" />
+          </div>
+          <div>
+            <h3 className="text-white font-serif font-bold mb-2">How Face Metrics Work</h3>
+            <p className="text-white/70 text-sm leading-relaxed">
+              Our AI-powered face analysis uses advanced machine learning models to estimate age, detect facial expressions, 
+              and provide comprehensive skin health metrics. You can use your <strong className="text-white">live camera</strong> for real-time analysis 
+              (runs for 5 seconds then automatically stops) or <strong className="text-white">upload a photo</strong> for instant analysis.
+              For best results, ensure good lighting and position your face clearly in the frame. 
+              When you click <strong className="text-white">Save</strong>, your analysis and photo will be saved to your history for tracking progress.
+              Your privacy is protected — all analysis happens locally in your browser.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

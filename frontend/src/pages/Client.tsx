@@ -11,7 +11,6 @@ import DashboardSection from '@/components/client/sections/DashboardSection';
 import MyRoutineSection from '@/components/client/sections/MyRoutineSection';
 import MyProductsSection from '@/components/client/sections/MyProductsSection';
 import ProgressPhotosSection from '@/components/client/sections/ProgressPhotosSection';
-import FaceAnalysisSection from '@/components/client/sections/FaceAnalysisSection';
 import FaceAnalysisV2Section from '@/components/client/sections/FaceAnalysisV2Section';
 import TreatmentPlansSection from '@/components/client/sections/TreatmentPlansSection';
 import AchievementsSection from '@/components/client/sections/AchievementsSection';
@@ -365,8 +364,6 @@ const ClientPage: React.FC = () => {
       case 'photos':
         return <ProgressPhotosSection />;
       case 'face-analysis':
-        return <FaceAnalysisSection />;
-      case 'face-analysis-v2':
         return <FaceAnalysisV2Section />;
       case 'treatments':
         return <TreatmentPlansSection />;

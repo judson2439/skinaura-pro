@@ -207,32 +207,21 @@ async function scheduleSnoozeNotification(originalData, minutes) {
   // Note: This is a simplified implementation
   // In production, you'd want to use the Push API or a backend service
   // to schedule the notification server-side
-  
-  console.log(`Snoozing notification for ${minutes} minutes`);
-  
-  // For now, we'll just log this - actual snooze would require backend support
+  // For now, this is a placeholder - actual snooze would require backend support
   // The backend would need to schedule a new push notification
 }
 
 // Notification close event
 self.addEventListener('notificationclose', (event) => {
-  console.log('Notification closed:', event);
-  
   // Track notification dismissal for analytics
   const notificationData = event.notification.data || {};
   
-  // You could send this to your analytics service
-  console.log('Notification dismissed:', {
-    type: notificationData.type,
-    tag: event.notification.tag,
-    timestamp: new Date().toISOString(),
-  });
+  // Analytics tracking could be implemented here
+  // notificationData.type, event.notification.tag, timestamp
 });
 
 // Background sync for offline support
 self.addEventListener('sync', (event) => {
-  console.log('Background sync:', event.tag);
-  
   if (event.tag === 'sync-routine-completion') {
     event.waitUntil(syncRoutineCompletions());
   }
@@ -244,14 +233,12 @@ self.addEventListener('sync', (event) => {
 
 // Sync routine completions when back online
 async function syncRoutineCompletions() {
-  console.log('Syncing routine completions...');
   // This would sync any offline routine completions
   // Implementation would depend on your offline storage strategy
 }
 
 // Sync notification preferences when back online
 async function syncNotificationPreferences() {
-  console.log('Syncing notification preferences...');
   // This would sync any offline preference changes
 }
 
@@ -263,15 +250,12 @@ self.addEventListener('periodicsync', (event) => {
 });
 
 async function checkReminders() {
-  console.log('Checking reminders...');
   // This would check if it's time to send a reminder
   // Note: Periodic sync has limited browser support
 }
 
 // Message event - handle messages from the main app
 self.addEventListener('message', (event) => {
-  console.log('Service Worker received message:', event.data);
-  
   if (event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }

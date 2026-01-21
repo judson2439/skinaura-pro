@@ -370,7 +370,7 @@ const LeaderboardSection: React.FC = () => {
               )}
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">
-                  {entry.name}
+                  {entry.name.split(' ')[0]}
                   {entry.isCurrentUser && (
                     <span className="text-[#CFAFA3] ml-1">(You)</span>
                   )}
