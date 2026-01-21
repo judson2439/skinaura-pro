@@ -1232,7 +1232,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           />
           <label htmlFor="smsConsent" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
             By checking this box, I agree to receive text messages from SkinAura PRO at the phone number provided. 
-            Message and data rates may apply. Reply STOP to unsubscribe.
+            Message and data rates may apply. Reply STOP to unsubscribe. (Optional)
           </label>
         </div>
 
