@@ -90,7 +90,6 @@ const METRIC_DESCRIPTIONS: Record<string, string> = {
 // Convert image URL to base64
 const imageToBase64 = async (url: string): Promise<string | null> => {
   try {
-    console.log('Converting image to base64:', url);
     const response = await fetch(url, { mode: 'cors' });
     if (!response.ok) {
       console.error('Failed to fetch image:', response.status);
@@ -100,7 +99,6 @@ const imageToBase64 = async (url: string): Promise<string | null> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        console.log('Image converted successfully');
         resolve(reader.result as string);
       };
       reader.onerror = (err) => {
@@ -188,14 +186,10 @@ const calculateSkinHealth = (data: SkinAnalysisData): number => {
 // 5. Get product info from products table where id matches product_id
 const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> => {
   try {
-    console.log('=== PDF Export: Fetching routines for client ===');
-    console.log('Client ID:', clientId);
-    
     // ============================================
     // STEP 1: Get routine_id list from client_routine_assignments
     // where client_id matches the current signed-in client's ID
     // ============================================
-    console.log('Step 1: Fetching routine assignments from client_routine_assignments...');
     const { data: assignmentsData, error: assignmentsError } = await supabase
       .from('client_routine_assignments')
       .select('id, routine_id, client_id, is_active, assigned_at, notes')
@@ -208,18 +202,15 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
     }
 
     if (!assignmentsData || assignmentsData.length === 0) {
-      console.log('No routine assignments found for this client');
       return [];
     }
 
     // Extract unique routine IDs
     const routineIds: string[] = [...new Set(assignmentsData.map(a => a.routine_id))];
-    console.log(`Found ${assignmentsData.length} assignments with ${routineIds.length} unique routine IDs:`, routineIds);
 
     // ============================================
     // STEP 2: Get full data from routine_templates using routine_id list
     // ============================================
-    console.log('Step 2: Fetching routine templates from routine_templates...');
     const { data: routinesData, error: routinesError } = await supabase
       .from('routine_templates')
       .select('id, professional_id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at')
@@ -232,16 +223,12 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
     }
 
     if (!routinesData || routinesData.length === 0) {
-      console.log('No active routines found');
       return [];
     }
-
-    console.log(`Found ${routinesData.length} active routine templates:`, routinesData.map(r => ({ id: r.id, name: r.name })));
 
     // ============================================
     // STEP 3: Get full data from routine_steps using routine_id list
     // ============================================
-    console.log('Step 3: Fetching routine steps from routine_steps...');
     const { data: stepsData, error: stepsError } = await supabase
       .from('routine_steps')
       .select('id, routine_id, step_order, step_name, description, duration_seconds, product_category, product_recommendation, tips, is_optional, created_at')
@@ -254,7 +241,6 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
     }
 
     const allSteps = stepsData || [];
-    console.log(`Found ${allSteps.length} routine steps`);
 
     // Get all step IDs for fetching products
     const stepIds: string[] = allSteps.map(s => s.id);
@@ -266,7 +252,6 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
     let stepProductsMap = new Map<string, RoutineProduct[]>();
 
     if (stepIds.length > 0) {
-      console.log('Step 4: Fetching step products from routine_step_products...');
       const { data: stepProductsData, error: stepProductsError } = await supabase
         .from('routine_step_products')
         .select('id, routine_step_id, product_id')
@@ -275,18 +260,14 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
       if (stepProductsError) {
         console.error('Error fetching step products:', stepProductsError);
       } else if (stepProductsData && stepProductsData.length > 0) {
-        console.log(`Found ${stepProductsData.length} step-product relationships`);
-        
         // Extract unique product IDs
         const productIds: string[] = [...new Set(stepProductsData.map(sp => sp.product_id))];
-        console.log(`Unique product IDs: ${productIds.length}`, productIds);
 
         // ============================================
         // STEP 5: Get product info from products table
         // where id matches product_id from step 4
         // ============================================
         if (productIds.length > 0) {
-          console.log('Step 5: Fetching product details from products table...');
           const { data: productsData, error: productsError } = await supabase
             .from('products')
             .select('id, name, brand, category, description, price, image_url, purchase_url')
@@ -295,8 +276,6 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
           if (productsError) {
             console.error('Error fetching products:', productsError);
           } else if (productsData) {
-            console.log(`Found ${productsData.length} products:`, productsData.map(p => ({ id: p.id, name: p.name })));
-            
             // Create a map of product_id -> product data
             const productsMap = new Map<string, RoutineProduct>();
             productsData.forEach(product => {
@@ -324,22 +303,15 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
                 stepProductsMap.set(stepId, existing);
               }
             });
-
-            console.log('Step products map created with', stepProductsMap.size, 'entries');
           }
         }
-      } else {
-        console.log('No step-product relationships found');
       }
-    } else {
-      console.log('No steps found, skipping product fetch');
     }
 
     // ============================================
     // STEP 6: Build the complete routines structure
     // combining all data from previous steps
     // ============================================
-    console.log('Step 6: Building complete routine structure...');
     
     // Group steps by routine_id
     const stepsMap = new Map<string, typeof allSteps>();
@@ -377,20 +349,6 @@ const fetchClientRoutines = async (clientId: string): Promise<RoutineForPDF[]> =
         }).sort((a, b) => a.step_order - b.step_order),
       };
     });
-
-    // Log summary
-    const totalSteps = routines.reduce((acc, r) => acc + r.steps.length, 0);
-    const totalProducts = routines.reduce((acc, r) => 
-      acc + r.steps.reduce((stepAcc, s) => stepAcc + s.products.length, 0), 0);
-    
-    console.log('=== PDF Export: Routine fetch complete ===');
-    console.log(`Summary: ${routines.length} routines, ${totalSteps} steps, ${totalProducts} products`);
-    console.log('Routines:', routines.map(r => ({
-      name: r.name,
-      schedule: r.schedule_type,
-      steps: r.steps.length,
-      products: r.steps.reduce((acc, s) => acc + s.products.length, 0)
-    })));
 
     return routines;
   } catch (error) {
@@ -665,8 +623,6 @@ export const exportSkinAnalysisPDF = async (
   data: SkinAnalysisData,
   clientId?: string
 ): Promise<void> => {
-  console.log('Starting PDF export with data:', data);
-  
   try {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -979,9 +935,7 @@ export const exportSkinAnalysisPDF = async (
     
     // Save the PDF
     const fileName = `SkinAura_Analysis_${new Date().toISOString().split('T')[0]}.pdf`;
-    console.log('Saving PDF:', fileName);
     doc.save(fileName);
-    console.log('PDF saved successfully');
     
   } catch (error) {
     console.error('Error generating PDF:', error);
@@ -1027,8 +981,6 @@ export const exportHistoryEntryPDF = async (
   },
   clientId?: string
 ): Promise<void> => {
-  console.log('exportHistoryEntryPDF called with entry:', clientId);
-  
   const data: SkinAnalysisData = {
     photoUrl: entry.photo_url,
     age: entry.age,
@@ -1096,8 +1048,6 @@ export const exportCurrentAnalysisPDF = async (
   skinTips: Record<string, string[]>,
   clientId?: string
 ): Promise<void> => {
-  console.log('exportCurrentAnalysisPDF called');
-  
   // Get dominant expression
   const expressions = Object.entries(metrics.expressions);
   const dominantExpression = expressions.sort((a, b) => b[1] - a[1])[0][0];

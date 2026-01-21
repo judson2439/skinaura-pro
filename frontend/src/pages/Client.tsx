@@ -119,8 +119,6 @@ const ClientPage: React.FC = () => {
       const { valid, reason } = validateAuthSession();
       
       if (!valid && reason) {
-        console.log(`Custom session invalid: ${reason}`);
-        
         // Only redirect for actual expiration, not "No session found"
         if (reason === 'Session expired due to inactivity' || reason === 'Token expired') {
           toast({
@@ -142,7 +140,6 @@ const ClientPage: React.FC = () => {
 
     // Check if user has any valid session
     if (!hasValidAuth) {
-      console.log('No session found, redirecting to landing page');
       navigate('/', { replace: true });
       setIsCheckingSession(false);
       return;
@@ -153,7 +150,6 @@ const ClientPage: React.FC = () => {
 
     // User is authenticated, check role
     if (userRole && userRole !== 'client') {
-      console.log(`User role is ${userRole}, redirecting...`);
       if (userRole === 'admin') {
         navigate('/admin', { replace: true });
       } else {

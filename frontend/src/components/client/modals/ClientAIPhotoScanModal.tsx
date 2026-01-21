@@ -163,14 +163,12 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
       });
 
       const data = response.data;
-      console.log('AI product recognition response:', data);
 
       if (!data.success) {
         throw new Error(data.error || 'AI analysis failed');
       }
 
       const productData = data.product;
-      console.log('Product data from AI:', productData);
 
       if (!productData) {
         throw new Error('No product data in AI response');
@@ -185,7 +183,6 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
         confidence: (productData.confidence as 'high' | 'medium' | 'low') || 'medium',
       };
 
-      console.log('Parsed AI result:', result);
       setAiResult(result);
 
       // Pre-fill form with AI results

@@ -209,10 +209,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         }
       }
 
-      // SMS consent is required
-      if (!smsConsent) {
-        newErrors.smsConsent = 'You must agree to receive text messages to continue';
-      }
+      // SMS consent is optional - no validation required
     }
 
     setErrors(newErrors);
@@ -259,9 +256,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         selectedRole: selectedRole, // Send selected role for backend validation
       };
 
-      console.log('🔐 Encrypting credentials...');
       const encryptedPayload = await encryptData(credentials);
-      console.log('✅ Credentials encrypted');
 
       // Determine endpoint based on role
       let signInEndpoint: string;
@@ -278,8 +273,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         redirectPath = '/client';
       }
 
-      console.log(`📡 Sending encrypted request to ${signInEndpoint}...`);
-
       const response = await apiClient.post<{
         success: boolean;
         message: string;
@@ -292,8 +285,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         };
         error?: string;
       }>(signInEndpoint, encryptedPayload);
-
-      console.log('✅ Backend response:', response.data);
 
       if (!response.data.success) {
         const errorMsg = response.data.error || 'Invalid credentials';
@@ -329,9 +320,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         // Use the role from backend response, fallback to selectedRole if not provided
         const userRole = (userData.role || selectedRole || 'client') as 'client' | 'professional' | 'admin';
         
-        console.log('📋 User data from backend:', userData);
-        console.log('📋 Role resolved as:', userRole);
-        
         // Save auth session to localStorage
         const authUser: AuthUser = {
           id: userData.id,
@@ -342,8 +330,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           avatar_url: userData.avatar_url,
         };
         saveAuthSession(authUser, token);
-        
-        console.log('✅ Auth session saved to localStorage');
       }
 
       toast({
@@ -401,12 +387,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       
       if (avatarFile) {
         try {
-          console.log('🔐 Encrypting avatar...');
           const encryptedAvatar = await encryptFile(avatarFile);
           avatarEncrypted = encryptedAvatar.encrypted;
           avatarIv = encryptedAvatar.iv;
           avatarMimeType = encryptedAvatar.mimeType;
-          console.log('✅ Avatar encrypted');
         } catch (err) {
           console.warn('⚠️ Failed to encrypt avatar, continuing without it');
         }
@@ -431,16 +415,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         avatarMimeType,
       };
 
-      console.log('🔐 Encrypting signup data...');
       const encryptedPayload = await encryptData(signupData);
-      console.log('✅ Signup data encrypted');
 
       // Determine endpoint based on role
       const signupEndpoint = selectedRole === 'professional'
         ? '/api/auth/professional/signup'
         : '/api/auth/client/signup';
-
-      console.log(`📡 Sending encrypted signup request to ${signupEndpoint}...`);
 
       const response = await apiClient.post<{
         success: boolean;
@@ -452,8 +432,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         };
         error?: string;
       }>(signupEndpoint, encryptedPayload);
-
-      console.log('✅ Backend response:', response.data);
 
       if (!response.data.success) {
         const errorMsg = response.data.error || 'Failed to create account';
@@ -481,7 +459,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
       // Note: Don't save full auth session during signup - user needs to verify first
       // Just store temporary data for the verification flow
-      console.log('✅ Account created, proceeding to email verification');
 
       toast({
         title: 'Account Created!',
@@ -531,10 +508,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         code: verificationCode,
       };
 
-      console.log('🔐 Encrypting verification data...');
       const encryptedPayload = await encryptData(verifyData);
 
-      console.log('📡 Sending verification request...');
       const response = await apiClient.post<{
         success: boolean;
         message: string;
@@ -642,10 +617,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         code: phoneVerificationCode,
       };
 
-      console.log('🔐 Encrypting phone verification data...');
       const encryptedPayload = await encryptData(verifyData);
 
-      console.log('📡 Sending phone verification request...');
       const response = await apiClient.post<{
         success: boolean;
         message: string;
@@ -1110,7 +1083,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           </div>
 
           <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
             <div className="relative">
               <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -1262,7 +1235,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             Message and data rates may apply. Reply STOP to unsubscribe.
           </label>
         </div>
-        {errors.smsConsent && <p className="text-red-500 text-xs mt-1">{errors.smsConsent}</p>}
 
         <button
           type="submit"
@@ -1595,7 +1567,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="sticky top-0 bg-white p-4 border-b border-gray-100 flex justify-end rounded-t-3xl">
+        <div className="sticky top-0 z-10 bg-white p-4 border-b border-gray-100 flex justify-end rounded-t-3xl">
           <button
             onClick={() => { onClose(); resetForm(); setView('select-role'); setSelectedRole(null); }}
             className="p-2 hover:bg-gray-100 rounded-xl transition-colors"

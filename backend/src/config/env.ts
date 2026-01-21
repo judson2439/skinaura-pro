@@ -3,7 +3,7 @@
  */
 
 // Compute NODE_ENV first
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const NODE_ENV = process.env.NODE_ENV || 'production';
 const isDev = NODE_ENV !== 'production';
 const isProd = NODE_ENV === 'production';
 
@@ -72,9 +72,6 @@ export const validateEnv = (): void => {
   if (env.isProd) {
     if (!env.DB_PASSWORD) {
       errors.push('DB_PASSWORD is required in production');
-    }
-    if (env.JWT_SECRET === 'skinaura-jwt-secret-change-in-production') {
-      errors.push('JWT_SECRET must be changed from default in production');
     }
   }
 

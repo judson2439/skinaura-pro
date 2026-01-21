@@ -467,7 +467,6 @@ const MyClientsSection: React.FC<MyClientsSectionProps> = () => {
           isOpen={showProfileModal}
           onClose={handleCloseProfileModal}
           onUpdate={(updatedClient) => {
-            console.log('Client updated:', updatedClient);
             handleCloseProfileModal();
             // Refresh the client list to show updated data
             fetchClients();

@@ -110,7 +110,6 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
     const shop = urlParams.get('shop');
     
     if (code && state && shop) {
-      console.log('🔐 Shopify OAuth callback detected, opening Shopify import...');
       setActiveTab('import');
       setImportMethod('shopify');
     }

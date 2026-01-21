@@ -127,8 +127,6 @@ const ProfessionalPage: React.FC = () => {
       const { valid, reason } = validateAuthSession();
       
       if (!valid && reason) {
-        console.log(`Custom session invalid: ${reason}`);
-        
         // Only redirect for actual expiration, not "No session found"
         if (reason === 'Session expired due to inactivity' || reason === 'Token expired') {
           toast({
@@ -150,7 +148,6 @@ const ProfessionalPage: React.FC = () => {
 
     // Check if user has any valid session
     if (!hasValidAuth) {
-      console.log('No session found, redirecting to landing page');
       navigate('/', { replace: true });
       setIsCheckingSession(false);
       return;
@@ -161,7 +158,6 @@ const ProfessionalPage: React.FC = () => {
 
     // User is authenticated, check role
     if (userRole && userRole !== 'professional') {
-      console.log(`User role is ${userRole}, redirecting...`);
       if (userRole === 'admin') {
         navigate('/admin', { replace: true });
       } else {
@@ -235,15 +231,12 @@ const ProfessionalPage: React.FC = () => {
   const handleUpdateClient = (updatedClient: ClientProfile) => {
     // Update the selected client with new data
     setSelectedClient(updatedClient);
-    // Optionally refresh the client list in the dashboard
-    console.log('Client updated:', updatedClient);
   };
 
   // SMS Modal is handled internally by ProfessionalDashboardSection
 
 
   const handleOpenAddClientModal = () => {
-    console.log('Opening add client modal');
     // TODO: Implement add client modal
   };
 

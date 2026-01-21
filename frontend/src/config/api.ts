@@ -10,7 +10,7 @@ const getApiBaseUrl = (): string => {
     return envUrl;
   }
 
-  // Default to localhost in development
+  // Default to localhost in production
   if (import.meta.env.DEV) {
     return 'http://localhost:3000';
   }

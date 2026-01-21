@@ -168,14 +168,12 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
       });
 
       const data = response.data;
-      console.log('AI product recognition response:', data);
 
       if (!data.success) {
         throw new Error(data.error || 'AI analysis failed');
       }
 
       const productData = data.product;
-      console.log('Product data from AI:', productData);
 
       if (!productData) {
         throw new Error('No product data in AI response');
@@ -193,7 +191,6 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
         confidence: (productData.confidence as 'high' | 'medium' | 'low') || 'medium',
       };
 
-      console.log('Parsed AI result:', result);
       setAiResult(result);
 
       // Pre-fill form with AI results
@@ -211,7 +208,6 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
         setProductIngredients(result.ingredients.join(', '));
       }
       if (result.skinTypes && result.skinTypes.length > 0) {
-        console.log('AI returned skinTypes:', result.skinTypes);
         // Map AI skin types to our predefined skin types
         const mappedSkinTypes: string[] = [];
         result.skinTypes.forEach(type => {
@@ -232,13 +228,11 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
             }
           }
         });
-        console.log('Mapped skinTypes:', mappedSkinTypes);
         if (mappedSkinTypes.length > 0) {
           setProductSkinTypes(mappedSkinTypes);
         }
       }
       if (result.usageInstructions) {
-        console.log('AI returned usageInstructions:', result.usageInstructions);
         setProductInstructions(result.usageInstructions);
       }
     } catch (error) {

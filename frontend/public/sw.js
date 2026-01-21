@@ -12,13 +12,11 @@ const NOTIFICATION_ICONS = {
 
 // Install event
 self.addEventListener('install', (event) => {
-  console.log('Service Worker v2 installing.');
   self.skipWaiting();
 });
 
 // Activate event
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker v2 activating.');
   event.waitUntil(
     Promise.all([
       clients.claim(),
@@ -36,8 +34,6 @@ self.addEventListener('activate', (event) => {
 
 // Push event - handle incoming push notifications
 self.addEventListener('push', (event) => {
-  console.log('Push notification received:', event);
-
   let data = {
     title: 'SkinAura PRO',
     body: 'Time for your skincare routine!',
@@ -145,8 +141,6 @@ function getVibrationPattern(type) {
 
 // Notification click event
 self.addEventListener('notificationclick', (event) => {
-  console.log('Notification clicked:', event);
-  
   event.notification.close();
 
   const action = event.action;

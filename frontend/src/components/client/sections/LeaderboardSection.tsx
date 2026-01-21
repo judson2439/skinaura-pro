@@ -292,7 +292,6 @@ const LeaderboardSection: React.FC = () => {
             {leaderboardData.map((entry, index) => {
               const borderColor = index === 0 ? 'border-yellow-400' : index === 1 ? 'border-gray-400' : 'border-amber-600';
               const bgGradient = index === 0 ? 'from-yellow-400 to-yellow-500' : index === 1 ? 'from-gray-400 to-gray-500' : 'from-amber-600 to-amber-700';
-              console.log(entry);
               return (
               <div key={entry.userId} className="text-center">
                 <div className="relative">

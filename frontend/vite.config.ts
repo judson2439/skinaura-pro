@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       host: "::",
       port: 8000,
       allowedHosts: ["skinaura.pro"],
-      // Proxy API requests to backend in development
+      // Proxy API requests to backend in production
       proxy: {
         '/api': {
           target: apiBaseUrl,
@@ -21,9 +21,6 @@ export default defineConfig(({ mode }) => {
           configure: (proxy) => {
             proxy.on('error', (err) => {
               console.error('Proxy error:', err);
-            });
-            proxy.on('proxyReq', (proxyReq, req) => {
-              console.log(`[Proxy] ${req.method} ${req.url} -> ${apiBaseUrl}`);
             });
           },
         },

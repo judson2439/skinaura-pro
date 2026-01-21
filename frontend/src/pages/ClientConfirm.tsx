@@ -274,12 +274,10 @@ const ClientConfirm: React.FC = () => {
       
       if (avatarFile) {
         try {
-          console.log('🔐 Encrypting avatar...');
           const encryptedAvatar = await encryptFile(avatarFile);
           avatarEncrypted = encryptedAvatar.encrypted;
           avatarIv = encryptedAvatar.iv;
           avatarMimeType = encryptedAvatar.mimeType;
-          console.log('✅ Avatar encrypted');
         } catch (err) {
           console.warn('⚠️ Failed to encrypt avatar, continuing without it');
         }
@@ -299,11 +297,7 @@ const ClientConfirm: React.FC = () => {
         avatarMimeType,
       };
 
-      console.log('🔐 Encrypting signup data...');
       const encryptedPayload = await encryptData(signupData);
-      console.log('✅ Signup data encrypted');
-
-      console.log('📡 Sending invited client signup request...');
 
       const response = await apiClient.post<{
         success: boolean;
@@ -316,8 +310,6 @@ const ClientConfirm: React.FC = () => {
         };
         error?: string;
       }>('/api/auth/invited-client/signup', encryptedPayload);
-
-      console.log('✅ Backend response:', response.data);
 
       if (!response.data.success) {
         const errorMsg = response.data.error || 'Failed to create account';
@@ -378,10 +370,8 @@ const ClientConfirm: React.FC = () => {
         code: verificationCode,
       };
 
-      console.log('🔐 Encrypting verification data...');
       const encryptedPayload = await encryptData(verifyData);
 
-      console.log('📡 Sending verification request...');
       const response = await apiClient.post<{
         success: boolean;
         message: string;
@@ -489,10 +479,8 @@ const ClientConfirm: React.FC = () => {
         code: phoneVerificationCode,
       };
 
-      console.log('🔐 Encrypting phone verification data...');
       const encryptedPayload = await encryptData(verifyData);
 
-      console.log('📡 Sending phone verification request...');
       const response = await apiClient.post<{
         success: boolean;
         message: string;

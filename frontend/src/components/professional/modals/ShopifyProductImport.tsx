@@ -171,7 +171,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       const shop = urlParams.get('shop');
       
       if (code && state && shop) {
-        console.log('🔐 OAuth callback detected, processing...');
         // Clean up URL immediately to prevent re-processing on re-renders
         window.history.replaceState({}, document.title, window.location.pathname);
         // Handle the OAuth callback first
@@ -250,7 +249,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
   };
 
   const handleOAuthCallback = async (code: string, state: string, shop: string) => {
-    console.log('🔐 Processing OAuth callback for shop:', shop);
     setConnecting(true);
     setCheckingConnection(true);
     setError(null);
@@ -267,10 +265,7 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
         { code, state, shop }
       );
 
-      console.log('📦 OAuth callback response:', response.data);
-
       if (response.data.success) {
-        console.log('✅ OAuth successful, refreshing connection status...');
         // Refresh connection status
         await checkConnectionStatus();
       } else {
@@ -402,7 +397,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       });
       
       if (!response.ok) {
-        console.log(`Direct fetch failed for ${filename}, status: ${response.status}`);
         return null;
       }
       
@@ -410,7 +404,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       
       // Validate we got actual image data
       if (blob.size === 0 || !blob.type.startsWith('image/')) {
-        console.log(`Invalid image data for ${filename}`);
         return null;
       }
       
@@ -421,7 +414,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       return new File([blob], safeFilename, { type: mimeType });
     } catch (err) {
       // CORS error or network error - fall back to using original URL
-      console.log(`CORS/network error downloading image for ${filename}:`, err);
       return null;
     }
   };
@@ -436,7 +428,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       // Download the image from Shopify
       const file = await downloadImageAsFile(imageUrl, productTitle);
       if (!file) {
-        console.log(`Could not download image for ${productTitle}, using original URL`);
         return null;
       }
       
@@ -444,7 +435,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       const result = await uploadImage(file, 'products', token);
       
       if (result.success && result.data?.image_url) {
-        console.log(`✅ Uploaded image for ${productTitle}`);
         return result.data.image_url;
       }
       

@@ -102,8 +102,6 @@ export const saveAuthSession = (user: AuthUser, token: string): void => {
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
-    
-    console.log('✅ Auth session saved to localStorage');
   } catch (error) {
     console.error('❌ Failed to save auth session:', error);
   }
@@ -152,8 +150,6 @@ export const clearAuthSession = (): void => {
     localStorage.removeItem('glowplan_session');
     localStorage.removeItem('glowplan_profile');
     localStorage.removeItem('glowplan_admin_session');
-    
-    console.log('✅ Auth session cleared from localStorage');
   } catch (error) {
     console.error('❌ Failed to clear auth session:', error);
   }
@@ -311,8 +307,6 @@ export const updateAuthSessionUser = (updatedUser: Partial<AuthUser>): void => {
 
     // Dispatch event to notify components
     dispatchSessionUpdatedEvent();
-
-    console.log('✅ Auth session user updated');
   } catch (error) {
     console.error('❌ Failed to update auth session user:', error);
   }

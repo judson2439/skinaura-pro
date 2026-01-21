@@ -380,8 +380,6 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
         error?: string;
       }>('/api/client/routines');
 
-      console.log('response', response);
-      
       if (!response.data.success) {
         console.error('Error fetching routines:', response.data.error);
         toast({

@@ -692,7 +692,6 @@ const FaceAnalysisSection: React.FC = () => {
         setPermissionStatus('unknown');
       }
     } catch (err) {
-      console.log('Permission query not supported:', err);
       setPermissionStatus('unknown');
     }
     setCheckingPermission(false);

@@ -84,8 +84,6 @@ export const useInactivityTimeout = (options: UseInactivityTimeoutOptions = {}) 
 
     // Check if session expired due to inactivity
     if (isSessionExpiredByInactivity()) {
-      console.log('⏰ Session expired due to inactivity (10 minutes)');
-      
       // Clear the auth session
       clearAuthSession();
       

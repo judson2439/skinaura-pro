@@ -74,7 +74,6 @@ const getAdminSessionFromStorage = (): AdminSessionData | null => {
 const clearAdminSession = (): void => {
   try {
     localStorage.removeItem(ADMIN_SESSION_KEY);
-    console.log('Admin session cleared from localStorage');
   } catch (error) {
     console.error('Error clearing admin session from localStorage:', error);
   }
@@ -114,15 +113,12 @@ const Admin: React.FC = () => {
   // Check admin session on mount
   useEffect(() => {
     const checkAdminSession = () => {
-      console.log('Checking admin session from localStorage...');
-      
       // Validate auth session using centralized auth storage
       const { valid, reason } = validateAuthSession();
       const customSession = getAuthSession();
       
       // Check if we have a valid session
       if (!customSession || !customSession.token) {
-        console.log('No admin session found, redirecting to /');
         clearAuthSession();
         clearAdminSession();
         navigate('/', { replace: true });
@@ -130,7 +126,6 @@ const Admin: React.FC = () => {
       }
 
       if (!valid && reason) {
-        console.log(`Admin session invalid: ${reason}, redirecting to /`);
         
         // Show toast if session expired due to inactivity
         if (reason === 'Session expired due to inactivity') {
@@ -150,7 +145,6 @@ const Admin: React.FC = () => {
       
       // Verify role is admin
       if (customSession.user.role !== 'admin') {
-        console.log(`User role is ${customSession.user.role}, not admin. Redirecting...`);
         if (customSession.user.role === 'client') {
           navigate('/client', { replace: true });
         } else {
@@ -160,7 +154,6 @@ const Admin: React.FC = () => {
       }
       
       // Session is valid, set admin profile
-      console.log('Admin session valid, user:', customSession.user.email);
       setAdminProfile({
         id: customSession.user.id,
         email: customSession.user.email,
@@ -175,7 +168,6 @@ const Admin: React.FC = () => {
 
   // Handle admin logout
   const handleLogout = () => {
-    console.log('Admin logging out...');
     clearAuthSession();
     clearAdminSession();
     navigate('/', { replace: true });

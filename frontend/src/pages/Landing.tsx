@@ -68,10 +68,8 @@ const Landing: React.FC = () => {
       const userRole = authSession.user.role;
       // User is authenticated, redirect to appropriate dashboard
       if (userRole === 'client') {
-        console.log('Authenticated client found, redirecting to client dashboard');
         navigate('/client', { replace: true });
       } else if (userRole === 'professional') {
-        console.log('Authenticated professional found, redirecting to professional dashboard');
         navigate('/professional', { replace: true });
       } else if (userRole === 'admin') {
         navigate('/admin', { replace: true });

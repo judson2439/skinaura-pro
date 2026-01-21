@@ -199,7 +199,6 @@ const ClientPhotosSection: React.FC = () => {
         const mappedClients = response.data.data.clients.map(dbToClient);
         setPhotos(mappedPhotos);
         setClients(mappedClients);
-        console.log(`Successfully loaded ${mappedClients.length} clients and ${mappedPhotos.length} photos`);
       }
 
     } catch (error) {
@@ -499,8 +498,8 @@ const ClientPhotosSection: React.FC = () => {
     }
   };
 
-  const handleViewClientProfile = (clientId: string) => {
-    console.log('View client profile:', clientId);
+  const handleViewClientProfile = (_clientId: string) => {
+    // View client profile functionality - could be implemented
   };
 
   const handleRefresh = () => {

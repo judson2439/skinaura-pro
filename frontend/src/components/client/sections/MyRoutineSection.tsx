@@ -513,12 +513,10 @@ const MyRoutineSection: React.FC = () => {
 
   // Handle professional change - reset schedule type if needed
   const handleProfessionalChange = (professionalId: string) => {
-    console.log('handleProfessionalChange called with:', professionalId);
     setSelectedProfessionalId(professionalId);
     
     // Get available schedule types for the new professional
     const availableTypes = getAvailableScheduleTypesForProfessional(professionalId);
-    console.log('Available types for professional:', availableTypes);
     
     // Use functional update to get the current schedule type
     setSelectedScheduleType(currentScheduleType => {
@@ -527,7 +525,6 @@ const MyRoutineSection: React.FC = () => {
         const priorityOrder = ['morning', 'evening', 'daily', 'weekly', 'custom'];
         const firstMatch = priorityOrder.find(type => availableTypes.includes(type));
         const newType = firstMatch || availableTypes[0];
-        console.log('Changing schedule type from', currentScheduleType, 'to', newType);
         return newType;
       }
       return currentScheduleType;
@@ -596,17 +593,6 @@ const MyRoutineSection: React.FC = () => {
     return routinesFilteredByProfessional.filter(routine => routine.scheduleType === selectedScheduleType);
   }, [routinesFilteredByProfessional, selectedScheduleType]);
 
-  // Debug logging - remove in production
-  useEffect(() => {
-    console.log('=== FILTER DEBUG ===');
-    console.log('Selected Professional ID:', selectedProfessionalId);
-    console.log('Selected Schedule Type:', selectedScheduleType);
-    console.log('All Routines:', allRoutines.map(r => ({ id: r.id, name: r.name, professionalId: r.professionalId, scheduleType: r.scheduleType })));
-    console.log('After Professional Filter:', routinesFilteredByProfessional.map(r => ({ id: r.id, name: r.name, professionalId: r.professionalId, scheduleType: r.scheduleType })));
-    console.log('After Schedule Type Filter:', filteredRoutines.map(r => ({ id: r.id, name: r.name, professionalId: r.professionalId, scheduleType: r.scheduleType })));
-    console.log('Available Schedule Types:', availableScheduleTypes);
-    console.log('====================');
-  }, [selectedProfessionalId, selectedScheduleType, allRoutines, routinesFilteredByProfessional, filteredRoutines, availableScheduleTypes]);
 
   // Get all steps from filtered routines for display
   const allSteps = useMemo(() => {
@@ -660,8 +646,6 @@ const MyRoutineSection: React.FC = () => {
           return newMap;
         });
 
-        console.log('Step uncompleted:', stepId);
-
       } else {
         // ====================================================================
         // COMPLETE: Insert a new completion record
@@ -698,8 +682,6 @@ const MyRoutineSection: React.FC = () => {
             return newMap;
           });
         }
-
-        console.log('Step completed:', stepId, 'Record ID:', completionId);
 
         // Show success feedback
         toast({
@@ -741,8 +723,6 @@ const MyRoutineSection: React.FC = () => {
       console.error('Error sending note:', response.data.error);
       throw new Error(response.data.error || 'Failed to send note');
     }
-
-    console.log('Note sent successfully to professional:', professionalId);
   };
 
 
