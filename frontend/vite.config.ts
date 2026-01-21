@@ -10,8 +10,8 @@ export default defineConfig(({ mode }) => {
   return {
     server: {
       host: "::",
-      port: 8080,
-      allowedHosts: ["dev.skinaura.pro"],
+      port: 8000,
+      allowedHosts: ["skinaura.pro"],
       // Proxy API requests to backend in development
       proxy: {
         '/api': {
@@ -41,6 +41,15 @@ export default defineConfig(({ mode }) => {
       alias: {
         "@": path.resolve(__dirname, "./src"),
       },
+    },
+    // Exclude native modules from dependency optimization
+    optimizeDeps: {
+      exclude: [
+        '@swc/core',
+        '@swc/wasm',
+        '@swc/core-linux-x64-gnu',
+        '@swc/core-linux-x64-musl',
+      ],
     },
     // Build optimizations
     build: {

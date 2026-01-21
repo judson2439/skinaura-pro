@@ -37,8 +37,8 @@ app.use(helmet({
 }));
 
 // CORS configuration - always include localhost:8080 for development
-const corsOrigins: (string | RegExp)[] = ['http://localhost:8080'];
-if (env.CORS_ORIGIN && env.CORS_ORIGIN !== 'http://localhost:8080') {
+const corsOrigins: (string | RegExp)[] = ['http://localhost:8000'];
+if (env.CORS_ORIGIN && env.CORS_ORIGIN !== 'http://localhost:8000') {
   corsOrigins.push(env.CORS_ORIGIN);
 }
 
@@ -52,9 +52,11 @@ app.use(cors({
 // Request logging
 app.use(morgan('dev'));
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing - increased limit to accommodate encrypted file uploads
+// 5MB file + base64 encoding (~33% increase) + encryption overhead = ~8-10MB
+// Using 20MB to be safe for encrypted payloads
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Decrypt encrypted request bodies (after body parsing, before routes)
 app.use(decryptRequestMiddleware);

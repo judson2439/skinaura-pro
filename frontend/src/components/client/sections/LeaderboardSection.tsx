@@ -41,6 +41,20 @@ const LEVEL_BORDER_COLORS: Record<string, string> = {
 };
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Get initials from a name (first letter of first name + first letter of last name)
+ */
+const getInitials = (name: string): string => {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() || '';
+  return (parts[0][0]?.toUpperCase() || '') + (parts[parts.length - 1][0]?.toUpperCase() || '');
+};
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -179,12 +193,18 @@ const LeaderboardSection: React.FC = () => {
             {/* 2nd Place */}
             <div className="text-center">
               <div className="relative">
-                <EncryptedImage 
-                  src={top3[1].avatar} 
-                  alt={top3[1].name} 
-                  className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${LEVEL_BORDER_COLORS[top3[1].level] || 'border-gray-400'} object-cover`}
-                  fallbackIcon="user"
-                />
+                {top3[1].isCurrentUser ? (
+                  <EncryptedImage 
+                    src={top3[1].avatar} 
+                    alt={top3[1].name} 
+                    className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${LEVEL_BORDER_COLORS[top3[1].level] || 'border-gray-400'} object-cover`}
+                    fallbackIcon="user"
+                  />
+                ) : (
+                  <div className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${LEVEL_BORDER_COLORS[top3[1].level] || 'border-gray-400'} bg-gradient-to-br from-gray-400 to-gray-500 flex items-center justify-center`}>
+                    <span className="text-white text-lg font-bold">{getInitials(top3[1].name)}</span>
+                  </div>
+                )}
                 {top3[1].isCurrentUser && (
                   <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
                     <span className="text-white text-xs font-bold">You</span>
@@ -203,12 +223,18 @@ const LeaderboardSection: React.FC = () => {
             {/* 1st Place */}
             <div className="text-center">
               <div className="relative">
-                <EncryptedImage 
-                  src={top3[0].avatar} 
-                  alt={top3[0].name} 
-                  className={`w-20 h-20 rounded-full mx-auto mb-2 border-4 border-yellow-400 object-cover`}
-                  fallbackIcon="user"
-                />
+                {top3[0].isCurrentUser ? (
+                  <EncryptedImage 
+                    src={top3[0].avatar} 
+                    alt={top3[0].name} 
+                    className={`w-20 h-20 rounded-full mx-auto mb-2 border-4 border-yellow-400 object-cover`}
+                    fallbackIcon="user"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-full mx-auto mb-2 border-4 border-yellow-400 bg-gradient-to-br from-yellow-400 to-yellow-500 flex items-center justify-center">
+                    <span className="text-white text-xl font-bold">{getInitials(top3[0].name)}</span>
+                  </div>
+                )}
                 <Crown className="w-6 h-6 text-yellow-400 absolute -top-2 left-1/2 -translate-x-1/2" />
                 {top3[0].isCurrentUser && (
                   <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
@@ -228,12 +254,18 @@ const LeaderboardSection: React.FC = () => {
             {/* 3rd Place */}
             <div className="text-center">
               <div className="relative">
-                <EncryptedImage 
-                  src={top3[2].avatar} 
-                  alt={top3[2].name} 
-                  className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 border-amber-600 object-cover`}
-                  fallbackIcon="user"
-                />
+                {top3[2].isCurrentUser ? (
+                  <EncryptedImage 
+                    src={top3[2].avatar} 
+                    alt={top3[2].name} 
+                    className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 border-amber-600 object-cover`}
+                    fallbackIcon="user"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-full mx-auto mb-2 border-4 border-amber-600 bg-gradient-to-br from-amber-600 to-amber-700 flex items-center justify-center">
+                    <span className="text-white text-lg font-bold">{getInitials(top3[2].name)}</span>
+                  </div>
+                )}
                 {top3[2].isCurrentUser && (
                   <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
                     <span className="text-white text-xs font-bold">You</span>
@@ -257,17 +289,25 @@ const LeaderboardSection: React.FC = () => {
         <div className="bg-gradient-to-r from-[#2D2A3E] to-[#3D3A4E] rounded-2xl p-6">
           <h3 className="text-white font-serif font-bold text-lg text-center mb-6">Top Performers</h3>
           <div className="flex items-end justify-center gap-6">
-            {leaderboardData.map((entry, index) => (
+            {leaderboardData.map((entry, index) => {
+              const borderColor = index === 0 ? 'border-yellow-400' : index === 1 ? 'border-gray-400' : 'border-amber-600';
+              const bgGradient = index === 0 ? 'from-yellow-400 to-yellow-500' : index === 1 ? 'from-gray-400 to-gray-500' : 'from-amber-600 to-amber-700';
+              console.log(entry);
+              return (
               <div key={entry.userId} className="text-center">
                 <div className="relative">
-                  <EncryptedImage 
-                    src={entry.avatar} 
-                    alt={entry.name} 
-                    className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${
-                      index === 0 ? 'border-yellow-400' : index === 1 ? 'border-gray-400' : 'border-amber-600'
-                    } object-cover`}
-                    fallbackIcon="user"
-                  />
+                  {entry.isCurrentUser ? (
+                    <EncryptedImage 
+                      src={entry.avatar} 
+                      alt={entry.name} 
+                      className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${borderColor} object-cover`}
+                      fallbackIcon="user"
+                    />
+                  ) : (
+                    <div className={`w-16 h-16 rounded-full mx-auto mb-2 border-4 ${borderColor} bg-gradient-to-br ${bgGradient} flex items-center justify-center`}>
+                      <span className="text-white text-lg font-bold">{getInitials(entry.name)}</span>
+                    </div>
+                  )}
                   {index === 0 && <Crown className="w-6 h-6 text-yellow-400 absolute -top-2 left-1/2 -translate-x-1/2" />}
                   {entry.isCurrentUser && (
                     <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
@@ -285,7 +325,8 @@ const LeaderboardSection: React.FC = () => {
                   <span className={`font-bold text-white ${index === 0 ? 'text-3xl' : 'text-2xl'}`}>{index + 1}</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -316,12 +357,18 @@ const LeaderboardSection: React.FC = () => {
               }`}>
                 {entry.rank}
               </div>
-              <EncryptedImage 
-                src={entry.avatar} 
-                alt={entry.name} 
-                className={`w-10 h-10 rounded-full object-cover border-2 ${LEVEL_BORDER_COLORS[entry.level] || 'border-gray-200'}`}
-                fallbackIcon="user"
-              />
+              {entry.isCurrentUser ? (
+                <EncryptedImage 
+                  src={entry.avatar} 
+                  alt={entry.name} 
+                  className={`w-10 h-10 rounded-full object-cover border-2 ${LEVEL_BORDER_COLORS[entry.level] || 'border-gray-200'}`}
+                  fallbackIcon="user"
+                />
+              ) : (
+                <div className={`w-10 h-10 rounded-full border-2 ${LEVEL_BORDER_COLORS[entry.level] || 'border-gray-200'} bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center`}>
+                  <span className="text-white text-sm font-bold">{getInitials(entry.name)}</span>
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">
                   {entry.name}

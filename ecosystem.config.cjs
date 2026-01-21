@@ -43,7 +43,7 @@ module.exports = {
       name: 'skinaura-frontend',
       cwd: './frontend',
       script: 'npx',
-      args: 'vite preview --host 0.0.0.0 --port 8080',
+      args: 'vite preview --host 0.0.0.0 --port 8000',
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
