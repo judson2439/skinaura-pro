@@ -27,9 +27,7 @@ import AIPhotoScanModal from '@/components/professional/modals/AIPhotoScanModal'
 import EditProductModal from '@/components/professional/modals/EditProductModal';
 import CSVProductImport from '@/components/professional/modals/CSVProductImport';
 import ShopifyProductImport from '@/components/professional/modals/ShopifyProductImport';
-import { EncryptedImage } from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
-import { uploadImage } from '@/lib/encryption';
 import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
 
@@ -49,21 +47,48 @@ type ImportMethodType = 'none' | 'csv' | 'shopify';
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Upload image to backend with encryption support using generic image endpoint
+// Convert file to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+// Upload image to backend without encryption (plain upload)
 const uploadProductImage = async (file: File): Promise<string | null> => {
   try {
     const authSession = getAuthSession();
     const token = authSession?.token || getAuthToken();
     if (!token) return null;
     
-    // Use the generic image upload utility with 'products' category
-    const result = await uploadImage(file, 'products', token);
+    // Convert file to base64
+    const imageData = await fileToBase64(file);
     
-    if (result.success && result.data?.image_url) {
-      return result.data.image_url;
+    // Upload to plain image endpoint
+    apiClient.setAuthToken(token);
+    const response = await apiClient.post<{
+      success: boolean;
+      data?: { image_url: string };
+      error?: string;
+    }>('/api/images/upload-plain/products', {
+      imageData,
+      mimeType: file.type,
+      originalName: file.name,
+    });
+    
+    if (response.data.success && response.data.data?.image_url) {
+      return response.data.data.image_url;
     }
     
-    console.error('Image upload error:', result.error);
+    console.error('Image upload error:', response.data.error);
     return null;
   } catch (error) {
     console.error('Image upload error:', error);
@@ -564,13 +589,17 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
                 >
                   {/* Product Image */}
                   <div className="relative h-48 bg-gradient-to-br from-gray-100 to-gray-50">
-                    <EncryptedImage
-                      src={product.image_url}
-                      alt={product.name}
-                      className="w-full h-full object-cover"
-                      fallbackIcon="package"
-                      showFallback={true}
-                    />
+                    {product.image_url ? (
+                      <img
+                        src={product.image_url}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Package className="w-12 h-12 text-gray-300" />
+                      </div>
+                    )}
                     {/* Price badge */}
                     {product.price && (
                       <div className="absolute top-3 right-3 px-2 py-1 bg-white/90 text-gray-900 text-sm font-medium rounded-full flex items-center gap-1">
@@ -795,11 +824,10 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-4">
               <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center overflow-hidden">
                 {selectedProduct.image_url ? (
-                  <EncryptedImage
+                  <img
                     src={selectedProduct.image_url}
                     alt={selectedProduct.name}
                     className="w-full h-full object-cover"
-                    fallbackClassName="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center overflow-hidden"
                   />
                 ) : (
                   <Package className="w-8 h-8 text-gray-400" />
@@ -852,13 +880,15 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
             {/* Product Preview */}
             <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl mb-6">
               <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-                <EncryptedImage
-                  src={productToDelete.image_url}
-                  alt={productToDelete.name}
-                  className="w-full h-full object-cover"
-                  fallbackIcon="package"
-                  showFallback={true}
-                />
+                {productToDelete.image_url ? (
+                  <img
+                    src={productToDelete.image_url}
+                    alt={productToDelete.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Package className="w-8 h-8 text-gray-400" />
+                )}
               </div>
               <div className="min-w-0">
                 <p className="text-xs text-[#CFAFA3] font-medium">{productToDelete.brand}</p>

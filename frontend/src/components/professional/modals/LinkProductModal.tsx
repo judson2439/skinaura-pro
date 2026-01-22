@@ -289,7 +289,7 @@ const LinkProductModal: React.FC<LinkProductModalProps> = ({
                   )}
                   {selectedProduct.price && (
                     <p className="text-xs text-[#CFAFA3] font-medium">
-                      {selectedProduct.currency || 'USD'} {selectedProduct.price.toFixed(2)}
+                      {selectedProduct.currency || 'USD'} {Number(selectedProduct.price).toFixed(2)}
                     </p>
                   )}
                 </div>

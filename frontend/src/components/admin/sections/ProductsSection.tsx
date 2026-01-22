@@ -24,7 +24,6 @@ import { apiClient } from '@/lib/apiClient';
 import { Product, PRODUCT_CATEGORIES } from '../types';
 import ProductDetailModal from '../modals/ProductDetailModal';
 import ProductDeleteModal from '../modals/ProductDeleteModal';
-import EncryptedImage from '@/components/ui/encrypted-image';
 
 interface ProductsSectionProps {
   onProductsLoaded?: (products: Product[]) => void;
@@ -481,11 +480,10 @@ const ProductsSection: React.FC<ProductsSectionProps> = ({ onProductsLoaded }) =
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           {product.image_url ? (
-                            <EncryptedImage
+                            <img
                               src={product.image_url}
                               alt={product.name}
                               className="w-10 h-10 rounded-lg object-cover"
-                              fallbackClassName="w-10 h-10 rounded-lg bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
                             />
                           ) : (
                             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">

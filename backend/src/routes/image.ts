@@ -151,7 +151,75 @@ router.post('/upload/:category', authMiddleware, async (req: Request, res: Respo
 });
 
 // ============================================================================
-// GET /images/:category/:filename - Serve encrypted image data (for frontend to decrypt)
+// POST /images/upload-plain/:category - Upload plain (non-encrypted) image
+// ============================================================================
+
+router.post('/upload-plain/:category', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { category } = req.params;
+
+    // Validate category
+    if (!isValidCategory(category)) {
+      res.status(400).json({ 
+        success: false, 
+        error: `Invalid category. Must be one of: ${IMAGE_CATEGORIES.join(', ')}` 
+      });
+      return;
+    }
+
+    const uploadDir = ensureUploadDir(category);
+
+    // Expect base64 encoded image data
+    const { imageData, mimeType, originalName } = req.body as {
+      imageData: string;  // Base64 encoded image data
+      mimeType: string;
+      originalName?: string;
+    };
+
+    if (!imageData) {
+      res.status(400).json({ success: false, error: 'Missing image data' });
+      return;
+    }
+
+    // Determine file extension from mime type
+    const extMap: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/jpg': '.jpg',
+      'image/png': '.png',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
+    };
+    const ext = extMap[mimeType] || '.jpg';
+
+    // Generate unique filename (not encrypted, so use 'img_' prefix)
+    const hash = crypto.randomBytes(16).toString('hex');
+    const filename = `img_${hash}${ext}`;
+    const filePath = path.join(uploadDir, filename);
+
+    // Decode base64 and save as binary image file
+    const imageBuffer = Buffer.from(imageData, 'base64');
+    fs.writeFileSync(filePath, imageBuffer);
+
+    // Return the image URL path
+    const imageUrl = `/api/images/${category}/${filename}`;
+
+    console.log(`✅ Plain image saved: ${imageUrl}`);
+
+    res.status(200).json({
+      success: true,
+      data: { image_url: imageUrl },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error uploading plain image:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload image',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// GET /images/:category/:filename - Serve image (encrypted or plain)
 // ============================================================================
 
 router.get('/:category/:filename', async (req: Request, res: Response): Promise<void> => {
@@ -178,16 +246,37 @@ router.get('/:category/:filename', async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Read the encrypted file data
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
-    
-    // Return encrypted data as JSON for frontend to decrypt
-    res.set({
-      'Content-Type': 'application/json',
-      'Cache-Control': 'private, max-age=3600',
-    });
+    // Check if this is a plain image (starts with 'img_') or encrypted (starts with 'enc_')
+    if (filename.startsWith('img_')) {
+      // Plain image - serve as binary with correct content type
+      const ext = path.extname(filename).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+      };
+      const contentType = mimeTypes[ext] || 'image/jpeg';
 
-    res.send(fileContent);
+      res.set({
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
+      });
+
+      const imageBuffer = fs.readFileSync(filePath);
+      res.send(imageBuffer);
+    } else {
+      // Encrypted image - return as JSON for frontend to decrypt
+      const fileContent = fs.readFileSync(filePath, 'utf-8');
+      
+      res.set({
+        'Content-Type': 'application/json',
+        'Cache-Control': 'private, max-age=3600',
+      });
+
+      res.send(fileContent);
+    }
   } catch (error) {
     console.error('Error serving image:', error);
     res.status(500).json({

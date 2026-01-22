@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { getAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
-import { uploadImage } from '@/lib/encryption';
 
 // ============================================================================
 // TYPES
@@ -324,9 +323,9 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
     try {
       apiClient.setAuthToken(token || null);
       
-      let path = '/api/professional/shopify/products?limit=50';
+      let path = '/api/professional/shopify/products';
       if (cursor) {
-        path += `&cursor=${encodeURIComponent(cursor)}`;
+        path += `?cursor=${encodeURIComponent(cursor)}`;
       }
 
       const response = await apiClient.get<{
@@ -384,68 +383,6 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
     }
   };
 
-  /**
-   * Download image from URL and convert to File
-   * Uses fetch with no-cors mode fallback for cross-origin images
-   */
-  const downloadImageAsFile = async (imageUrl: string, filename: string): Promise<File | null> => {
-    try {
-      // Try fetching with CORS first
-      const response = await fetch(imageUrl, {
-        mode: 'cors',
-        credentials: 'omit',
-      });
-      
-      if (!response.ok) {
-        return null;
-      }
-      
-      const blob = await response.blob();
-      
-      // Validate we got actual image data
-      if (blob.size === 0 || !blob.type.startsWith('image/')) {
-        return null;
-      }
-      
-      const mimeType = blob.type || 'image/jpeg';
-      const extension = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-      const safeFilename = `${filename.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 50)}.${extension}`;
-      
-      return new File([blob], safeFilename, { type: mimeType });
-    } catch (err) {
-      // CORS error or network error - fall back to using original URL
-      return null;
-    }
-  };
-
-  /**
-   * Upload image to our backend with encryption
-   */
-  const uploadProductImage = async (imageUrl: string, productTitle: string): Promise<string | null> => {
-    if (!imageUrl || !token) return null;
-    
-    try {
-      // Download the image from Shopify
-      const file = await downloadImageAsFile(imageUrl, productTitle);
-      if (!file) {
-        return null;
-      }
-      
-      // Upload to our backend with encryption
-      const result = await uploadImage(file, 'products', token);
-      
-      if (result.success && result.data?.image_url) {
-        return result.data.image_url;
-      }
-      
-      console.error('Image upload failed:', result.error);
-      return null;
-    } catch (err) {
-      console.error('Error uploading image:', err);
-      return null;
-    }
-  };
-
   const handleImport = async () => {
     if (selectedProducts.size === 0 || !user || !token) return;
 
@@ -461,14 +398,8 @@ const ShopifyProductImport: React.FC<ShopifyProductImportProps> = ({
       // Import products one by one to the database
       for (const product of productsToImport) {
         try {
-          // Try to upload the image if available
-          let uploadedImageUrl: string | null = null;
-          if (product.image_url) {
-            uploadedImageUrl = await uploadProductImage(product.image_url, product.title);
-          }
-
-          // Use the uploaded image URL if available, otherwise keep original Shopify URL as fallback
-          const finalImageUrl = uploadedImageUrl || product.image_url || null;
+          // Use Shopify's public image URL directly (no encryption)
+          const finalImageUrl = product.image_url || null;
 
           // Strip HTML from description
           const plainTextDescription = stripHtmlTags(product.description);
