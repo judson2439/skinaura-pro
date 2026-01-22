@@ -36,7 +36,7 @@ const ClientFooter: React.FC = () => {
 
           {/* Copyright */}
           <p className="text-sm text-gray-400">
-            © 2025 SkinAura AI. Skincare is Selfcare.
+            © 2026 SkinAura AI. Skincare is Selfcare.
           </p>
         </div>
       </div>
