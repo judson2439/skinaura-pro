@@ -44,6 +44,7 @@ export type AuditResourceType =
   | 'gamification'
   | 'badge'
   | 'avatar'
+  | 'logo'
   | 'system';
 
 export interface AuditLogEntry {

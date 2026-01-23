@@ -3861,9 +3861,10 @@ router.post('/logo', async (req: Request, res: Response): Promise<void> => {
     console.log(`📸 Saving logo for professional: ${professionalId}`);
 
     // Upsert: insert or update if exists
+    // Note: Explicitly use gen_random_uuid() for id since table may not have default
     const result = await queryOne<{ id: string; logo_url: string; created_at: string }>(
-      `INSERT INTO professional_logo (professional_id, logo_url)
-       VALUES ($1, $2)
+      `INSERT INTO professional_logo (id, professional_id, logo_url)
+       VALUES (gen_random_uuid(), $1, $2)
        ON CONFLICT (professional_id)
        DO UPDATE SET logo_url = EXCLUDED.logo_url, created_at = CURRENT_TIMESTAMP
        RETURNING id, logo_url, created_at`,
@@ -3873,8 +3874,9 @@ router.post('/logo', async (req: Request, res: Response): Promise<void> => {
     // Log audit event
     await logAuditFromRequest(
       req,
-      'professional.logo.saved',
-      professionalId,
+      'UPLOAD',
+      'logo',
+      result?.id,
       { logo_url }
     );
 
@@ -3954,9 +3956,10 @@ router.delete('/logo', async (req: Request, res: Response): Promise<void> => {
     // Log audit event
     await logAuditFromRequest(
       req,
-      'professional.logo.deleted',
-      professionalId,
-      {}
+      'DELETE',
+      'logo',
+      undefined,
+      { professional_id: professionalId }
     );
 
     console.log(`✅ Logo deleted for professional: ${professionalId}`);
