@@ -213,7 +213,7 @@ export const decryptFileToBlob = async (
 // ============================================================================
 
 // Valid image categories
-export type ImageCategory = 'avatars' | 'products' | 'photos' | 'treatments';
+export type ImageCategory = 'avatars' | 'products' | 'photos' | 'treatments' | 'logos';
 
 // Get API base URL
 const getApiBaseUrl = (): string => {

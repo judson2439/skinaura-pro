@@ -18,7 +18,7 @@ const router = Router();
 // ============================================================================
 
 // Valid image categories and their upload directories
-const IMAGE_CATEGORIES = ['avatars', 'products', 'photos', 'treatments'] as const;
+const IMAGE_CATEGORIES = ['avatars', 'products', 'photos', 'treatments', 'logos'] as const;
 type ImageCategory = typeof IMAGE_CATEGORIES[number];
 
 // Ensure upload directory exists for a category

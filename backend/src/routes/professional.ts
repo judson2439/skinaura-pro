@@ -515,8 +515,17 @@ const calculateCompliance = (
   daysToCheck: number = 30
 ): number => {
   const clientCompletions = completions.filter(c => c.client_id === clientId);
-  const uniqueDates = new Set(clientCompletions.map(c => c.completion_date));
-  const compliance = Math.round((uniqueDates.size / daysToCheck) * 100);
+  const dateCount = clientCompletions.reduce((acc: Record<string, number>, item: { completion_date: string }) => {
+    const date = new Date(item.completion_date).toISOString().slice(0, 10); // Normalize to YYYY-MM-DD
+    (acc as Record<string, number>)[date] = ((acc as Record<string, number>)[date] || 0) + 1;
+    return acc;
+  }, {});
+  
+  // Total removed duplicates
+  const removedCount = Object.values(dateCount).reduce((sum: number, count: number): number => {
+    return sum + (count - 1); // Remove the first occurrence, keep the rest as duplicates
+  }, 0);
+  const compliance = Math.round(((clientCompletions.length - removedCount) / 30) * 100);
   return Math.min(compliance, 100);
 };
 
@@ -1591,8 +1600,17 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
     ]);
 
     // Calculate compliance rate
-    const uniqueDays = new Set(completionsResult.map(c => c.completion_date));
-    const complianceRate = Math.round((uniqueDays.size / 30) * 100);
+    const dateCount = completionsResult.reduce((acc: Record<string, number>, item: { completion_date: string }) => {
+      const date = new Date(item.completion_date).toISOString().slice(0, 10); // Normalize to YYYY-MM-DD
+      (acc as Record<string, number>)[date] = ((acc as Record<string, number>)[date] || 0) + 1;
+      return acc;
+    }, {});
+    
+    // Total removed duplicates
+    const removedCount = Object.values(dateCount).reduce((sum: number, count: number): number => {
+      return sum + (count - 1); // Remove the first occurrence, keep the rest as duplicates
+    }, 0);
+    const complianceRate = Math.round(((completionsResult.length - removedCount) / 30) * 100);
 
     // Build gamification stats
     const stats = {
@@ -3794,6 +3812,165 @@ router.get('/shopify/products', async (req: Request, res: Response): Promise<voi
     res.status(500).json({
       success: false,
       error: 'Failed to fetch products from Shopify',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// PROFESSIONAL LOGO ENDPOINTS
+// ============================================================================
+
+/**
+ * Initialize professional_logo table
+ * Called on server startup
+ */
+export const initProfessionalLogoTable = async (): Promise<void> => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS professional_logo (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        professional_id UUID NOT NULL UNIQUE REFERENCES user_profiles(id) ON DELETE CASCADE,
+        logo_url TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ professional_logo table initialized');
+  } catch (error) {
+    console.error('❌ Error initializing professional_logo table:', error);
+    throw error;
+  }
+};
+
+/**
+ * POST /professional/logo
+ * Save or update professional logo
+ */
+router.post('/logo', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { logo_url } = req.body;
+
+    if (!logo_url) {
+      res.status(400).json({
+        success: false,
+        error: 'Logo URL is required',
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`📸 Saving logo for professional: ${professionalId}`);
+
+    // Upsert: insert or update if exists
+    const result = await queryOne<{ id: string; logo_url: string; created_at: string }>(
+      `INSERT INTO professional_logo (professional_id, logo_url)
+       VALUES ($1, $2)
+       ON CONFLICT (professional_id)
+       DO UPDATE SET logo_url = EXCLUDED.logo_url, created_at = CURRENT_TIMESTAMP
+       RETURNING id, logo_url, created_at`,
+      [professionalId, logo_url]
+    );
+
+    // Log audit event
+    await logAuditFromRequest(
+      req,
+      'professional.logo.saved',
+      professionalId,
+      { logo_url }
+    );
+
+    console.log(`✅ Logo saved for professional: ${professionalId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logo saved successfully',
+      data: result,
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error saving logo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save logo',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/logo
+ * Get professional logo
+ */
+router.get('/logo', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`📸 Fetching logo for professional: ${professionalId}`);
+
+    const result = await queryOne<{ id: string; logo_url: string; created_at: string }>(
+      `SELECT id, logo_url, created_at
+       FROM professional_logo
+       WHERE professional_id = $1`,
+      [professionalId]
+    );
+
+    if (!result) {
+      res.status(200).json({
+        success: true,
+        data: null,
+      } as ApiResponse);
+      return;
+    }
+
+    console.log(`✅ Logo found for professional: ${professionalId}`);
+
+    res.status(200).json({
+      success: true,
+      data: result,
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching logo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch logo',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/logo
+ * Delete professional logo
+ */
+router.delete('/logo', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`🗑️ Deleting logo for professional: ${professionalId}`);
+
+    await query(
+      `DELETE FROM professional_logo WHERE professional_id = $1`,
+      [professionalId]
+    );
+
+    // Log audit event
+    await logAuditFromRequest(
+      req,
+      'professional.logo.deleted',
+      professionalId,
+      {}
+    );
+
+    console.log(`✅ Logo deleted for professional: ${professionalId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logo deleted successfully',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error deleting logo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete logo',
     } as ApiResponse);
   }
 });

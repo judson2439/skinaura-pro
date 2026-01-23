@@ -16,6 +16,7 @@ import TreatmentPlansSection from '@/components/professional/sections/TreatmentP
 import AnalyticsSection from '@/components/professional/sections/AnalyticsSection';
 import ProductLibrarySection from '@/components/professional/sections/ProductLibrarySection';
 import NotificationsSection from '@/components/professional/sections/NotificationsSection';
+import UploadLogoSection from '@/components/professional/sections/UploadLogoSection';
 import HelpSection from '@/components/client/sections/HelpSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import ClientProfileModal, { ClientProfile } from '@/components/professional/modals/ClientProfileModal';
@@ -308,6 +309,12 @@ const ProfessionalPage: React.FC = () => {
       case 'products':
         return (
           <ProductLibrarySection
+            onNavigateToView={handleNavigateToView}
+          />
+        );
+      case 'upload-logo':
+        return (
+          <UploadLogoSection
             onNavigateToView={handleNavigateToView}
           />
         );
