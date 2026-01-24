@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { X, Plus, Loader2, Camera, Upload, Image as ImageIcon } from 'lucide-react';
 import EncryptedImage from '@/components/ui/encrypted-image';
+import CameraCapture from '@/components/ui/CameraCapture';
 
 // ============================================================================
 // CONSTANTS
@@ -61,19 +62,29 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   setProductNotes,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
   
   // Local state for image
-  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  
+  // Camera modal state
+  const [showCamera, setShowCamera] = useState(false);
 
   // Reset local state when modal closes
   React.useEffect(() => {
     if (!isOpen) {
       setSelectedFile(null);
       setPhotoPreview(null);
+      setShowCamera(false);
     }
   }, [isOpen]);
+
+  // Handle camera capture
+  const handleCameraCapture = (file: File, previewUrl: string) => {
+    setSelectedFile(file);
+    setPhotoPreview(previewUrl);
+    setShowCamera(false);
+  };
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -91,7 +102,6 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
     setSelectedFile(null);
     setPhotoPreview(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    if (photoInputRef.current) photoInputRef.current.value = '';
   };
 
   const handleSubmit = () => {
@@ -103,19 +113,11 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl p-6 w-full max-w-md my-8">
-        {/* Hidden file inputs */}
+        {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          onChange={handlePhotoSelect}
-          className="hidden"
-        />
-        <input
-          ref={photoInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
           onChange={handlePhotoSelect}
           className="hidden"
         />
@@ -157,7 +159,7 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
                 <div className="flex gap-2 justify-center">
                   <button
                     type="button"
-                    onClick={() => photoInputRef.current?.click()}
+                    onClick={() => setShowCamera(true)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-500 text-white text-sm rounded-lg font-medium hover:bg-teal-600 transition-colors"
                   >
                     <Camera className="w-4 h-4" /> Take Photo
@@ -248,6 +250,13 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Camera Capture Modal */}
+      <CameraCapture
+        isOpen={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   );
 };

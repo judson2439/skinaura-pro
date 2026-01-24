@@ -20,6 +20,7 @@ import {
 } from './productLibraryTypes';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
+import CameraCapture from '@/components/ui/CameraCapture';
 
 // ============================================================================
 // TYPES
@@ -54,7 +55,6 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
   saving = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Photo states
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -63,6 +63,9 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
   const [aiResult, setAiResult] = useState<AIProductResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Camera modal state
+  const [showCamera, setShowCamera] = useState(false);
 
   // Form states
   const [productName, setProductName] = useState('');
@@ -82,6 +85,7 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
     setAiResult(null);
     setAiError(null);
     setUploading(false);
+    setShowCamera(false);
     setProductName('');
     setProductBrand('');
     setProductCategory('');
@@ -96,6 +100,15 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
   const handleClose = () => {
     resetForm();
     onClose();
+  };
+
+  // Handle camera capture
+  const handleCameraCapture = (file: File, previewUrl: string) => {
+    setSelectedFile(file);
+    setPhotoPreview(previewUrl);
+    setShowCamera(false);
+    setAiResult(null);
+    setAiError(null);
   };
 
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,9 +303,9 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-2xl my-8">
-        {/* Hidden file inputs */}
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
@@ -300,19 +313,12 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
           onChange={handlePhotoSelect}
           className="hidden"
         />
-        <input
-          ref={photoInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handlePhotoSelect}
-          className="hidden"
-        />
 
-        <div className="flex items-center justify-between mb-6">
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-100 flex-shrink-0">
           <div>
             <h3 className="text-xl font-serif font-bold flex items-center gap-2">
-              <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={20} height={20}/>
+              <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={20} height={20} alt="AI"/>
               AI Product Scanner
             </h3>
             <p className="text-sm text-gray-500 mt-1">Upload a photo and let AI identify the product</p>
@@ -322,8 +328,10 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
           </button>
         </div>
 
-        {/* Photo Upload Area */}
-        <div className="mb-6">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Photo Upload Area */}
+          <div className="mb-6">
           {photoPreview ? (
             <div className="relative rounded-xl overflow-hidden">
               <img src={photoPreview} alt="Product preview" className="w-full h-64 object-cover" />
@@ -374,7 +382,7 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
               </p>
               <div className="flex flex-col sm:flex-row gap-2 justify-center">
                 <button
-                  onClick={() => photoInputRef.current?.click()}
+                  onClick={() => setShowCamera(true)}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg font-medium hover:shadow-lg transition-all"
                 >
                   <Camera className="w-4 h-4" /> Take Photo
@@ -581,21 +589,23 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
           />
         </div>
 
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Purchase URL (Optional)</label>
-          <div className="relative">
-            <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="url"
-              value={productUrl}
-              onChange={(e) => setProductUrl(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all"
-              placeholder="https://..."
-            />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Purchase URL (Optional)</label>
+            <div className="relative">
+              <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="url"
+                value={productUrl}
+                onChange={(e) => setProductUrl(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all"
+                placeholder="https://..."
+              />
+            </div>
           </div>
         </div>
 
-        <div className="flex gap-3 mt-6">
+        {/* Footer - Fixed */}
+        <div className="flex gap-3 p-6 pt-4 border-t border-gray-100 flex-shrink-0">
           <button
             onClick={handleClose}
             className="flex-1 py-3 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
@@ -620,6 +630,13 @@ const AIPhotoScanModal: React.FC<AIPhotoScanModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Camera Capture Modal */}
+      <CameraCapture
+        isOpen={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   );
 };

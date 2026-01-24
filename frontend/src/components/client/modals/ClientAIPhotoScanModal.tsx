@@ -12,6 +12,7 @@ import {
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
 import { PRODUCT_CATEGORIES } from './AddProductModal';
+import CameraCapture from '@/components/ui/CameraCapture';
 
 // ============================================================================
 // TYPES
@@ -63,7 +64,6 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
   saving = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Photo states
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -72,6 +72,9 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
   const [aiResult, setAiResult] = useState<AIProductResult | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Camera modal state
+  const [showCamera, setShowCamera] = useState(false);
 
   // Form states
   const [productName, setProductName] = useState('');
@@ -86,10 +89,20 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
     setAiResult(null);
     setAiError(null);
     setUploading(false);
+    setShowCamera(false);
     setProductName('');
     setProductBrand('');
     setProductCategory('');
     setProductNotes('');
+  };
+
+  // Handle camera capture
+  const handleCameraCapture = (file: File, previewUrl: string) => {
+    setSelectedFile(file);
+    setPhotoPreview(previewUrl);
+    setShowCamera(false);
+    setAiResult(null);
+    setAiError(null);
   };
 
   const handleClose = () => {
@@ -237,19 +250,11 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl p-6 w-full max-w-lg my-8">
-        {/* Hidden file inputs */}
+        {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          onChange={handlePhotoSelect}
-          className="hidden"
-        />
-        <input
-          ref={photoInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
           onChange={handlePhotoSelect}
           className="hidden"
         />
@@ -325,7 +330,7 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
               </p>
               <div className="flex flex-col sm:flex-row gap-2 justify-center">
                 <button
-                  onClick={() => photoInputRef.current?.click()}
+                  onClick={() => setShowCamera(true)}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-lg font-medium hover:shadow-lg transition-all"
                 >
                   <Camera className="w-4 h-4" /> Take Photo
@@ -481,6 +486,13 @@ const ClientAIPhotoScanModal: React.FC<ClientAIPhotoScanModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Camera Capture Modal */}
+      <CameraCapture
+        isOpen={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   );
 };

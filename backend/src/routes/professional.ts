@@ -2583,6 +2583,26 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Get professional's logo for the invitation email
+    const professionalLogo = await queryOne<{ logo_url: string }>(
+      `SELECT logo_url FROM professional_logo WHERE professional_id = $1`,
+      [professionalId]
+    );
+    
+    // Build full logo URL if it's a relative path
+    let logoUrl: string | undefined;
+    if (professionalLogo?.logo_url) {
+      if (professionalLogo.logo_url.startsWith('http')) {
+        logoUrl = professionalLogo.logo_url;
+      } else {
+        // Convert relative path to full URL
+        logoUrl = `${env.FRONTEND_URL}${professionalLogo.logo_url}`;
+      }
+      console.log(`📸 Using professional's custom logo: ${logoUrl}`);
+    } else {
+      console.log(`📸 No custom logo found, using default`);
+    }
+
     // Check if a user with this email already exists
     const existingUser = await queryOne<{
       id: string;
@@ -2673,12 +2693,13 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       [normalizedEmail, professionalId, invitationToken, expiresAt.toISOString()]
     );
 
-    // Send invitation email with token link
+    // Send invitation email with token link (including professional's logo)
     const emailResult = await sendClientInvitationWithTokenEmail(
       normalizedEmail,
       professional.full_name || 'Your Skincare Professional',
       professional.business_name || 'SkinAura PRO',
-      invitationToken
+      invitationToken,
+      logoUrl
     );
 
     if (!emailResult.success) {

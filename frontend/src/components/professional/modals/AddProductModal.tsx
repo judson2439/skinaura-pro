@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { X, Plus, Loader2, DollarSign, Image as ImageIcon, Link, Upload } from 'lucide-react';
+import { X, Plus, Loader2, DollarSign, Image as ImageIcon, Link, Upload, Camera } from 'lucide-react';
 import { PRODUCT_CATEGORIES, SKIN_TYPES } from './productLibraryTypes';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
+import CameraCapture from '@/components/ui/CameraCapture';
 
 // ============================================================================
 // TYPES
@@ -52,6 +53,9 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
+  // Camera modal state
+  const [showCamera, setShowCamera] = useState(false);
+
   // Category options for select
   const categoryOptions = [
     { value: '', label: 'Select category...' },
@@ -71,11 +75,21 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
     setProductInstructions('');
     setSelectedFile(null);
     setImagePreview(null);
+    setShowCamera(false);
   };
 
   const handleClose = () => {
     resetForm();
     onClose();
+  };
+
+  // Handle camera capture
+  const handleCameraCapture = (file: File, previewUrl: string) => {
+    setSelectedFile(file);
+    setImagePreview(previewUrl);
+    setShowCamera(false);
+    // Clear URL input when file is captured
+    setProductImageUrl('');
   };
 
   const toggleSkinType = (type: string) => {
@@ -134,8 +148,8 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-2xl my-8">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -145,15 +159,18 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
           className="hidden"
         />
 
-        <div className="flex items-center justify-between mb-6">
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between p-6 pb-4 border-b border-gray-100 flex-shrink-0">
           <h3 className="text-xl font-serif font-bold">Add New Product</h3>
           <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Image Upload Section */}
-        <div className="mb-6">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Image Upload Section */}
+          <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">Product Image</label>
           {imagePreview ? (
             <div className="relative w-full h-48 rounded-xl overflow-hidden bg-gray-100">
@@ -170,13 +187,28 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
               </button>
             </div>
           ) : (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full h-32 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-[#CFAFA3] hover:bg-[#CFAFA3]/5 transition-all"
-            >
-              <Upload className="w-8 h-8 text-gray-400 mb-2" />
-              <p className="text-sm text-gray-500">Click to upload product image</p>
-              <p className="text-xs text-gray-400 mt-1">PNG, JPG up to 10MB</p>
+            <div className="w-full border-2 border-dashed border-gray-200 rounded-xl p-6 text-center bg-gray-50/50">
+              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                <ImageIcon className="w-6 h-6 text-gray-400" />
+              </div>
+              <p className="text-sm text-gray-500 mb-3">Add a photo of your product</p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={() => setShowCamera(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#CFAFA3] text-white text-sm rounded-lg font-medium hover:bg-[#B89A8E] transition-colors"
+                >
+                  <Camera className="w-4 h-4" /> Take Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                >
+                  <Upload className="w-4 h-4" /> Upload
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">PNG, JPG up to 10MB</p>
             </div>
           )}
         </div>
@@ -283,39 +315,41 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
           />
         </div>
 
-        <div className="grid md:grid-cols-2 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Image URL {selectedFile ? '(Using uploaded image)' : '(Optional)'}
-            </label>
-            <div className="relative">
-              <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="url"
-                value={productImageUrl}
-                onChange={(e) => setProductImageUrl(e.target.value)}
-                disabled={!!selectedFile}
-                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-[#CFAFA3] outline-none disabled:bg-gray-100 disabled:text-gray-400 transition-all"
-                placeholder="https://..."
-              />
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Image URL {selectedFile ? '(Using uploaded image)' : '(Optional)'}
+              </label>
+              <div className="relative">
+                <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="url"
+                  value={productImageUrl}
+                  onChange={(e) => setProductImageUrl(e.target.value)}
+                  disabled={!!selectedFile}
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-[#CFAFA3] outline-none disabled:bg-gray-100 disabled:text-gray-400 transition-all"
+                  placeholder="https://..."
+                />
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Purchase URL (Optional)</label>
-            <div className="relative">
-              <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="url"
-                value={productUrl}
-                onChange={(e) => setProductUrl(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-[#CFAFA3] outline-none transition-all"
-                placeholder="https://..."
-              />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Purchase URL (Optional)</label>
+              <div className="relative">
+                <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="url"
+                  value={productUrl}
+                  onChange={(e) => setProductUrl(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-[#CFAFA3] outline-none transition-all"
+                  placeholder="https://..."
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-3">
+        {/* Footer - Fixed */}
+        <div className="flex gap-3 p-6 pt-4 border-t border-gray-100 flex-shrink-0">
           <button
             onClick={handleClose}
             className="flex-1 py-3 border border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
@@ -332,6 +366,13 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Camera Capture Modal */}
+      <CameraCapture
+        isOpen={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   );
 };

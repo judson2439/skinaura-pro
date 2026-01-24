@@ -378,6 +378,9 @@ export const getInvitationTokenExpiry = (): Date => {
   return expiry;
 };
 
+// Default logo URL for email templates
+const DEFAULT_LOGO_URL = 'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png';
+
 /**
  * Send client invitation email with token link
  */
@@ -385,12 +388,17 @@ export const sendClientInvitationWithTokenEmail = async (
   toEmail: string,
   professionalName: string,
   businessName: string,
-  invitationToken: string
+  invitationToken: string,
+  logoUrl?: string
 ): Promise<EmailResult> => {
+  // Use professional's logo if provided, otherwise use default
+  const emailLogoUrl = logoUrl || DEFAULT_LOGO_URL;
+
   if (!mg || !env.MAILGUN_API_KEY || !env.MAILGUN_DOMAIN) {
     console.warn('⚠️ Mailgun not configured - invitation email not sent');
     console.log(`📧 [DEV] Invitation email for ${toEmail} from ${professionalName} (${businessName})`);
     console.log(`📧 [DEV] Invitation link: ${env.FRONTEND_URL}/client-confirm?token=${invitationToken}`);
+    console.log(`📧 [DEV] Logo URL: ${emailLogoUrl}`);
     return { 
       success: true, 
       messageId: 'dev-mode',
@@ -413,10 +421,11 @@ export const sendClientInvitationWithTokenEmail = async (
     <tr>
       <td align="center" style="padding: 40px 0;">
         <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-          <!-- Header -->
+          <!-- Header with Logo -->
           <tr>
             <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #CFAFA3 0%, #E8D5D0 100%); border-radius: 16px 16px 0 0;">
-              <h1 style="margin: 0; color: #2D2A3E; font-size: 28px; font-weight: 700;">SkinAura PRO</h1>
+              <img src="${emailLogoUrl}" alt="${businessName} Logo" style="max-width: 180px; max-height: 80px; object-fit: contain; margin-bottom: 16px;" />
+              <h1 style="margin: 0; color: #2D2A3E; font-size: 28px; font-weight: 700;">${businessName}</h1>
               <p style="margin: 10px 0 0; color: #5D5A6E; font-size: 14px;">Professional Skincare Management</p>
             </td>
           </tr>
