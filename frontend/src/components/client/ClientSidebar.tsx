@@ -14,6 +14,7 @@ import {
   Crown,
   LucideIcon,
   Bell,
+  BookOpen,
 } from 'lucide-react';
 
 // ============================================================================
@@ -53,6 +54,7 @@ interface ClientSidebarProps {
 
 export const CLIENT_NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'guide', label: 'Guide', icon: BookOpen },
   { id: 'routine', label: 'My Routine', icon: Clock },
   { id: 'products', label: 'My Products', icon: Package },
   { id: 'photos', label: 'Progress Photos', icon: Camera },

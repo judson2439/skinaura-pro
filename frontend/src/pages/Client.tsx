@@ -17,6 +17,7 @@ import AchievementsSection from '@/components/client/sections/AchievementsSectio
 import LeaderboardSection from '@/components/client/sections/LeaderboardSection';
 import HelpSection from '@/components/client/sections/HelpSection';
 import NotificationsSection from '@/components/client/sections/NotificationsSection';
+import GuideSection from '@/components/client/sections/GuideSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import { Loader2 } from 'lucide-react';
 
@@ -357,6 +358,8 @@ const ClientPage: React.FC = () => {
             onNavigateToView={handleNavigateToView}
           />
         );
+      case 'guide':
+        return <GuideSection onNavigateToView={handleNavigateToView} />;
       case 'routine':
         return <MyRoutineSection />;
       case 'products':
