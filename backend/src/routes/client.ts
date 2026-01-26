@@ -470,29 +470,75 @@ router.get('/routines', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /client/completions/today
  * Get today's routine and step completions
+ * For weekly routines, checks if completed within the current week (Monday to Sunday)
  */
 router.get('/completions/today', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId;
     const today = new Date().toISOString().split('T')[0];
 
+    // Calculate the start of the current week (Monday)
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - daysToMonday);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+
     console.log(`📊 Fetching today's completions for user: ${userId}`);
+    console.log(`📅 Today: ${today}, Week start (Monday): ${weekStartStr}`);
 
-    // Get routine completions
-    const routineCompletions = await query<RoutineCompletion>(
+    // Get daily routine completions (morning, evening, custom - today only)
+    const dailyRoutineCompletions = await query<RoutineCompletion>(
       `SELECT * FROM routine_completions 
-       WHERE client_id = $1 AND completion_date = $2`,
+       WHERE client_id = $1 AND completion_date = $2 AND routine_type != 'weekly'`,
       [userId, today]
     );
 
-    // Get step completions
-    const stepCompletions = await query<StepCompletion>(
-      `SELECT * FROM routine_step_completions 
-       WHERE client_id = $1 AND completion_date = $2`,
+    // Get weekly routine completions (within current week)
+    const weeklyRoutineCompletions = await query<RoutineCompletion>(
+      `SELECT * FROM routine_completions 
+       WHERE client_id = $1 AND completion_date >= $2 AND routine_type = 'weekly'`,
+      [userId, weekStartStr]
+    );
+
+    // Combine all routine completions
+    const routineCompletions = [...dailyRoutineCompletions, ...weeklyRoutineCompletions];
+
+    // Get daily step completions (today only)
+    const dailyStepCompletions = await query<StepCompletion>(
+      `SELECT rsc.* FROM routine_step_completions rsc
+       LEFT JOIN routine_steps rs ON rsc.routine_step_id = rs.id
+       LEFT JOIN routine_templates rt ON rs.routine_id = rt.id
+       WHERE rsc.client_id = $1 AND rsc.completion_date = $2 
+       AND (rt.schedule_type IS NULL OR rt.schedule_type != 'weekly')`,
       [userId, today]
     );
 
-    console.log(`✅ Found ${routineCompletions.length} routine completions, ${stepCompletions.length} step completions`);
+    // Get weekly step completions (within current week)
+    const weeklyStepCompletions = await query<StepCompletion>(
+      `SELECT rsc.* FROM routine_step_completions rsc
+       LEFT JOIN routine_steps rs ON rsc.routine_step_id = rs.id
+       LEFT JOIN routine_templates rt ON rs.routine_id = rt.id
+       WHERE rsc.client_id = $1 AND rsc.completion_date >= $2 
+       AND rt.schedule_type = 'weekly'`,
+      [userId, weekStartStr]
+    );
+
+    // Combine all step completions (use Set to avoid duplicates)
+    const stepCompletionIds = new Set<string>();
+    const stepCompletions: StepCompletion[] = [];
+    
+    [...dailyStepCompletions, ...weeklyStepCompletions].forEach(sc => {
+      if (!stepCompletionIds.has(sc.routine_step_id)) {
+        stepCompletionIds.add(sc.routine_step_id);
+        stepCompletions.push(sc);
+      }
+    });
+
+    console.log(`✅ Found ${routineCompletions.length} routine completions (${dailyRoutineCompletions.length} daily, ${weeklyRoutineCompletions.length} weekly)`);
+    console.log(`✅ Found ${stepCompletions.length} step completions (${dailyStepCompletions.length} daily, ${weeklyStepCompletions.length} weekly)`);
 
     res.status(200).json({
       success: true,
