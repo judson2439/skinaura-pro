@@ -932,6 +932,19 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
     // Clear failed login attempts on successful login
     await handleSuccessfulLogin(email, req);
 
+    // Check if this is the user's first login by checking last_logged_at
+    const userProfile = await queryOne<{ last_logged_at: string | null }>(
+      `SELECT last_logged_at FROM user_profiles WHERE id = $1`,
+      [result.user?.id]
+    );
+    const isFirstLogin = userProfile?.last_logged_at === null;
+
+    // Update last_logged_at timestamp
+    await query(
+      `UPDATE user_profiles SET last_logged_at = NOW() WHERE id = $1`,
+      [result.user?.id]
+    );
+
     // Log successful login
     await logAudit({
       userId: result.user?.id,
@@ -944,11 +957,12 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
       details: { 
         method: 'email_password',
         portal: 'client',
+        isFirstLogin,
       },
       status: 'success',
     });
 
-    console.log(`✅ Client sign-in successful for: ${email}`);
+    console.log(`✅ Client sign-in successful for: ${email}${isFirstLogin ? ' (first login)' : ''}`);
 
     res.status(200).json({
       success: true,
@@ -957,6 +971,7 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
         user: result.user,
         token: result.token,
         redirectTo: '/client',
+        isFirstLogin,
       },
     } as AuthResponse);
 

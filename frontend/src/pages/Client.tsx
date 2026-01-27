@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
+import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession, clearFirstLoginFlag } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import { useInactivityTimeout } from '@/hooks/useInactivityTimeout';
@@ -19,6 +19,7 @@ import HelpSection from '@/components/client/sections/HelpSection';
 import NotificationsSection from '@/components/client/sections/NotificationsSection';
 import GuideSection from '@/components/client/sections/GuideSection';
 import ProfileSection from '@/components/shared/ProfileSection';
+import WelcomeModal from '@/components/client/modals/WelcomeModal';
 import { Loader2 } from 'lucide-react';
 
 // ============================================================================
@@ -82,6 +83,9 @@ const ClientPage: React.FC = () => {
   
   // Auth session state - allows re-render when session is updated (e.g., avatar change)
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
+  
+  // Welcome modal state for first-time users
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   // Track user activity and auto-logout after 10 minutes of inactivity
   useInactivityTimeout({
@@ -100,6 +104,14 @@ const ClientPage: React.FC = () => {
       window.removeEventListener(AUTH_SESSION_UPDATED_EVENT, handleSessionUpdate);
     };
   }, []);
+
+  // Check if this is the user's first login and show welcome modal
+  useEffect(() => {
+    const session = getAuthSession();
+    if (session?.isFirstLogin && !isCheckingSession) {
+      setShowWelcomeModal(true);
+    }
+  }, [isCheckingSession]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -330,6 +342,19 @@ const ClientPage: React.FC = () => {
     setSidebarOpen(false); // Close mobile sidebar after navigation
   };
 
+  // Handle welcome modal close
+  const handleWelcomeModalClose = () => {
+    setShowWelcomeModal(false);
+    clearFirstLoginFlag();
+  };
+
+  // Handle go to guide from welcome modal
+  const handleGoToGuide = () => {
+    setShowWelcomeModal(false);
+    clearFirstLoginFlag();
+    navigate('/client/guide');
+  };
+
   const getPageTitle = () => {
     if (activeView === 'profile') {
       return 'My Profile';
@@ -397,6 +422,13 @@ const ClientPage: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
+      {/* Welcome Modal for first-time users */}
+      <WelcomeModal
+        isOpen={showWelcomeModal}
+        onClose={handleWelcomeModalClose}
+        onGoToGuide={handleGoToGuide}
+        userName={userDisplayName}
+      />
 
       <div className="flex h-full">
         {/* Sidebar - Fixed height */}

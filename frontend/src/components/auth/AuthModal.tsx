@@ -282,6 +282,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           redirectTo?: string;
           roleMismatch?: boolean;
           actualRole?: string;
+          isFirstLogin?: boolean;
         };
         error?: string;
       }>(signInEndpoint, encryptedPayload);
@@ -316,6 +317,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       if (response.data.data?.user && response.data.data?.token) {
         const userData = response.data.data.user;
         const token = response.data.data.token;
+        const isFirstLogin = response.data.data.isFirstLogin;
         
         // Use the role from backend response, fallback to selectedRole if not provided
         const userRole = (userData.role || selectedRole || 'client') as 'client' | 'professional' | 'admin';
@@ -329,7 +331,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           role: userRole,
           avatar_url: userData.avatar_url,
         };
-        saveAuthSession(authUser, token);
+        saveAuthSession(authUser, token, isFirstLogin);
       }
 
       toast({

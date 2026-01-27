@@ -34,6 +34,7 @@ export interface AuthSession {
   token: string;
   loginTime: string;
   lastActivity: string;
+  isFirstLogin?: boolean;
 }
 
 // ============================================================================
@@ -90,13 +91,14 @@ export const getTokenExpirationTime = (token: string): number | null => {
 /**
  * Save auth session to localStorage
  */
-export const saveAuthSession = (user: AuthUser, token: string): void => {
+export const saveAuthSession = (user: AuthUser, token: string, isFirstLogin?: boolean): void => {
   try {
     const session: AuthSession = {
       user,
       token,
       loginTime: new Date().toISOString(),
       lastActivity: new Date().toISOString(),
+      isFirstLogin,
     };
     
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
@@ -312,6 +314,29 @@ export const updateAuthSessionUser = (updatedUser: Partial<AuthUser>): void => {
   }
 };
 
+/**
+ * Clear the first login flag from the session
+ */
+export const clearFirstLoginFlag = (): void => {
+  try {
+    const session = getAuthSession();
+    if (!session) {
+      return;
+    }
+
+    session.isFirstLogin = false;
+    session.lastActivity = new Date().toISOString();
+
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+
+    // Dispatch event to notify components
+    dispatchSessionUpdatedEvent();
+  } catch (error) {
+    console.error('❌ Failed to clear first login flag:', error);
+  }
+};
+
 export default {
   saveAuthSession,
   getAuthSession,
@@ -325,6 +350,7 @@ export default {
   getCurrentUser,
   getCurrentUserRole,
   updateAuthSessionUser,
+  clearFirstLoginFlag,
   isTokenExpired,
   INACTIVITY_TIMEOUT_MS,
   AUTH_SESSION_UPDATED_EVENT,
