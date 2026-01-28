@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession, clearFirstLoginFlag } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
@@ -322,9 +322,16 @@ const ClientPage: React.FC = () => {
   }, [isCheckingSession]);
 
   // Handle unread count change from NotificationsSection
-  const handleUnreadCountChange = (count: number) => {
+  // Memoized to prevent unnecessary re-renders/re-fetches in child components
+  const handleUnreadCountChange = useCallback((count: number) => {
     setUnreadNotifications(count);
-  };
+  }, []);
+
+  // Handle invitation unread count change from InvitationNotificationsSection
+  // Memoized to prevent unnecessary re-renders/re-fetches in child components
+  const handleInvitationUnreadCountChange = useCallback((count: number) => {
+    setUnreadInvitations(count);
+  }, []);
 
   // Show loading state while checking session
   if (isCheckingSession) {
@@ -431,6 +438,7 @@ const ClientPage: React.FC = () => {
         return (
           <InvitationNotificationsSection 
             onNavigateToView={handleNavigateToView}
+            onUnreadCountChange={handleInvitationUnreadCountChange}
           />
         );
       case 'achievements':
@@ -447,6 +455,7 @@ const ClientPage: React.FC = () => {
           return (
             <InvitationNotificationsSection 
               onNavigateToView={handleNavigateToView}
+              onUnreadCountChange={handleInvitationUnreadCountChange}
             />
           );
         }

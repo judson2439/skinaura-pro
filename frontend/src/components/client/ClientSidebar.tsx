@@ -142,7 +142,7 @@ const ClientSidebar: React.FC<ClientSidebarProps> = ({
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-dark">
           {CLIENT_NAV_ITEMS.map(item => (
             <Link
               key={item.id}

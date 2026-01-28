@@ -17,6 +17,7 @@ import {
   requestPasswordReset,
   verifyResetToken,
   resetPassword,
+  PHONE_VERIFICATION_ENABLED,
 } from '../lib/auth.js';
 import { logAudit, getClientIp, getUserAgent } from '../lib/auditLogger.js';
 import {
@@ -464,13 +465,24 @@ router.post('/verify-email', async (req: Request, res: Response): Promise<void> 
 
     console.log(`✅ Email verified for: ${email}`);
 
-    res.status(200).json({
-      success: true,
-      message: 'Email verified! Now please verify your phone number.',
-      data: {
-        needsPhoneVerification: true,
-      },
-    } as AuthResponse);
+    // FEATURE FLAG: If phone verification is disabled, user can sign in immediately
+    if (PHONE_VERIFICATION_ENABLED) {
+      res.status(200).json({
+        success: true,
+        message: 'Email verified! Now please verify your phone number.',
+        data: {
+          needsPhoneVerification: true,
+        },
+      } as AuthResponse);
+    } else {
+      res.status(200).json({
+        success: true,
+        message: 'Email verified! You can now sign in.',
+        data: {
+          needsPhoneVerification: false,
+        },
+      } as AuthResponse);
+    }
 
   } catch (error) {
     console.error('❌ Email verification error:', error);

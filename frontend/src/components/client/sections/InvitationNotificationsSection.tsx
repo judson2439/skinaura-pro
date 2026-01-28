@@ -186,7 +186,15 @@ const InvitationNotificationsSection: React.FC<InvitationNotificationsSectionPro
         });
         
         // Remove from list or navigate back
-        setNotifications(prev => prev.filter(n => n.id !== id));
+        setNotifications(prev => {
+          const updatedNotifications = prev.filter(n => n.id !== id);
+          // Update unread count after removing this notification
+          const newUnreadCount = updatedNotifications.filter(n => n.status === 'unread').length;
+          if (onUnreadCountChange) {
+            onUnreadCountChange(newUnreadCount);
+          }
+          return updatedNotifications;
+        });
         if (selectedNotification?.id === id) {
           if (onNavigateToView) {
             onNavigateToView('invitations');
@@ -235,7 +243,15 @@ const InvitationNotificationsSection: React.FC<InvitationNotificationsSectionPro
         });
         
         // Remove from list
-        setNotifications(prev => prev.filter(n => n.id !== id));
+        setNotifications(prev => {
+          const updatedNotifications = prev.filter(n => n.id !== id);
+          // Update unread count after removing this notification
+          const newUnreadCount = updatedNotifications.filter(n => n.status === 'unread').length;
+          if (onUnreadCountChange) {
+            onUnreadCountChange(newUnreadCount);
+          }
+          return updatedNotifications;
+        });
         if (selectedNotification?.id === id) {
           if (onNavigateToView) {
             onNavigateToView('invitations');
@@ -510,11 +526,19 @@ const InvitationNotificationsSection: React.FC<InvitationNotificationsSectionPro
                     )}
                   </button>
                   <button
-                    onClick={(e) => handleDismiss(notification.id, e)}
-                    className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
-                    title="Dismiss"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDecline(notification.id);
+                    }}
+                    disabled={actionLoading === notification.id}
+                    className="p-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                    title="Decline"
                   >
-                    <X className="w-5 h-5" />
+                    {actionLoading === notification.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <X className="w-5 h-5" />
+                    )}
                   </button>
                 </div>
               </div>

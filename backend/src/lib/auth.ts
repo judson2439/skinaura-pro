@@ -24,6 +24,19 @@ import {
   sendWelcomeSms,
 } from './sms.js';
 
+// ============================================================================
+// FEATURE FLAGS - Toggle features on/off
+// ============================================================================
+
+/**
+ * PHONE_VERIFICATION_ENABLED
+ * Set to true to require phone verification during signup and signin
+ * Set to false to skip phone verification (users can sign in after email verification only)
+ * 
+ * When re-enabling, users who signed up without phone verification will need to verify their phone
+ */
+export const PHONE_VERIFICATION_ENABLED = false;
+
 // Types based on the database schema
 export interface AuthUser {
   id: string;
@@ -628,8 +641,9 @@ export const authenticateUser = async (
       };
     }
 
-    // Check if phone is verified (require both email and phone verification)
-    if (!user.phone_verified) {
+    // Check if phone is verified (only if phone verification is enabled)
+    // FEATURE FLAG: PHONE_VERIFICATION_ENABLED controls this check
+    if (PHONE_VERIFICATION_ENABLED && !user.phone_verified) {
       return { 
         success: false, 
         error: 'Please verify your phone number before signing in',

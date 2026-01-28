@@ -376,6 +376,7 @@ const ClientConfirm: React.FC = () => {
         success: boolean;
         message: string;
         error?: string;
+        data?: { needsPhoneVerification?: boolean };
       }>('/api/auth/verify-email', encryptedPayload);
 
       if (!response.data.success) {
@@ -389,15 +390,30 @@ const ClientConfirm: React.FC = () => {
         return;
       }
 
-      toast({
-        title: 'Email Verified!',
-        description: 'Now please verify your phone number.',
-      });
+      // Check if phone verification is needed (based on feature flag on backend)
+      const needsPhoneVerification = response.data.data?.needsPhoneVerification ?? false;
 
-      // Move to phone verification
-      setVerificationCode('');
-      setVerificationPhone(phone);
-      setView('verify-phone');
+      if (needsPhoneVerification) {
+        toast({
+          title: 'Email Verified!',
+          description: 'Now please verify your phone number.',
+        });
+
+        // Move to phone verification
+        setVerificationCode('');
+        setVerificationPhone(phone);
+        setView('verify-phone');
+      } else {
+        // Phone verification disabled - go to success/login
+        toast({
+          title: 'Email Verified!',
+          description: 'Your account is ready. You can now sign in.',
+        });
+
+        // Move to success view
+        setVerificationCode('');
+        setView('success');
+      }
 
     } catch (error: any) {
       console.error('Verification error:', error);

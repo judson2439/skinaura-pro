@@ -516,6 +516,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         success: boolean;
         message: string;
         error?: string;
+        data?: { needsPhoneVerification?: boolean };
       }>('/api/auth/verify-email', encryptedPayload);
 
       if (!response.data.success) {
@@ -529,15 +530,30 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         return;
       }
 
-      toast({
-        title: 'Email Verified!',
-        description: 'Now please verify your phone number.',
-      });
+      // Check if phone verification is needed (based on feature flag on backend)
+      const needsPhoneVerification = response.data.data?.needsPhoneVerification ?? false;
 
-      // Move to phone verification
-      setVerificationCode('');
-      setVerificationPhone(phone); // Use phone from signup form
-      setView('verify-phone');
+      if (needsPhoneVerification) {
+        toast({
+          title: 'Email Verified!',
+          description: 'Now please verify your phone number.',
+        });
+
+        // Move to phone verification
+        setVerificationCode('');
+        setVerificationPhone(phone); // Use phone from signup form
+        setView('verify-phone');
+      } else {
+        // Phone verification disabled - user can sign in now
+        toast({
+          title: 'Email Verified!',
+          description: 'You can now sign in to your account.',
+        });
+
+        // Go to login view
+        setVerificationCode('');
+        setView('login');
+      }
 
     } catch (error: any) {
       console.error('Verification error:', error);
@@ -1233,8 +1249,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             className="mt-1 w-4 h-4 rounded border-gray-300 text-[#CFAFA3] focus:ring-[#CFAFA3] focus:ring-2 cursor-pointer"
           />
           <label htmlFor="smsConsent" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
-            By checking this box, I agree to receive text messages from SkinAura PRO at the phone number provided. 
-            Message and data rates may apply. Reply STOP to unsubscribe. (Optional)
+            By checking this box, I agree to receive informational/transactional SMS text messages from SkinAura PRO in regards to product usage reminders and general customer inquiries, at the phone number provided. Message & data rates may apply. Message frequency varies. Reply STOP to opt out. See our <a href="/privacy" className={`hover:underline ${selectedRole !== 'client' ? 'text-[#CFAFA3]' : 'text-[#2D2A3E]'}`}>Privacy Policy</a>. (Optional)
           </label>
         </div>
 
