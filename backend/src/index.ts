@@ -4,6 +4,7 @@ import app from './app.js';
 import { env, validateEnv } from './config/env.js';
 import { testConnection, closePool } from './config/database.js';
 import { initLoginAttemptsTable } from './lib/accountLockout.js';
+import { initProfessionalInvitationNotificationsTable } from './routes/professional.js';
 
 // Validate environment variables
 validateEnv();
@@ -19,6 +20,9 @@ const initDatabase = async (): Promise<void> => {
 
   // Initialize login attempts table for account lockout feature
   await initLoginAttemptsTable();
+  
+  // Initialize professional invitation notifications table
+  await initProfessionalInvitationNotificationsTable();
 };
 
 /**

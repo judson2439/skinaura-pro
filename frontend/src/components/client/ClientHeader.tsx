@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Loader2,
   ArrowRight,
+  UserPlus,
 } from 'lucide-react';
 
 // ============================================================================
@@ -31,6 +32,7 @@ interface ClientHeaderProps {
   userAvatar?: string;
   onNavigateToView?: (viewId: string) => void;
   unreadNotifications?: number;
+  unreadInvitations?: number;
 }
 
 interface NotificationItem {
@@ -39,6 +41,16 @@ interface NotificationItem {
   professional_name: string;
   professional_avatar: string | null;
   content: string;
+  created_at: string;
+}
+
+interface InvitationNotification {
+  id: string;
+  professional_id: string;
+  professional_name: string;
+  professional_avatar: string | null;
+  professional_business_name: string | null;
+  status: 'unread' | 'read';
   created_at: string;
 }
 
@@ -57,17 +69,21 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
   userAvatar,
   onNavigateToView,
   unreadNotifications = 0,
+  unreadInvitations = 0,
 }) => {
+  // Calculate total unread count (messages + invitations)
+  const totalUnreadCount = unreadNotifications + unreadInvitations;
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [invitations, setInvitations] = useState<InvitationNotification[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   // Use userAvatar prop (from parent's state) which updates when session changes
   const avatarUrl = userAvatar || null;
 
-  // Fetch recent notifications when dropdown opens
+  // Fetch recent notifications and invitations when dropdown opens
   const fetchRecentNotifications = async () => {
     const authToken = getAuthToken();
     if (!authToken) return;
@@ -75,19 +91,34 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
     setLoadingNotifications(true);
     try {
       apiClient.setAuthToken(authToken);
-      const response = await apiClient.get<{
-        success: boolean;
-        data?: { notifications: NotificationItem[] };
-      }>('/api/client/notifications/recent?limit=5');
+      
+      // Fetch both regular notifications and invitation notifications in parallel
+      const [notifResponse, inviteResponse] = await Promise.all([
+        apiClient.get<{
+          success: boolean;
+          data?: { notifications: NotificationItem[] };
+        }>('/api/client/notifications/recent?limit=5'),
+        apiClient.get<{
+          success: boolean;
+          data?: { notifications: InvitationNotification[] };
+        }>('/api/client/invitation-notifications'),
+      ]);
 
-      if (response.data.success && response.data.data?.notifications) {
-        setNotifications(response.data.data.notifications);
+      if (notifResponse.data.success && notifResponse.data.data?.notifications) {
+        setNotifications(notifResponse.data.data.notifications);
       } else {
         setNotifications([]);
+      }
+      
+      if (inviteResponse.data.success && inviteResponse.data.data?.notifications) {
+        setInvitations(inviteResponse.data.data.notifications);
+      } else {
+        setInvitations([]);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
       setNotifications([]);
+      setInvitations([]);
     } finally {
       setLoadingNotifications(false);
     }
@@ -183,9 +214,9 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
               className="relative p-2 hover:bg-gray-100 rounded-xl transition-colors"
             >
               <Bell className="w-5 h-5 text-gray-600" />
-              {unreadNotifications > 0 && (
+              {totalUnreadCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
                 </span>
               )}
             </button>
@@ -198,8 +229,12 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
                   <div className="p-4 border-b border-gray-100">
                     <h3 className="font-semibold text-gray-900">Notifications</h3>
-                    {unreadNotifications > 0 && (
-                      <p className="text-xs text-gray-500 mt-0.5">{unreadNotifications} unread message{unreadNotifications !== 1 ? 's' : ''}</p>
+                    {totalUnreadCount > 0 && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {unreadInvitations > 0 && `${unreadInvitations} invitation${unreadInvitations !== 1 ? 's' : ''}`}
+                        {unreadInvitations > 0 && unreadNotifications > 0 && ', '}
+                        {unreadNotifications > 0 && `${unreadNotifications} message${unreadNotifications !== 1 ? 's' : ''}`}
+                      </p>
                     )}
                   </div>
                   
@@ -208,8 +243,53 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="w-6 h-6 animate-spin text-[#CFAFA3]" />
                       </div>
-                    ) : notifications.length > 0 ? (
+                    ) : (invitations.length > 0 || notifications.length > 0) ? (
                       <div className="divide-y divide-gray-50">
+                        {/* Invitation Notifications - Show first with special styling */}
+                        {invitations.map((invitation) => (
+                          <div
+                            key={`inv-${invitation.id}`}
+                            className={`flex gap-3 p-3 hover:bg-[#CFAFA3]/10 cursor-pointer transition-colors ${
+                              invitation.status === 'unread' ? 'bg-[#CFAFA3]/5' : ''
+                            }`}
+                            onClick={() => {
+                              setShowNotifications(false);
+                              if (onNavigateToView) {
+                                onNavigateToView(`invitation-${invitation.id}`);
+                              } else {
+                                navigate(`/client/invitation-${invitation.id}`);
+                              }
+                            }}
+                          >
+                            <div className="flex-shrink-0 relative">
+                              {invitation.professional_avatar ? (
+                                <EncryptedImage
+                                  src={invitation.professional_avatar}
+                                  alt={invitation.professional_name}
+                                  className="w-10 h-10 rounded-full object-cover border-2 border-[#CFAFA3]/30"
+                                  fallbackClassName="w-10 h-10 rounded-full border-2 border-[#CFAFA3]/30 bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-[#CFAFA3]/30">
+                                  <User className="w-5 h-5 text-[#CFAFA3]" />
+                                </div>
+                              )}
+                              <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
+                                <UserPlus className="w-3 h-3 text-white" />
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-900">{invitation.professional_name}</p>
+                              <p className="text-sm text-[#CFAFA3] font-medium">Wants to connect with you</p>
+                              <p className="text-xs text-gray-400 mt-1">{formatTimeAgo(invitation.created_at)}</p>
+                            </div>
+                            {invitation.status === 'unread' && (
+                              <div className="w-2.5 h-2.5 bg-[#CFAFA3] rounded-full flex-shrink-0 mt-1.5" />
+                            )}
+                          </div>
+                        ))}
+                        
+                        {/* Regular Message Notifications */}
                         {notifications.map((notification) => (
                           <div
                             key={notification.id}

@@ -15,6 +15,7 @@ import {
   LucideIcon,
   Bell,
   BookOpen,
+  UserPlus,
 } from 'lucide-react';
 
 // ============================================================================
@@ -46,6 +47,7 @@ interface ClientSidebarProps {
   userAvatar?: string;
   clientStats: ClientStats;
   unreadNotifications?: number;
+  unreadInvitations?: number;
 }
 
 // ============================================================================
@@ -61,6 +63,7 @@ export const CLIENT_NAV_ITEMS: NavItem[] = [
   { id: 'face-analysis', label: 'Face Analysis', icon: Sparkles },
   { id: 'treatments', label: 'Treatment Plans', icon: ClipboardList },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'invitations', label: 'Invitations', icon: UserPlus },
   { id: 'achievements', label: 'Achievements', icon: Trophy },
   { id: 'leaderboard', label: 'Leaderboard', icon: Medal },
   { id: 'help', label: 'Help & FAQ', icon: HelpCircle },
@@ -106,6 +109,7 @@ const ClientSidebar: React.FC<ClientSidebarProps> = ({
   userAvatar,
   clientStats,
   unreadNotifications = 0,
+  unreadInvitations = 0,
 }) => {
   const levelInfo = getLevelInfo(clientStats.points);
   const pointsToNextLevel = levelInfo.next 
@@ -155,6 +159,11 @@ const ClientSidebar: React.FC<ClientSidebarProps> = ({
               {item.id === 'notifications' && unreadNotifications > 0 && (
                 <span className="min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
                   {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                </span>
+              )}
+              {item.id === 'invitations' && unreadInvitations > 0 && (
+                <span className="min-w-[20px] h-5 px-1.5 bg-[#CFAFA3] text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  {unreadInvitations > 99 ? '99+' : unreadInvitations}
                 </span>
               )}
             </Link>

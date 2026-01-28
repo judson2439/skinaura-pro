@@ -968,6 +968,398 @@ router.patch('/notifications/mark-all-read', async (req: Request, res: Response)
 });
 
 // ============================================================================
+// INVITATION NOTIFICATIONS ENDPOINTS
+// ============================================================================
+
+interface InvitationNotification {
+  id: string;
+  client_id: string;
+  professional_id: string;
+  professional_name: string;
+  professional_avatar: string | null;
+  professional_business_name: string | null;
+  status: 'unread' | 'read' | 'accepted' | 'declined';
+  created_at: string;
+  read_at: string | null;
+  responded_at: string | null;
+}
+
+/**
+ * GET /client/invitation-notifications
+ * Get all pending invitation notifications for a client
+ */
+router.get('/invitation-notifications', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`📊 Fetching invitation notifications for client: ${userId}`);
+
+    const notifications = await query<InvitationNotification>(
+      `SELECT 
+        pin.id,
+        pin.client_id,
+        pin.professional_id,
+        up.full_name as professional_name,
+        up.avatar_url as professional_avatar,
+        up.business_name as professional_business_name,
+        pin.status,
+        pin.created_at,
+        pin.read_at,
+        pin.responded_at
+       FROM professional_invitation_notifications pin
+       JOIN user_profiles up ON up.id = pin.professional_id
+       WHERE pin.client_id = $1
+         AND pin.status IN ('unread', 'read')
+       ORDER BY pin.created_at DESC`,
+      [userId]
+    );
+
+    console.log(`✅ Found ${notifications.length} invitation notifications`);
+
+    res.status(200).json({
+      success: true,
+      data: { notifications },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching invitation notifications:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch invitation notifications',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /client/invitation-notifications/unread-count
+ * Get count of unread invitation notifications
+ */
+router.get('/invitation-notifications/unread-count', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    console.log(`📊 Fetching unread invitation count for client: ${userId}`);
+
+    const result = await query<{ count: string }>(
+      `SELECT COUNT(*) as count 
+       FROM professional_invitation_notifications 
+       WHERE client_id = $1 AND status = 'unread'`,
+      [userId]
+    );
+
+    const count = parseInt(result[0]?.count || '0', 10);
+
+    res.status(200).json({
+      success: true,
+      data: { count },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching unread invitation count:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch unread invitation count',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /client/invitation-notifications/:id
+ * Get a single invitation notification by ID
+ */
+router.get('/invitation-notifications/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const notificationId = req.params.id;
+
+    console.log(`📊 Fetching invitation notification ${notificationId} for client: ${userId}`);
+
+    const notification = await queryOne<InvitationNotification>(
+      `SELECT 
+        pin.id,
+        pin.client_id,
+        pin.professional_id,
+        up.full_name as professional_name,
+        up.avatar_url as professional_avatar,
+        up.business_name as professional_business_name,
+        pin.status,
+        pin.created_at,
+        pin.read_at,
+        pin.responded_at
+       FROM professional_invitation_notifications pin
+       JOIN user_profiles up ON up.id = pin.professional_id
+       WHERE pin.id = $1 AND pin.client_id = $2`,
+      [notificationId, userId]
+    );
+
+    if (!notification) {
+      res.status(404).json({
+        success: false,
+        error: 'Invitation notification not found',
+      } as ApiResponse);
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { notification },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching invitation notification:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch invitation notification',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /client/invitation-notifications/:id/read
+ * Mark an invitation notification as read
+ */
+router.patch('/invitation-notifications/:id/read', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const notificationId = req.params.id;
+
+    console.log(`📝 Marking invitation ${notificationId} as read`);
+
+    const result = await queryOne<{ id: string }>(
+      `UPDATE professional_invitation_notifications 
+       SET status = 'read', read_at = NOW()
+       WHERE id = $1 AND client_id = $2 AND status = 'unread'
+       RETURNING id`,
+      [notificationId, userId]
+    );
+
+    if (!result) {
+      // Either not found or already read - still success
+      console.log(`ℹ️ Invitation ${notificationId} already read or not found`);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Invitation marked as read',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error marking invitation as read:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to mark invitation as read',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /client/invitation-notifications/:id/accept
+ * Accept an invitation from a professional
+ * Creates the client_professional_relationship
+ */
+router.post('/invitation-notifications/:id/accept', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const notificationId = req.params.id;
+
+    console.log(`✅ Accepting invitation ${notificationId}`);
+
+    // Get the invitation notification
+    const notification = await queryOne<{ id: string; professional_id: string; status: string }>(
+      `SELECT id, professional_id, status 
+       FROM professional_invitation_notifications 
+       WHERE id = $1 AND client_id = $2`,
+      [notificationId, userId]
+    );
+
+    if (!notification) {
+      res.status(404).json({
+        success: false,
+        error: 'Invitation not found',
+      } as ApiResponse);
+      return;
+    }
+
+    if (notification.status === 'accepted') {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation already accepted',
+      } as ApiResponse);
+      return;
+    }
+
+    if (notification.status === 'declined') {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation was previously declined',
+      } as ApiResponse);
+      return;
+    }
+
+    // Check if relationship already exists
+    const existingRelationship = await queryOne<{ id: string; status: string }>(
+      `SELECT id, status FROM client_professional_relationships 
+       WHERE professional_id = $1 AND client_id = $2`,
+      [notification.professional_id, userId]
+    );
+
+    if (existingRelationship) {
+      if (existingRelationship.status === 'active') {
+        // Already connected - just update the notification
+        await query(
+          `UPDATE professional_invitation_notifications 
+           SET status = 'accepted', responded_at = NOW()
+           WHERE id = $1`,
+          [notificationId]
+        );
+
+        res.status(200).json({
+          success: true,
+          message: 'You are already connected with this professional',
+        } as ApiResponse);
+        return;
+      }
+
+      // Reactivate the relationship
+      await query(
+        `UPDATE client_professional_relationships 
+         SET status = 'active', updated_at = NOW() 
+         WHERE id = $1`,
+        [existingRelationship.id]
+      );
+    } else {
+      // Create new relationship
+      await query(
+        `INSERT INTO client_professional_relationships 
+         (professional_id, client_id, status, created_at, updated_at)
+         VALUES ($1, $2, 'active', NOW(), NOW())`,
+        [notification.professional_id, userId]
+      );
+    }
+
+    // Update notification status
+    await query(
+      `UPDATE professional_invitation_notifications 
+       SET status = 'accepted', responded_at = NOW()
+       WHERE id = $1`,
+      [notificationId]
+    );
+
+    // Get professional name for response
+    const professional = await queryOne<{ full_name: string }>(
+      `SELECT full_name FROM user_profiles WHERE id = $1`,
+      [notification.professional_id]
+    );
+
+    console.log(`✅ Invitation accepted - relationship created with professional`);
+
+    res.status(200).json({
+      success: true,
+      message: `You are now connected with ${professional?.full_name || 'the professional'}`,
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error accepting invitation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to accept invitation',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /client/invitation-notifications/:id/decline
+ * Decline an invitation from a professional
+ */
+router.post('/invitation-notifications/:id/decline', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const notificationId = req.params.id;
+
+    console.log(`❌ Declining invitation ${notificationId}`);
+
+    // Get the invitation notification
+    const notification = await queryOne<{ id: string; status: string }>(
+      `SELECT id, status 
+       FROM professional_invitation_notifications 
+       WHERE id = $1 AND client_id = $2`,
+      [notificationId, userId]
+    );
+
+    if (!notification) {
+      res.status(404).json({
+        success: false,
+        error: 'Invitation not found',
+      } as ApiResponse);
+      return;
+    }
+
+    if (notification.status === 'accepted' || notification.status === 'declined') {
+      res.status(400).json({
+        success: false,
+        error: 'Invitation has already been responded to',
+      } as ApiResponse);
+      return;
+    }
+
+    // Update notification status to declined
+    await query(
+      `UPDATE professional_invitation_notifications 
+       SET status = 'declined', responded_at = NOW()
+       WHERE id = $1`,
+      [notificationId]
+    );
+
+    console.log(`✅ Invitation declined`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Invitation declined',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error declining invitation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to decline invitation',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /client/invitation-notifications/:id
+ * Dismiss/delete an invitation notification (mark as read and hide)
+ */
+router.delete('/invitation-notifications/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const notificationId = req.params.id;
+
+    console.log(`🗑️ Dismissing invitation ${notificationId}`);
+
+    // Mark as read (dismissed) - we don't actually delete it
+    await query(
+      `UPDATE professional_invitation_notifications 
+       SET status = 'read', read_at = COALESCE(read_at, NOW())
+       WHERE id = $1 AND client_id = $2`,
+      [notificationId, userId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Invitation dismissed',
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error dismissing invitation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to dismiss invitation',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
 // CONVERSATIONS/CHAT ENDPOINTS
 // ============================================================================
 

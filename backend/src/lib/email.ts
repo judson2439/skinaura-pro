@@ -672,6 +672,127 @@ This link will expire in 1 hour. If you didn't request a password reset, you can
   }
 };
 
+/**
+ * Send connection reminder email to existing client
+ * This is sent when a professional invites an already-registered client
+ */
+export const sendConnectionReminderEmail = async (
+  toEmail: string,
+  clientName: string,
+  professionalName: string,
+  businessName?: string,
+  logoUrl?: string
+): Promise<EmailResult> => {
+  if (!mg || !env.MAILGUN_API_KEY || !env.MAILGUN_DOMAIN) {
+    console.warn('⚠️ Mailgun not configured - email not sent');
+    console.log(`📧 [DEV] Connection reminder for ${toEmail}: ${professionalName} wants to connect`);
+    return { 
+      success: true, 
+      messageId: 'dev-mode',
+    };
+  }
+
+  try {
+    const displayName = businessName || professionalName;
+    const actualLogoUrl = logoUrl || 'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png';
+    const loginUrl = `${env.FRONTEND_URL}`;
+    
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connection Request - SkinAura PRO</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td align="center" style="padding: 40px 0;">
+        <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <!-- Header with Logo -->
+          <tr>
+            <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #CFAFA3 0%, #E8D5D0 100%); border-radius: 16px 16px 0 0;">
+              <img src="${actualLogoUrl}" alt="${displayName}" style="max-width: 120px; max-height: 80px; margin-bottom: 15px; border-radius: 8px;" />
+              <h1 style="margin: 0; color: #2D2A3E; font-size: 24px; font-weight: 700;">Connection Request</h1>
+            </td>
+          </tr>
+          
+          <!-- Content -->
+          <tr>
+            <td style="padding: 40px;">
+              <p style="margin: 0 0 20px; color: #2D2A3E; font-size: 18px; font-weight: 600;">
+                Hi ${clientName}! 👋
+              </p>
+              <p style="margin: 0 0 20px; color: #666; font-size: 16px; line-height: 1.6;">
+                <strong>${professionalName}</strong>${businessName ? ` from <strong>${businessName}</strong>` : ''} would like to connect with you on SkinAura PRO.
+              </p>
+              <p style="margin: 0 0 30px; color: #666; font-size: 16px; line-height: 1.6;">
+                By accepting this connection, you'll be able to receive personalized skincare routines, product recommendations, and treatment plans from your skincare professional.
+              </p>
+              
+              <!-- Info Box -->
+              <div style="background: linear-gradient(135deg, #CFAFA3 0%, #E8D5D0 100%); border-radius: 12px; padding: 25px; margin: 0 0 30px;">
+                <p style="margin: 0; color: #2D2A3E; font-size: 16px; line-height: 1.6;">
+                  <strong>What happens next?</strong><br/>
+                  Log in to your SkinAura PRO account to view and respond to this connection request. You'll find it in your notifications.
+                </p>
+              </div>
+              
+              <!-- CTA Button -->
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${loginUrl}" style="display: inline-block; background: linear-gradient(135deg, #2D2A3E 0%, #3D3A4E 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 12px; font-size: 16px; font-weight: 600;">
+                  Log In to Respond
+                </a>
+              </div>
+              
+              <p style="margin: 30px 0 0; color: #999; font-size: 14px; line-height: 1.6; text-align: center;">
+                If you don't recognize this request, you can simply ignore it or decline the connection when you log in.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 30px 40px; background-color: #f9f9f9; border-radius: 0 0 16px 16px; text-align: center;">
+              <p style="margin: 0 0 10px; color: #999; font-size: 12px;">
+                This email was sent by SkinAura PRO on behalf of ${displayName}
+              </p>
+              <p style="margin: 0; color: #CFAFA3; font-size: 12px;">
+                © ${new Date().getFullYear()} SkinAura PRO. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+    `;
+
+    const result = await mg.messages.create(env.MAILGUN_DOMAIN, {
+      from: `${displayName} via SkinAura PRO <noreply@${env.MAILGUN_DOMAIN}>`,
+      to: toEmail,
+      subject: `${professionalName} wants to connect with you on SkinAura PRO`,
+      html: htmlContent,
+    });
+
+    console.log(`✅ Connection reminder email sent to ${toEmail}`);
+    return {
+      success: true,
+      messageId: result.id,
+    };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Failed to send connection reminder email:', errorMessage);
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+};
+
 export default {
   generateVerificationCode,
   getVerificationCodeExpiry,
@@ -681,6 +802,7 @@ export default {
   generateInvitationToken,
   getInvitationTokenExpiry,
   sendClientInvitationWithTokenEmail,
+  sendConnectionReminderEmail,
   generateResetToken,
   getResetTokenExpiry,
   sendPasswordResetEmail,

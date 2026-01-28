@@ -17,6 +17,7 @@ import AchievementsSection from '@/components/client/sections/AchievementsSectio
 import LeaderboardSection from '@/components/client/sections/LeaderboardSection';
 import HelpSection from '@/components/client/sections/HelpSection';
 import NotificationsSection from '@/components/client/sections/NotificationsSection';
+import InvitationNotificationsSection from '@/components/client/sections/InvitationNotificationsSection';
 import GuideSection from '@/components/client/sections/GuideSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import WelcomeModal from '@/components/client/modals/WelcomeModal';
@@ -114,6 +115,7 @@ const ClientPage: React.FC = () => {
   }, [isCheckingSession]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [unreadInvitations, setUnreadInvitations] = useState(0);
 
   // Get active view from URL parameter
   const activeView = section || 'dashboard';
@@ -250,18 +252,27 @@ const ClientPage: React.FC = () => {
       try {
         apiClient.setAuthToken(token);
         
-        const response = await apiClient.get<{
-          success: boolean;
-          data?: { count: number };
-          error?: string;
-        }>('/api/client/notifications/unread-count');
+        // Fetch both notification and invitation counts in parallel
+        const [notifResponse, inviteResponse] = await Promise.all([
+          apiClient.get<{
+            success: boolean;
+            data?: { count: number };
+            error?: string;
+          }>('/api/client/notifications/unread-count'),
+          apiClient.get<{
+            success: boolean;
+            data?: { count: number };
+            error?: string;
+          }>('/api/client/invitation-notifications/unread-count'),
+        ]);
 
-        if (!response.data.success) {
-          console.error('Error fetching unread count:', response.data.error);
-          return;
+        if (notifResponse.data.success) {
+          setUnreadNotifications(notifResponse.data.data?.count || 0);
         }
-
-        setUnreadNotifications(response.data.data?.count || 0);
+        
+        if (inviteResponse.data.success) {
+          setUnreadInvitations(inviteResponse.data.data?.count || 0);
+        }
       } catch (err) {
         console.error('Error fetching unread count:', err);
       }
@@ -281,18 +292,29 @@ const ClientPage: React.FC = () => {
       try {
         apiClient.setAuthToken(token);
         
-        const response = await apiClient.get<{
-          success: boolean;
-          data?: { count: number };
-        }>('/api/client/notifications/unread-count');
+        // Poll both notification and invitation counts
+        const [notifResponse, inviteResponse] = await Promise.all([
+          apiClient.get<{
+            success: boolean;
+            data?: { count: number };
+          }>('/api/client/notifications/unread-count'),
+          apiClient.get<{
+            success: boolean;
+            data?: { count: number };
+          }>('/api/client/invitation-notifications/unread-count'),
+        ]);
 
-        if (response.data.success) {
-          setUnreadNotifications(response.data.data?.count || 0);
+        if (notifResponse.data.success) {
+          setUnreadNotifications(notifResponse.data.data?.count || 0);
+        }
+        
+        if (inviteResponse.data.success) {
+          setUnreadInvitations(inviteResponse.data.data?.count || 0);
         }
       } catch (err) {
         console.error('Error polling notifications:', err);
       }
-    }, 30000000); // Poll every 30 seconds
+    }, 30000); // Poll every 30 seconds
 
     return () => {
       clearInterval(pollInterval);
@@ -359,6 +381,9 @@ const ClientPage: React.FC = () => {
     if (activeView === 'profile') {
       return 'My Profile';
     }
+    if (activeView === 'invitations' || activeView.startsWith('invitation-')) {
+      return 'Connection Invitations';
+    }
     const navItem = CLIENT_NAV_ITEMS.find(item => item.id === activeView);
     return navItem?.label || 'Dashboard';
   };
@@ -402,6 +427,12 @@ const ClientPage: React.FC = () => {
             onUnreadCountChange={handleUnreadCountChange}
           />
         );
+      case 'invitations':
+        return (
+          <InvitationNotificationsSection 
+            onNavigateToView={handleNavigateToView}
+          />
+        );
       case 'achievements':
         return <AchievementsSection />;
       case 'leaderboard':
@@ -411,6 +442,14 @@ const ClientPage: React.FC = () => {
       case 'profile':
         return <ProfileSection userRole="client" />;
       default:
+        // Handle invitation detail routes (invitation-{id})
+        if (activeView.startsWith('invitation-')) {
+          return (
+            <InvitationNotificationsSection 
+              onNavigateToView={handleNavigateToView}
+            />
+          );
+        }
         return (
           <DashboardSection
             clientStats={clientStats}
@@ -440,6 +479,7 @@ const ClientPage: React.FC = () => {
           userAvatar={userAvatar}
           clientStats={clientStats}
           unreadNotifications={unreadNotifications}
+          unreadInvitations={unreadInvitations}
         />
 
         {/* Mobile Overlay */}
@@ -464,6 +504,7 @@ const ClientPage: React.FC = () => {
             userAvatar={userAvatar}
             onNavigateToView={handleNavigateToView}
             unreadNotifications={unreadNotifications}
+            unreadInvitations={unreadInvitations}
           />
 
           {/* Page Content - Scrollable */}

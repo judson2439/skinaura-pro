@@ -2532,6 +2532,7 @@ import {
   generateInvitationToken,
   getInvitationTokenExpiry,
   sendClientInvitationWithTokenEmail,
+  sendConnectionReminderEmail,
 } from '../lib/email.js';
 
 interface ClientInvitation {
@@ -2575,6 +2576,8 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       [professionalId]
     );
 
+    console.log(`📧 Professional profile found: ${professional?.full_name} ${professional?.business_name}`);
+
     if (!professional) {
       res.status(404).json({
         success: false,
@@ -2582,6 +2585,8 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
       } as ApiResponse);
       return;
     }
+
+    console.log(`📧 Professional profile found: ${professional.full_name} ${professional.business_name}`);
 
     // Get professional's logo for the invitation email
     const professionalLogo = await queryOne<{ logo_url: string }>(
@@ -2615,6 +2620,8 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
     );
 
     if (existingUser) {
+      console.log(`👤 Existing user found: ${existingUser.full_name} (${existingUser.id}), role: ${existingUser.role}`);
+      
       // User exists - check if relationship already exists
       const existingRelationship = await queryOne<ClientProfessionalRelationship>(
         `SELECT * FROM client_professional_relationships 
@@ -2622,37 +2629,81 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
         [professionalId, existingUser.id]
       );
 
+      console.log(`🔗 Existing relationship: ${existingRelationship ? `status=${existingRelationship.status}` : 'none'}`);
+
       if (existingRelationship) {
         if (existingRelationship.status === 'active') {
+          console.log(`❌ Relationship already active - returning 400`);
           res.status(400).json({
             success: false,
             error: 'This client is already connected to your account.',
           } as ApiResponse);
           return;
         }
-        // Reactivate the relationship if it was inactive
-        await query(
-          `UPDATE client_professional_relationships 
-           SET status = 'active', updated_at = NOW() 
-           WHERE id = $1`,
-          [existingRelationship.id]
-        );
-      } else {
-        // Create new relationship
-        await query(
-          `INSERT INTO client_professional_relationships 
-           (professional_id, client_id, status, created_at, updated_at)
-           VALUES ($1, $2, 'active', NOW(), NOW())`,
-          [professionalId, existingUser.id]
-        );
+        // If relationship exists but inactive, create notification to re-connect
+        console.log(`ℹ️ Relationship exists but inactive, proceeding to create notification`);
       }
 
-      console.log(`✅ Client ${existingUser.full_name} added directly (already registered)`);
+      // Check if there's already a pending invitation notification
+      const existingNotification = await queryOne<{ id: string; status: string }>(
+        `SELECT id, status FROM professional_invitation_notifications 
+         WHERE professional_id = $1 AND client_id = $2`,
+        [professionalId, existingUser.id]
+      );
+
+      console.log(`📬 Existing notification: ${existingNotification ? `status=${existingNotification.status}` : 'none'}`);
+
+      if (existingNotification) {
+        if (existingNotification.status === 'unread' || existingNotification.status === 'read') {
+          console.log(`❌ Invitation already pending - returning 400`);
+          res.status(400).json({
+            success: false,
+            error: 'An invitation has already been sent to this client and is pending response.',
+            alreadyInvited: true,
+          } as ApiResponse);
+          return;
+        }
+        // If previously declined, allow re-invitation by updating the notification
+        await query(
+          `UPDATE professional_invitation_notifications 
+           SET status = 'unread', created_at = NOW(), read_at = NULL, responded_at = NULL
+           WHERE id = $1`,
+          [existingNotification.id]
+        );
+        console.log(`✅ Re-invitation notification updated for existing client: ${existingUser.full_name}`);
+      } else {
+        // Create new invitation notification for existing client
+        await query(
+          `INSERT INTO professional_invitation_notifications 
+           (id, client_id, professional_id, status, created_at)
+           VALUES (gen_random_uuid(), $1, $2, 'unread', NOW())`,
+          [existingUser.id, professionalId]
+        );
+        console.log(`✅ Invitation notification created for existing client: ${existingUser.full_name}`);
+      }
+
+      // Send connection reminder email to existing client
+      const emailResult = await sendConnectionReminderEmail(
+        existingUser.email,
+        existingUser.full_name || 'there',
+        professional.full_name || 'Your Skincare Professional',
+        professional.business_name || undefined,
+        logoUrl
+      );
+
+      if (!emailResult.success) {
+        console.error('❌ Failed to send connection reminder email:', emailResult.error);
+        // Still return success since notification was created
+      } else {
+        console.log(`📧 Connection reminder email sent to ${existingUser.email}`);
+      }
 
       res.status(200).json({
         success: true,
-        message: `${existingUser.full_name} has been added to your client list.`,
+        message: `Invitation notification sent to ${existingUser.full_name}. They will receive an email and see this in their notifications.`,
         alreadyRegistered: true,
+        notificationSent: true,
+        emailSent: emailResult.success,
       } as ApiResponse);
       return;
     }
@@ -3858,6 +3909,39 @@ export const initProfessionalLogoTable = async (): Promise<void> => {
     console.log('✅ professional_logo table initialized');
   } catch (error) {
     console.error('❌ Error initializing professional_logo table:', error);
+    throw error;
+  }
+};
+
+/**
+ * Initialize professional_invitation_notifications table
+ * This table stores invitation notifications for existing clients
+ * When a professional invites an already-registered client, a notification is created here
+ */
+export const initProfessionalInvitationNotificationsTable = async (): Promise<void> => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS professional_invitation_notifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+        professional_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+        status VARCHAR(20) DEFAULT 'unread' CHECK (status IN ('unread', 'read', 'accepted', 'declined')),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        read_at TIMESTAMP WITH TIME ZONE,
+        responded_at TIMESTAMP WITH TIME ZONE,
+        UNIQUE(client_id, professional_id)
+      )
+    `);
+    
+    // Create index for faster queries
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_invitation_notifications_client 
+      ON professional_invitation_notifications(client_id, status)
+    `);
+    
+    console.log('✅ professional_invitation_notifications table initialized');
+  } catch (error) {
+    console.error('❌ Error initializing professional_invitation_notifications table:', error);
     throw error;
   }
 };
