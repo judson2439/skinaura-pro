@@ -217,6 +217,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   };
 
   // Handle avatar file selection
+  // Note: 800KB limit for registration to prevent double-encryption payload issues
+  // (image is encrypted, then entire signup payload is encrypted again)
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -227,8 +229,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: 'Error', description: 'Image must be less than 5MB', variant: 'destructive' });
+    // 800KB limit for registration avatars (prevents timeout from double encryption overhead)
+    const maxSizeKB = 800;
+    if (file.size > maxSizeKB * 1024) {
+      toast({ 
+        title: 'Image Too Large', 
+        description: `Profile picture must be less than ${maxSizeKB}KB. Please choose a smaller image or compress it first.`, 
+        variant: 'destructive',
+        duration: 6000,
+      });
+      // Clear the input so user can try again
+      if (avatarInputRef.current) {
+        avatarInputRef.current.value = '';
+      }
       return;
     }
 
@@ -395,6 +408,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
           avatarMimeType = encryptedAvatar.mimeType;
         } catch (err) {
           console.warn('⚠️ Failed to encrypt avatar, continuing without it');
+          toast({
+            title: 'Avatar Processing Failed',
+            description: 'Could not process profile picture. You can add it later from your profile settings.',
+            variant: 'destructive',
+          });
+          // Clear avatar to continue signup without it
+          setAvatarFile(null);
+          setAvatarPreview('');
         }
       }
 
@@ -474,17 +495,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     } catch (error: any) {
       console.error('Signup error:', error);
       
-      // Handle API errors
-      const errorMessage = error.data?.error || error.message || 'An unexpected error occurred. Please try again.';
+      // Handle specific error types
+      let errorTitle = 'Signup Failed';
+      let errorMessage = error.data?.error || error.message || 'An unexpected error occurred. Please try again.';
       
-      if (errorMessage.toLowerCase().includes('already registered')) {
+      // Check for timeout errors
+      if (error.code === 'TIMEOUT' || errorMessage.toLowerCase().includes('timeout')) {
+        errorTitle = 'Request Timed Out';
+        errorMessage = 'The signup request took too long. If you uploaded a profile picture, try using a smaller image or skip it for now.';
+      } else if (errorMessage.toLowerCase().includes('already registered')) {
         setErrors({ email: 'This email is already registered. Please sign in instead.' });
+      } else if (errorMessage.toLowerCase().includes('encrypt') || errorMessage.toLowerCase().includes('decrypt')) {
+        errorTitle = 'Processing Error';
+        errorMessage = 'There was a problem processing your data. Please try again or remove the profile picture.';
       }
       
       toast({
-        title: 'Signup Failed',
+        title: errorTitle,
         description: errorMessage,
-        variant: 'destructive'
+        variant: 'destructive',
+        duration: 6000,
       });
     } finally {
       setLoading(false);
@@ -1062,7 +1092,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               </button>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-2">JPG, PNG, GIF, WebP up to 5MB</p>
+          <p className="text-xs text-gray-400 mt-2">JPG, PNG, GIF, WebP up to 800KB</p>
         </div>
 
         {/* Basic Info */}
