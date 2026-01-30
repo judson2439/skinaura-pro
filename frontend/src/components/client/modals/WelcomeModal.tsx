@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, BookOpen, X } from 'lucide-react';
+import { BookOpen, X } from 'lucide-react';
 
 interface WelcomeModalProps {
   isOpen: boolean;
@@ -40,12 +40,11 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({
         {/* Decorative top gradient */}
         <div className="h-32 bg-gradient-to-br from-[#4A9BAF] via-[#5BA8BC] to-[#CFAFA3] relative overflow-hidden">
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="relative">
-              <div className="absolute inset-0 animate-ping">
-                <Sparkles className="w-16 h-16 text-white/20" />
-              </div>
-              <Sparkles className="w-16 h-16 text-white drop-shadow-lg" />
-            </div>
+            <img 
+              src="/skinaura-logo.png" 
+              alt="SkinAura Pro" 
+              className="h-20 w-auto drop-shadow-lg"
+            />
           </div>
           {/* Floating decorative circles */}
           <div className="absolute -top-6 -left-6 w-24 h-24 bg-white/10 rounded-full" />
