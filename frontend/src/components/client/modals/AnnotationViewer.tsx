@@ -85,8 +85,8 @@ const AnnotationViewer: React.FC<AnnotationViewerProps> = ({
         </div>
       )}
 
-      {/* Image display */}
-      <div className="w-full h-full overflow-hidden flex items-center justify-center bg-gray-900">
+      {/* Image display - min-height ensures markup/original both fill the viewer */}
+      <div className="w-full h-full min-h-[400px] md:min-h-[550px] overflow-hidden flex items-center justify-center bg-gray-900">
         <div 
           className="relative transition-transform duration-200" 
           style={{ transform: `scale(${zoom})` }}

@@ -129,16 +129,27 @@ export const EncryptedImage: React.FC<EncryptedImageProps> = ({
       return;
     }
 
+    // Normalize /uploads/category/filename (encrypted) to /api/images/category/filename
+    // so we use the decrypt endpoint instead of static file (which would serve raw JSON).
+    let normalizedSrc = src;
+    const uploadsMatch = src.match(/\/uploads\/([^/]+)\/([^/?#]+)$/);
+    if (uploadsMatch) {
+      const [, category, filename] = uploadsMatch;
+      if (filename.startsWith('enc_')) {
+        normalizedSrc = `/api/images/${category}/${filename}`;
+      }
+    }
+
     // Check if this is an encrypted image URL (from our backend)
-    const isEncryptedImage = src.includes('/api/products/image/') || 
-                             src.includes('/api/images/') ||
-                             src.includes('/api/photos/');
+    const isEncryptedImage = normalizedSrc.includes('/api/products/image/') || 
+                             normalizedSrc.includes('/api/images/') ||
+                             normalizedSrc.includes('/api/photos/');
 
     if (isEncryptedImage) {
       // Construct full URL if needed
       const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-      const fullUrl = src.startsWith('http') ? src : 
-                      src.startsWith('/') ? `${apiBaseUrl}${src}` : `${apiBaseUrl}/${src}`;
+      const fullUrl = normalizedSrc.startsWith('http') ? normalizedSrc : 
+                      normalizedSrc.startsWith('/') ? `${apiBaseUrl}${normalizedSrc}` : `${apiBaseUrl}/${normalizedSrc}`;
       
       fetchAndDecryptImage(fullUrl);
     } else {

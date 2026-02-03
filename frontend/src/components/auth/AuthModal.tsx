@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { saveAuthSession, AuthUser } from '@/lib/authStorage';
 import {
@@ -74,18 +74,16 @@ const PasswordStrengthIndicator: React.FC<{ strength: PasswordStrength }> = ({ s
         {[0, 1, 2, 3, 4].map((index) => (
           <div
             key={index}
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              index <= strength.score ? color : 'bg-gray-200'
-            }`}
+            className={`h-1 flex-1 rounded-full transition-colors ${index <= strength.score ? color : 'bg-gray-200'
+              }`}
           />
         ))}
       </div>
       <div className="flex items-center justify-between">
-        <span className={`text-xs font-medium ${
-          strength.score <= 1 ? 'text-red-500' :
-          strength.score === 2 ? 'text-yellow-600' :
-          'text-green-600'
-        }`}>
+        <span className={`text-xs font-medium ${strength.score <= 1 ? 'text-red-500' :
+            strength.score === 2 ? 'text-yellow-600' :
+              'text-green-600'
+          }`}>
           {strength.label}
         </span>
         {strength.suggestions.length > 0 && (
@@ -166,6 +164,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
   }, [password]);
 
+  // Simplified signup UI for both client and professional (same layout with password fields)
+  const useSimplifiedSignupUI = view === 'signup' && (selectedRole === 'client' || selectedRole === 'professional');
+
   // Client-side validation
   const validateFormData = (isSignup: boolean): boolean => {
     const newErrors: Record<string, string> = {};
@@ -182,21 +183,22 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
 
     if (isSignup) {
+      if (password !== confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
+      }
+      if (passwordStrength && passwordStrength.score < 2) {
+        newErrors.password = 'Please choose a stronger password';
+      }
+    }
+
+    if (isSignup) {
       if (!fullName || fullName.trim().length < 2) {
         newErrors.fullName = 'Full name is required (at least 2 characters)';
       } else if (fullName.length > 100) {
         newErrors.fullName = 'Name must be less than 100 characters';
       }
 
-      if (password !== confirmPassword) {
-        newErrors.confirmPassword = 'Passwords do not match';
-      }
-
-      if (passwordStrength && passwordStrength.score < 2) {
-        newErrors.password = 'Please choose a stronger password';
-      }
-
-      if (selectedRole === 'professional') {
+      if (selectedRole === 'professional' && !useSimplifiedSignupUI) {
         if (!businessName || businessName.trim().length < 2) {
           newErrors.businessName = 'Business name is required';
         }
@@ -232,9 +234,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     // 800KB limit for registration avatars (prevents timeout from double encryption overhead)
     const maxSizeKB = 800;
     if (file.size > maxSizeKB * 1024) {
-      toast({ 
-        title: 'Image Too Large', 
-        description: `Profile picture must be less than ${maxSizeKB}KB. Please choose a smaller image or compress it first.`, 
+      toast({
+        title: 'Image Too Large',
+        description: `Profile picture must be less than ${maxSizeKB}KB. Please choose a smaller image or compress it first.`,
         variant: 'destructive',
         duration: 6000,
       });
@@ -246,7 +248,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
 
     setAvatarFile(file);
-    
+
     const reader = new FileReader();
     reader.onloadend = () => {
       setAvatarPreview(reader.result as string);
@@ -260,7 +262,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     if (!validateFormData(false)) return;
 
     setLoading(true);
-    
+
     try {
       // Encrypt credentials before sending to backend (include selectedRole for validation)
       const credentials = {
@@ -302,7 +304,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
       if (!response.data.success) {
         const errorMsg = response.data.error || 'Invalid credentials';
-        
+
         // Check if this is a role mismatch error
         if (response.data.data?.roleMismatch) {
           const actualRole = response.data.data.actualRole || 'unknown';
@@ -321,7 +323,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             variant: 'destructive'
           });
         }
-        
+
         setLoading(false);
         return;
       }
@@ -331,10 +333,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         const userData = response.data.data.user;
         const token = response.data.data.token;
         const isFirstLogin = response.data.data.isFirstLogin;
-        
+
         // Use the role from backend response, fallback to selectedRole if not provided
         const userRole = (userData.role || selectedRole || 'client') as 'client' | 'professional' | 'admin';
-        
+
         // Save auth session to localStorage
         const authUser: AuthUser = {
           id: userData.id,
@@ -361,11 +363,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
     } catch (error: any) {
       console.error('Login error:', error);
-      
+
       // Handle API errors
       const errorMessage = error.data?.error || error.message || 'An unexpected error occurred. Please try again.';
       setErrors({ email: errorMessage });
-      
+
       toast({
         title: 'Login Failed',
         description: errorMessage,
@@ -381,7 +383,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateFormData(true) || !selectedRole) return;
-    
+
     // Admin cannot sign up - only sign in
     if (selectedRole === 'admin') {
       toast({
@@ -393,13 +395,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
 
     setLoading(true);
-    
+
     try {
       // Encrypt avatar if provided (encryption happens on frontend)
       let avatarEncrypted: string | undefined;
       let avatarIv: string | undefined;
       let avatarMimeType: string | undefined;
-      
+
       if (avatarFile) {
         try {
           const encryptedAvatar = await encryptFile(avatarFile);
@@ -420,6 +422,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
       }
 
       // Build signup data based on role
+      // For simplified UI (professional), use fullName as businessName since backend requires it
       const signupData = {
         email: email.trim().toLowerCase(),
         password: password,
@@ -429,9 +432,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         // Client-specific fields
         skinType: selectedRole === 'client' ? (skinType || undefined) : undefined,
         concerns: selectedRole === 'client' && selectedConcerns.length > 0 ? selectedConcerns : undefined,
-        // Professional-specific fields
-        businessName: selectedRole === 'professional' ? businessName.trim() : undefined,
-        licenseNumber: selectedRole === 'professional' ? (licenseNumber.trim() || undefined) : undefined,
+        // Professional-specific fields (use fullName as businessName when simplified UI)
+        businessName: selectedRole === 'professional' ? (useSimplifiedSignupUI ? fullName.trim() : businessName.trim()) : undefined,
+        licenseNumber: selectedRole === 'professional' && !useSimplifiedSignupUI ? (licenseNumber.trim() || undefined) : undefined,
         // Pre-encrypted avatar data (frontend encrypts, backend just saves)
         avatarEncrypted,
         avatarIv,
@@ -458,10 +461,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
       if (!response.data.success) {
         const errorMsg = response.data.error || 'Failed to create account';
-        
+
         // Check for email already registered error
-        if (errorMsg.toLowerCase().includes('already registered') || 
-            errorMsg.toLowerCase().includes('email already')) {
+        if (errorMsg.toLowerCase().includes('already registered') ||
+          errorMsg.toLowerCase().includes('email already')) {
           setErrors({ email: 'This email is already registered. Please sign in instead.' });
           toast({
             title: 'Account Already Exists',
@@ -494,11 +497,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
 
     } catch (error: any) {
       console.error('Signup error:', error);
-      
+
       // Handle specific error types
       let errorTitle = 'Signup Failed';
       let errorMessage = error.data?.error || error.message || 'An unexpected error occurred. Please try again.';
-      
+
       // Check for timeout errors
       if (error.code === 'TIMEOUT' || errorMessage.toLowerCase().includes('timeout')) {
         errorTitle = 'Request Timed Out';
@@ -509,7 +512,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         errorTitle = 'Processing Error';
         errorMessage = 'There was a problem processing your data. Please try again or remove the profile picture.';
       }
-      
+
       toast({
         title: errorTitle,
         description: errorMessage,
@@ -794,7 +797,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   // Handle forgot password
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const emailValidation = validateInput(email, 'email');
     if (!emailValidation.valid) {
       setErrors({ email: emailValidation.error! });
@@ -802,7 +805,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
 
     setLoading(true);
-    
+
     try {
       const response = await apiClient.post<{ success: boolean; message?: string; error?: string }>(
         '/api/auth/forgot-password',
@@ -884,7 +887,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   const renderRoleSelection = () => (
     <div className="text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-6">
-        <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={32} height={32}/>
+        <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={32} height={32} />
       </div>
       <h2 className="text-2xl font-serif font-bold text-[#2D2A3E] mb-2">Welcome to SkinAura PRO</h2>
       <p className="text-gray-600 mb-8">Choose how you'd like to continue</p>
@@ -940,19 +943,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     <div>
       <button
         onClick={() => { setView('select-role'); setSelectedRole(null); resetForm(); }}
-        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-6 transition-colors"
+        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-4 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
-      <div className="text-center mb-8">
-        <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${selectedRole === 'client' ? 'from-[#CFAFA3] to-[#E8D5D0]' : selectedRole === 'admin' ? 'from-gray-600 to-gray-800' : 'from-[#2D2A3E] to-[#3D3A4E]'} flex items-center justify-center mx-auto mb-4`}>
+      <div className="text-center mb-6">
+        <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${selectedRole === 'client' ? 'from-[#CFAFA3] to-[#E8D5D0]' : selectedRole === 'admin' ? 'from-gray-600 to-gray-800' : 'from-[#2D2A3E] to-[#3D3A4E]'} flex items-center justify-center mx-auto mb-3`}>
           {selectedRole === 'client' ? <User className="w-7 h-7 text-[#2D2A3E]" /> : selectedRole === 'admin' ? <Shield className="w-7 h-7 text-white" /> : <Users className="w-7 h-7 text-white" />}
         </div>
-        <h2 className="text-2xl font-serif font-bold text-[#2D2A3E]">
-          {selectedRole === 'client' ? 'Client Login' : selectedRole === 'admin' ? 'Admin Login' : 'Professional Login'}
-        </h2>
-        <p className="text-gray-500 mt-1">Welcome back! Sign in to continue.</p>
+        <p className="text-gray-500">Welcome back! Sign in to continue.</p>
       </div>
 
       <form onSubmit={handleLogin} className="space-y-4">
@@ -1009,11 +1009,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         <button
           type="submit"
           disabled={loading}
-          className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
-            selectedRole === 'client'
+          className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${selectedRole === 'client'
               ? 'bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white hover:shadow-lg hover:shadow-[#CFAFA3]/30'
               : 'bg-[#2D2A3E] text-white hover:bg-[#3D3A4E]'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
         </button>
@@ -1029,295 +1028,430 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   );
 
   // Signup Form
-  const renderSignupForm = () => (
-    <div>
-      <button
-        onClick={() => { setView('login'); resetForm(); }}
-        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-6 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back to login
-      </button>
+  const renderSignupForm = () => {
+    if (useSimplifiedSignupUI) {
+      const isClient = selectedRole === 'client';
+      const focusRing = isClient ? 'focus:ring-[#CFAFA3] focus:border-[#CFAFA3]' : 'focus:ring-[#2D2A3E] focus:border-[#2D2A3E]';
+      const checkboxAccent = isClient ? 'accent-[#CFAFA3]' : 'accent-[#2D2A3E]';
+      const linkColor = isClient ? 'text-[#CFAFA3] hover:underline' : 'text-[#2D2A3E] hover:underline';
+      const backHover = isClient ? 'hover:text-[#CFAFA3]' : 'hover:text-[#2D2A3E]';
+      const buttonClass = isClient
+        ? 'bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white hover:shadow-lg hover:shadow-[#CFAFA3]/30'
+        : 'bg-[#2D2A3E] text-white hover:bg-[#3D3A4E]';
 
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-serif font-bold text-[#2D2A3E]">
-          Create {selectedRole === 'client' ? 'Client' : 'Professional'} Account
-        </h2>
-        <p className="text-gray-500 mt-1">Join SkinAura PRO today</p>
-      </div>
+      return (
+        <div>
+          <button
+            onClick={() => { setView('login'); resetForm(); }}
+            className={`flex items-center gap-2 text-gray-500 ${backHover} mb-6 transition-colors text-sm`}
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to login
+          </button>
 
-      <form onSubmit={handleSignup} className="space-y-4">
-        <input
-          ref={avatarInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          onChange={handleAvatarSelect}
-          className="hidden"
-        />
+          <h2 className="text-base font-normal text-gray-700 mb-0.5">Skincare is Selfcare.</h2>
+          <h2 className="text-base font-normal text-gray-700 mb-2">Consistency is Our Strategy!</h2>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">14-Day Trial</h1>
+          <p className="text-xs uppercase tracking-wider text-gray-500 mb-6">SKINAURA PRO</p>
 
-        {/* Profile Picture Upload */}
-        <div className="flex flex-col items-center mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-3 text-center">Profile Picture (Optional)</label>
-          <div className="relative">
-            {avatarPreview ? (
-              <div className="relative">
-                <EncryptedImage
-                  src={avatarPreview}
-                  alt="Avatar preview"
-                  className="w-24 h-24 rounded-full object-cover border-4 border-[#CFAFA3]/30"
-                  fallbackClassName="w-24 h-24 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
-                />
-                <button
-                  type="button"
-                  onClick={removeAvatar}
-                  className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => avatarInputRef.current?.click()}
-                  className="absolute -bottom-1 -right-1 w-8 h-8 bg-[#CFAFA3] text-white rounded-full flex items-center justify-center hover:bg-[#B89A8E] transition-colors"
-                >
-                  <Camera className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => avatarInputRef.current?.click()}
-                className="w-24 h-24 rounded-full border-2 border-dashed border-gray-300 flex flex-col items-center justify-center hover:border-[#CFAFA3] hover:bg-[#CFAFA3]/5 transition-all group"
-              >
-                <Camera className="w-8 h-8 text-gray-400 group-hover:text-[#CFAFA3] transition-colors" />
-                <span className="text-xs text-gray-400 group-hover:text-[#CFAFA3] mt-1">Add Photo</span>
-              </button>
-            )}
-          </div>
-          <p className="text-xs text-gray-400 mt-2">JPG, PNG, GIF, WebP up to 800KB</p>
-        </div>
-
-        {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <form onSubmit={handleSignup} className="space-y-4">
+            <div className="flex items-center gap-3">
               <input
-                type="text"
-                value={fullName}
-                onChange={(e) => { setFullName(e.target.value); setErrors({ ...errors, fullName: '' }); }}
-                className={`w-full pl-12 pr-4 py-3 border ${errors.fullName ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
-                placeholder="Your full name"
-                autoComplete="name"
-                maxLength={100}
+                type="checkbox"
+                id="smsConsent"
+                checked={smsConsent}
+                onChange={(e) => setSmsConsent(e.target.checked)}
+                className={`mt-1 w-4 h-4 rounded border-gray-300 flex-shrink-0 focus:ring-2 cursor-pointer ${checkboxAccent}`}
               />
+              <label htmlFor="smsConsent" className="text-xs text-gray-600 leading-relaxed cursor-pointer flex-1">
+                I have read the <Link to="/privacy" className={`underline ${linkColor}`}>Privacy Policy</Link> and agree to the <Link to="/terms" className={`underline ${linkColor}`}>Terms of Service</Link>.
+                I agree to receive SMS text messages from SkinAura PRO. I agree to receive promotional messages sent via an autodialer, and this agreement isn't a condition of any purchase. Message & data rates may apply. Message frequency varies. Reply STOP to opt out.
+              </label>
             </div>
-            {errors.fullName && <p className="text-red-500 text-xs mt-1">{errors.fullName}</p>}
-          </div>
 
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <div>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setErrors({ ...errors, email: '' }); }}
-                className={`w-full pl-12 pr-4 py-3 border ${errors.email ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
-                placeholder="your@email.com"
+                className={`w-full px-4 py-3 border-2 ${errors.email ? 'border-red-300' : 'border-gray-200'} rounded-xl ${focusRing} outline-none transition-all bg-white`}
+                placeholder="Email"
                 autoComplete="email"
               />
+              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
             </div>
-            {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
-          </div>
 
-          <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <div className="relative">
-              <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <div>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => { setFullName(e.target.value); setErrors({ ...errors, fullName: '' }); }}
+                className={`w-full px-4 py-3 border-2 ${errors.fullName ? 'border-red-300' : 'border-gray-200'} rounded-xl ${focusRing} outline-none transition-all bg-white`}
+                placeholder="Name"
+                autoComplete="name"
+                maxLength={100}
+              />
+              {errors.fullName && <p className="text-red-500 text-xs mt-1">{errors.fullName}</p>}
+            </div>
+
+            <div>
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => { setPhone(e.target.value); setErrors({ ...errors, phone: '' }); }}
-                className={`w-full pl-12 pr-4 py-3 border ${errors.phone ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
-                placeholder="+1 (555) 000-0000"
+                className={`w-full px-4 py-3 border-2 ${errors.phone ? 'border-red-300' : 'border-gray-200'} rounded-xl ${focusRing} outline-none transition-all bg-white`}
+                placeholder="Phone number"
                 autoComplete="tel"
               />
-            </div>
-            {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setErrors({ ...errors, password: '' }); }}
-                className={`w-full pl-12 pr-4 py-3 border ${errors.password ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
-                placeholder="Min 8 characters"
-                autoComplete="new-password"
-              />
-            </div>
-            {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
-            {passwordStrength && <PasswordStrengthIndicator strength={passwordStrength} />}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={confirmPassword}
-                onChange={(e) => { setConfirmPassword(e.target.value); setErrors({ ...errors, confirmPassword: '' }); }}
-                className={`w-full pl-12 pr-4 py-3 border ${errors.confirmPassword ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
-                placeholder="Confirm password"
-                autoComplete="new-password"
-              />
-            </div>
-            {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-[#CFAFA3]"
-          >
-            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            {showPassword ? 'Hide passwords' : 'Show passwords'}
-          </button>
-        </div>
-
-        {/* Client-specific fields */}
-        {selectedRole === 'client' && (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Skin Type</label>
-              <div className="relative">
-                <Droplets className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <select
-                  value={skinType}
-                  onChange={(e) => setSkinType(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none appearance-none bg-white"
-                >
-                  <option value="">Select your skin type</option>
-                  {SKIN_TYPES.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
+              {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Skin Concerns (select all that apply)</label>
-              <div className="flex flex-wrap gap-2">
-                {SKIN_CONCERNS.map(concern => (
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setErrors({ ...errors, password: '' }); }}
+                    className={`w-full pl-12 pr-12 py-3 border-2 ${errors.password ? 'border-red-300' : 'border-gray-200'} rounded-xl ${focusRing} outline-none transition-all`}
+                    placeholder="Password (min 8 characters)"
+                    autoComplete="new-password"
+                  />
                   <button
-                    key={concern}
                     type="button"
-                    onClick={() => toggleConcern(concern)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-                      selectedConcerns.includes(concern)
-                        ? 'bg-[#CFAFA3] text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
-                    {concern}
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
-                ))}
+                </div>
+                {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+                {passwordStrength && <PasswordStrengthIndicator strength={passwordStrength} />}
+              </div>
+              <div className="flex-1">
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setErrors({ ...errors, confirmPassword: '' }); }}
+                    className={`w-full pl-12 pr-4 py-3 border-2 ${errors.confirmPassword ? 'border-red-300' : 'border-gray-200'} rounded-xl ${focusRing} outline-none transition-all`}
+                    placeholder="Confirm password"
+                    autoComplete="new-password"
+                  />
+                </div>
+                {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
               </div>
             </div>
-          </>
-        )}
 
-        {/* Professional-specific fields */}
-        {selectedRole === 'professional' && (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Business/Practice Name *</label>
-              <div className="relative">
-                <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={businessName}
-                  onChange={(e) => { setBusinessName(e.target.value); setErrors({ ...errors, businessName: '' }); }}
-                  className={`w-full pl-12 pr-4 py-3 border ${errors.businessName ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
-                  placeholder="Your business name"
-                  maxLength={200}
-                />
-              </div>
-              {errors.businessName && <p className="text-red-500 text-xs mt-1">{errors.businessName}</p>}
-            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${buttonClass} disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                'Sign Up'
+              )}
+            </button>
+          </form>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">License Number (optional)</label>
-              <div className="relative">
-                <FileText className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={licenseNumber}
-                  onChange={(e) => setLicenseNumber(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none"
-                  placeholder="Professional license number"
-                  maxLength={50}
-                />
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* SMS Consent Checkbox */}
-        <div className="flex items-start gap-3 mt-4">
-          <input
-            type="checkbox"
-            id="smsConsent"
-            checked={smsConsent}
-            onChange={(e) => setSmsConsent(e.target.checked)}
-            className="mt-1 w-4 h-4 rounded border-gray-300 text-[#CFAFA3] focus:ring-[#CFAFA3] focus:ring-2 cursor-pointer"
-          />
-          <label htmlFor="smsConsent" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
-            By checking this box, I agree to receive informational/transactional SMS text messages from SkinAura PRO in regards to product usage reminders and general customer inquiries, at the phone number provided. Message & data rates may apply. Message frequency varies. Reply STOP to opt out. See our <a href="/privacy" className={`hover:underline ${selectedRole !== 'client' ? 'text-[#CFAFA3]' : 'text-[#2D2A3E]'}`}>Privacy Policy</a>. (Optional)
-          </label>
+          <p className="text-center text-gray-500 mt-6 text-sm">
+            Already have an account?{' '}
+            <button onClick={() => setView('login')} className={`${linkColor} font-medium`}>
+              Sign in
+            </button>
+          </p>
         </div>
+      );
+    }
 
+    return (
+      <div>
         <button
-          type="submit"
-          disabled={loading}
-          className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${
-            selectedRole === 'client'
-              ? 'bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white hover:shadow-lg hover:shadow-[#CFAFA3]/30'
-              : 'bg-[#2D2A3E] text-white hover:bg-[#3D3A4E]'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
+          onClick={() => { setView('login'); resetForm(); }}
+          className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-4 transition-colors"
         >
-          {loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Creating account...
-            </>
-          ) : (
-            'Create Account'
-          )}
+          <ArrowLeft className="w-4 h-4" /> Back to login
         </button>
-      </form>
 
-      <p className="text-center text-gray-500 mt-6">
-        Already have an account?{' '}
-        <button onClick={() => setView('login')} className="text-[#CFAFA3] font-medium hover:underline">
-          Sign in
-        </button>
-      </p>
-    </div>
-  );
+        <form onSubmit={handleSignup} className="space-y-4">
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            onChange={handleAvatarSelect}
+            className="hidden"
+          />
+
+          {/* Profile Picture Upload */}
+          <div className="flex flex-col items-center mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-3 text-center">Profile Picture (Optional)</label>
+            <div className="relative">
+              {avatarPreview ? (
+                <div className="relative">
+                  <EncryptedImage
+                    src={avatarPreview}
+                    alt="Avatar preview"
+                    className="w-48 h-48 rounded-full object-cover border-4 border-[#CFAFA3]/30"
+                    fallbackClassName="w-48 h-48 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center"
+                  />
+                  <button
+                    type="button"
+                    onClick={removeAvatar}
+                    className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="absolute -bottom-1 -right-1 w-8 h-8 bg-[#CFAFA3] text-white rounded-full flex items-center justify-center hover:bg-[#B89A8E] transition-colors"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="w-48 h-48 rounded-full border-2 border-dashed border-gray-300 flex flex-col items-center justify-center hover:border-[#CFAFA3] hover:bg-[#CFAFA3]/5 transition-all group"
+                >
+                  <Camera className="w-8 h-8 text-gray-400 group-hover:text-[#CFAFA3] transition-colors" />
+                  <span className="text-xs text-gray-400 group-hover:text-[#CFAFA3] mt-1">Add Photo</span>
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-2">JPG, PNG, GIF, WebP up to 800KB</p>
+          </div>
+
+          {/* Basic Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => { setFullName(e.target.value); setErrors({ ...errors, fullName: '' }); }}
+                  className={`w-full pl-12 pr-4 py-3 border ${errors.fullName ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
+                  placeholder="Your full name"
+                  autoComplete="name"
+                  maxLength={100}
+                />
+              </div>
+              {errors.fullName && <p className="text-red-500 text-xs mt-1">{errors.fullName}</p>}
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setErrors({ ...errors, email: '' }); }}
+                  className={`w-full pl-12 pr-4 py-3 border ${errors.email ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
+                  placeholder="your@email.com"
+                  autoComplete="email"
+                />
+              </div>
+              {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+              <div className="relative">
+                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => { setPhone(e.target.value); setErrors({ ...errors, phone: '' }); }}
+                  className={`w-full pl-12 pr-4 py-3 border ${errors.phone ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
+                  placeholder="+1 (555) 000-0000"
+                  autoComplete="tel"
+                />
+              </div>
+              {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setErrors({ ...errors, password: '' }); }}
+                  className={`w-full pl-12 pr-4 py-3 border ${errors.password ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
+                  placeholder="Min 8 characters"
+                  autoComplete="new-password"
+                />
+              </div>
+              {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+              {passwordStrength && <PasswordStrengthIndicator strength={passwordStrength} />}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setErrors({ ...errors, confirmPassword: '' }); }}
+                  className={`w-full pl-12 pr-4 py-3 border ${errors.confirmPassword ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
+                  placeholder="Confirm password"
+                  autoComplete="new-password"
+                />
+              </div>
+              {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-[#CFAFA3]"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showPassword ? 'Hide passwords' : 'Show passwords'}
+            </button>
+          </div>
+
+          {/* Client-specific fields */}
+          {selectedRole === 'client' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Skin Type</label>
+                <div className="relative">
+                  <Droplets className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <select
+                    value={skinType}
+                    onChange={(e) => setSkinType(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none appearance-none bg-white"
+                  >
+                    <option value="">Select your skin type</option>
+                    {SKIN_TYPES.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Skin Concerns (select all that apply)</label>
+                <div className="flex flex-wrap gap-2">
+                  {SKIN_CONCERNS.map(concern => (
+                    <button
+                      key={concern}
+                      type="button"
+                      onClick={() => toggleConcern(concern)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${selectedConcerns.includes(concern)
+                          ? 'bg-[#CFAFA3] text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                    >
+                      {concern}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Professional-specific fields */}
+          {selectedRole === 'professional' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business/Practice Name *</label>
+                <div className="relative">
+                  <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={businessName}
+                    onChange={(e) => { setBusinessName(e.target.value); setErrors({ ...errors, businessName: '' }); }}
+                    className={`w-full pl-12 pr-4 py-3 border ${errors.businessName ? 'border-red-300' : 'border-gray-200'} rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none`}
+                    placeholder="Your business name"
+                    maxLength={200}
+                  />
+                </div>
+                {errors.businessName && <p className="text-red-500 text-xs mt-1">{errors.businessName}</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">License Number (optional)</label>
+                <div className="relative">
+                  <FileText className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={licenseNumber}
+                    onChange={(e) => setLicenseNumber(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none"
+                    placeholder="Professional license number"
+                    maxLength={50}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* SMS Consent Checkbox */}
+          <div className="flex items-start gap-3 mt-4">
+            <input
+              type="checkbox"
+              id="smsConsent"
+              checked={smsConsent}
+              onChange={(e) => setSmsConsent(e.target.checked)}
+              className="mt-1 w-4 h-4 rounded border-gray-300 text-[#CFAFA3] focus:ring-[#CFAFA3] focus:ring-2 cursor-pointer"
+            />
+            <label htmlFor="smsConsent" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
+              {/* By checking this box, I agree to receive informational/transactional SMS text messages from SkinAura PRO in regards to product usage reminders and general customer inquiries, at the phone number provided. Message & data rates may apply. Message frequency varies. Reply STOP to opt out. See our <a href="/privacy" className={`hover:underline ${selectedRole !== 'client' ? 'text-[#CFAFA3]' : 'text-[#2D2A3E]'}`}>Privacy Policy</a>. (Optional) */}
+              By checking this box, I agree to receive information/transactional SMS text messages from SkinAura PRO via an autodialer in regards to product usage reminders and general customer inquiries, at the phone number provided. This isn't a condition of any purchase. Message and data rates may apply. Message frequency varies. Reply STOP to opt out. HELP for help. I also agree to the <Link to="/terms" className="hover:underline text-[#2D2A3E]">Terms and Conditions</Link> and <Link to="/privacy" className="hover:underline text-[#2D2A3E]">Privacy Policy</Link>.
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className={`w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 ${selectedRole === 'client'
+                ? 'bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white hover:shadow-lg hover:shadow-[#CFAFA3]/30'
+                : 'bg-[#2D2A3E] text-white hover:bg-[#3D3A4E]'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Creating account...
+              </>
+            ) : (
+              'Create Account'
+            )}
+          </button>
+        </form>
+
+        <p className="text-center text-gray-500 mt-6">
+          Already have an account?{' '}
+          <button onClick={() => setView('login')} className="text-[#CFAFA3] font-medium hover:underline">
+            Sign in
+          </button>
+        </p>
+      </div>
+    );
+  };
 
   // Forgot Password Form
   const renderForgotPassword = () => (
     <div>
       <button
         onClick={() => { setView('login'); setResetEmailSent(false); }}
-        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-6 transition-colors"
+        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-4 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" /> Back to login
       </button>
@@ -1340,12 +1474,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         </div>
       ) : (
         <>
-          <div className="text-center mb-8">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-4">
+          <div className="text-center mb-6">
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-3">
               <Lock className="w-7 h-7 text-[#2D2A3E]" />
             </div>
-            <h2 className="text-2xl font-serif font-bold text-[#2D2A3E]">Reset Password</h2>
-            <p className="text-gray-500 mt-1">Enter your email to receive reset instructions</p>
+            <p className="text-gray-500">Enter your email to receive reset instructions</p>
           </div>
 
           <form onSubmit={handleForgotPassword} className="space-y-4">
@@ -1383,20 +1516,19 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     <div>
       <button
         onClick={() => { setView('signup'); setVerificationCode(''); }}
-        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-6 transition-colors"
+        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-4 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-6">
-          <Mail className="w-8 h-8 text-[#2D2A3E]" />
+      <div className="text-center mb-6">
+        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-4">
+          <Mail className="w-7 h-7 text-[#2D2A3E]" />
         </div>
-        <h2 className="text-2xl font-serif font-bold text-[#2D2A3E] mb-2">Verify Your Email</h2>
         <p className="text-gray-600 mb-2">
           We've sent a 6-digit verification code to
         </p>
-        <p className="font-medium text-[#2D2A3E] mb-6">{verificationEmail}</p>
+        <p className="font-medium text-[#2D2A3E]">{verificationEmail}</p>
       </div>
 
       <form onSubmit={handleVerifyEmail} className="space-y-6">
@@ -1412,9 +1544,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               setVerificationCode(value);
               setErrors({ ...errors, verificationCode: '' });
             }}
-            className={`w-full py-4 text-center text-2xl font-bold tracking-[0.5em] border ${
-              errors.verificationCode ? 'border-red-300' : 'border-gray-200'
-            } rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all`}
+            className={`w-full py-4 text-center text-2xl font-bold tracking-[0.5em] border ${errors.verificationCode ? 'border-red-300' : 'border-gray-200'
+              } rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all`}
             placeholder="000000"
             maxLength={6}
             autoFocus
@@ -1469,17 +1600,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     <div>
       <button
         onClick={() => { setView('verify-email'); setPhoneVerificationCode(''); }}
-        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-6 transition-colors"
+        className="flex items-center gap-2 text-gray-500 hover:text-[#CFAFA3] mb-4 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" /> Back
       </button>
 
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-6">
-          <Phone className="w-8 h-8 text-[#2D2A3E]" />
+      <div className="text-center mb-6">
+        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center mx-auto mb-4">
+          <Phone className="w-7 h-7 text-[#2D2A3E]" />
         </div>
-        <h2 className="text-2xl font-serif font-bold text-[#2D2A3E] mb-2">Verify Your Phone</h2>
-        <p className="text-gray-600 mb-2">
+        <p className="text-gray-600">
           Enter your phone number to receive a verification code
         </p>
       </div>
@@ -1500,9 +1630,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
                   setVerificationPhone(e.target.value);
                   setErrors({ ...errors, phone: '' });
                 }}
-                className={`w-full pl-12 pr-4 py-3 border ${
-                  errors.phone ? 'border-red-300' : 'border-gray-200'
-                } rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all`}
+                className={`w-full pl-12 pr-4 py-3 border ${errors.phone ? 'border-red-300' : 'border-gray-200'
+                  } rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all`}
                 placeholder="+1 (555) 000-0000"
               />
             </div>
@@ -1537,9 +1666,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               setPhoneVerificationCode(value);
               setErrors({ ...errors, phoneVerificationCode: '' });
             }}
-            className={`w-full py-4 text-center text-2xl font-bold tracking-[0.5em] border ${
-              errors.phoneVerificationCode ? 'border-red-300' : 'border-gray-200'
-            } rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all`}
+            className={`w-full py-4 text-center text-2xl font-bold tracking-[0.5em] border ${errors.phoneVerificationCode ? 'border-red-300' : 'border-gray-200'
+              } rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none transition-all`}
             placeholder="000000"
             maxLength={6}
           />
@@ -1611,19 +1739,61 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
   };
 
+  // Get header title based on current view
+  const getHeaderTitle = () => {
+    switch (view) {
+      case 'signup':
+        return `Create ${selectedRole === 'client' ? 'Client' : 'Professional'} Account`;
+      case 'login':
+        return selectedRole === 'admin' ? 'Admin Login' : selectedRole === 'client' ? 'Client Login' : 'Professional Login';
+      case 'forgot-password':
+        return 'Reset Password';
+      case 'verify-email':
+        return 'Verify Email';
+      case 'verify-phone':
+        return 'Verify Phone';
+      default:
+        return '';
+    }
+  };
+
+  const headerTitle = getHeaderTitle();
+
+  const useTwoColumnLayout = view === 'login' || view === 'signup';
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="sticky top-0 z-10 bg-white p-4 border-b border-gray-100 flex justify-end rounded-t-3xl">
-          <button
-            onClick={() => { onClose(); resetForm(); setView('select-role'); setSelectedRole(null); }}
-            className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-        <div className="p-6">
-          {renderView()}
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className={`relative bg-white rounded-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] ${useTwoColumnLayout ? 'max-w-4xl' : 'max-w-md'
+        }`}>
+        {/* Close button - top right */}
+        <button
+          onClick={() => { onClose(); resetForm(); setView('select-role'); setSelectedRole(null); }}
+          className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-md flex items-center justify-center transition-colors"
+        >
+          <X className="w-5 h-5 text-gray-700" />
+        </button>
+
+        <div className={`flex flex-1 overflow-y-auto ${useTwoColumnLayout ? 'min-h-0' : ''}`}>
+          {useTwoColumnLayout ? (
+            <>
+              {/* Left: Image section - 1:1 with right */}
+              <div className="hidden md:block w-1/2 min-w-[280px] flex-shrink-0 relative bg-gray-100">
+                <img
+                  src="./splash.jpeg"
+                  alt="Skincare professional"
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              </div>
+              {/* Right: Form section - 1:1 with left */}
+              <div className="flex-1 md:flex-none md:w-1/2 flex flex-col p-8 md:p-10 overflow-y-auto min-w-0">
+                {renderView()}
+              </div>
+            </>
+          ) : (
+            <div className="w-full p-6">
+              <div className="pt-8">{renderView()}</div>
+            </div>
+          )}
         </div>
       </div>
     </div>
