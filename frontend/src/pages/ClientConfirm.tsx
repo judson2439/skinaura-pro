@@ -1207,7 +1207,7 @@ const ClientConfirm: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FDF8F6] via-white to-[#FDF8F6] flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto scrollbar-light shadow-2xl">
         <div className="sticky top-0 bg-white p-4 border-b border-gray-100 flex justify-end rounded-t-3xl">
           <Link
             to="/"

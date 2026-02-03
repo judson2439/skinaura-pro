@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const ProfessionalFooter: React.FC = () => {
   return (
@@ -16,6 +16,18 @@ const ProfessionalFooter: React.FC = () => {
         <div className="flex items-center gap-6">
           {/* Links */}
           <nav className="flex items-center gap-6 text-sm text-gray-500">
+            <Link
+              to="/privacy"
+              className="hover:text-[#CFAFA3] transition-colors"
+            >
+              Privacy Policy
+            </Link>
+            <Link
+              to="/terms"
+              className="hover:text-[#CFAFA3] transition-colors"
+            >
+              Terms and Conditions
+            </Link>
             <a
               href="https://skinaura.ai"
               target="_blank"

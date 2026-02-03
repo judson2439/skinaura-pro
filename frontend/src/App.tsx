@@ -12,6 +12,8 @@ import ConfirmEmail from "./pages/ConfirmEmail";
 import CompleteClientProfile from "./pages/CompleteClientProfile";
 import ResetPassword from "./pages/ResetPassword";
 import ClientConfirm from "./pages/ClientConfirm";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsAndConditions from "./pages/TermsAndConditions";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +32,10 @@ const App = () => (
             <Route path="/reset-password" element={<ResetPassword />} />
             {/* Client invitation confirmation route */}
             <Route path="/client-confirm" element={<ClientConfirm />} />
+            {/* Privacy Policy */}
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            {/* Terms and Conditions */}
+            <Route path="/terms" element={<TermsAndConditions />} />
             {/* Complete client profile route for invited users */}
             <Route path="/complete-client-profile" element={<CompleteClientProfile />} />
             {/* Admin route */}

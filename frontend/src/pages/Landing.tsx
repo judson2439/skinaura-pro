@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { getAuthSession } from '@/lib/authStorage';
 import { 
   Sparkles, 
@@ -462,6 +462,8 @@ const Landing: React.FC = () => {
               <a href="#features" className="hover:text-[#CFAFA3] transition-colors">Features</a>
               <a href="#professionals" className="hover:text-[#CFAFA3] transition-colors">For Professionals</a>
               <a href="#faq" className="hover:text-[#CFAFA3] transition-colors">FAQ</a>
+              <Link to="/privacy" className="hover:text-[#CFAFA3] transition-colors">Privacy Policy</Link>
+              <Link to="/terms" className="hover:text-[#CFAFA3] transition-colors">Terms and Conditions</Link>
               <a href="https://skinaura.ai" target="_blank" rel="noopener noreferrer" className="hover:text-[#CFAFA3] transition-colors">SkinAura AI</a>
               <a href="https://skinaura-ai.myshopify.com/pages/app-skin-analysis-page" target="_blank" rel="noopener noreferrer" className="hover:text-[#CFAFA3] transition-colors">SkinAura Scan</a>
               <a href="https://skinaura.circle.so/" target="_blank" rel="noopener noreferrer" className="hover:text-[#CFAFA3] transition-colors">Community</a>

@@ -65,12 +65,21 @@ export const sendVerificationSms = async (
 ): Promise<SmsResult> => {
   const formattedPhone = formatPhoneNumber(toPhone);
 
-  if (!twilioClient || !env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_PHONE_NUMBER) {
-    console.warn('⚠️ Twilio not configured - SMS not sent');
+  // Check Twilio configuration
+  const isTwilioConfigured = twilioClient && env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_PHONE_NUMBER;
+  
+  if (!isTwilioConfigured) {
+    const missingConfig = [];
+    if (!env.TWILIO_ACCOUNT_SID) missingConfig.push('TWILIO_ACCOUNT_SID');
+    if (!env.TWILIO_AUTH_TOKEN) missingConfig.push('TWILIO_AUTH_TOKEN');
+    if (!env.TWILIO_PHONE_NUMBER) missingConfig.push('TWILIO_PHONE_NUMBER');
+    
+    console.warn(`⚠️ Twilio not configured - missing: ${missingConfig.join(', ')}`);
     console.log(`📱 [DEV] Verification code for ${formattedPhone}: ${verificationCode}`);
     return { 
       success: true, 
       messageId: 'dev-mode',
+      error: `Twilio not configured. Missing: ${missingConfig.join(', ')}`,
     };
   }
 
@@ -89,9 +98,18 @@ export const sendVerificationSms = async (
     };
   } catch (error: any) {
     console.error('❌ Failed to send verification SMS:', error);
+    console.error('   Phone:', formattedPhone);
+    console.error('   Twilio Account SID:', env.TWILIO_ACCOUNT_SID ? 'Set' : 'Missing');
+    console.error('   Twilio Phone Number:', env.TWILIO_PHONE_NUMBER || 'Missing');
+    console.error('   Error details:', {
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      moreInfo: error.moreInfo,
+    });
     return {
       success: false,
-      error: error.message || 'Failed to send SMS',
+      error: error.message || error.code || 'Failed to send SMS',
     };
   }
 };

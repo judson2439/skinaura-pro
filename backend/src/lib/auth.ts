@@ -448,19 +448,35 @@ export const sendPhoneVerificationCode = async (
     // Hash the verification code before storing
     const hashedCode = hashVerificationCode(verificationCode);
 
-    // Update verification record with phone code
-    await query(
-      `UPDATE authentications 
-       SET phone_verification_code = $1, phone_verification_expired_at = $2 
-       WHERE user_id = $3`,
-      [hashedCode, codeExpiry, user.id]
+    // Ensure authentications record exists, create if it doesn't
+    const authRecord = await queryOne<Authentication>(
+      `SELECT * FROM authentications WHERE user_id = $1`,
+      [user.id]
     );
+
+    if (!authRecord) {
+      // Create authentications record if it doesn't exist
+      await query(
+        `INSERT INTO authentications (user_id, phone_verification_code, phone_verification_expired_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, hashedCode, codeExpiry]
+      );
+    } else {
+      // Update existing record
+      await query(
+        `UPDATE authentications 
+         SET phone_verification_code = $1, phone_verification_expired_at = $2 
+         WHERE user_id = $3`,
+        [hashedCode, codeExpiry, user.id]
+      );
+    }
 
     // Send verification SMS (with plain code)
     const smsResult = await sendVerificationSms(phone, verificationCode);
 
     if (!smsResult.success) {
-      return { success: false, error: 'Failed to send verification SMS' };
+      console.error(`❌ SMS send failed for ${phone}: ${smsResult.error}`);
+      return { success: false, error: smsResult.error || 'Failed to send verification SMS' };
     }
 
     console.log(`✅ Phone verification code sent to: ${phone}`);
@@ -586,13 +602,28 @@ export const resendPhoneVerificationCode = async (
     // Hash the verification code before storing
     const hashedCode = hashVerificationCode(verificationCode);
 
-    // Update verification record
-    await query(
-      `UPDATE authentications 
-       SET phone_verification_code = $1, phone_verification_expired_at = $2 
-       WHERE user_id = $3`,
-      [hashedCode, codeExpiry, user.id]
+    // Ensure authentications record exists, create if it doesn't
+    const authRecord = await queryOne<Authentication>(
+      `SELECT * FROM authentications WHERE user_id = $1`,
+      [user.id]
     );
+
+    if (!authRecord) {
+      // Create authentications record if it doesn't exist
+      await query(
+        `INSERT INTO authentications (user_id, phone_verification_code, phone_verification_expired_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, hashedCode, codeExpiry]
+      );
+    } else {
+      // Update existing record
+      await query(
+        `UPDATE authentications 
+         SET phone_verification_code = $1, phone_verification_expired_at = $2 
+         WHERE user_id = $3`,
+        [hashedCode, codeExpiry, user.id]
+      );
+    }
 
     // Send verification SMS
     const smsResult = await sendVerificationSms(user.phone, verificationCode);
