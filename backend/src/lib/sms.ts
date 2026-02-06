@@ -1,20 +1,88 @@
 /**
- * SMS service using Twilio for sending phone verification codes
+ * SMS service using SimpleTexting for sending phone verification codes and messages
  */
 
-import twilio from 'twilio';
 import { env } from '../config/env.js';
 
-// Initialize Twilio client
-const twilioClient = env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN
-  ? twilio(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN)
-  : null;
+const SIMPLETEXTING_API_URL = 'https://app2.simpletexting.com/v1/send';
 
 export interface SmsResult {
   success: boolean;
   messageId?: string;
   error?: string;
 }
+
+/**
+ * Convert phone to SimpleTexting format (10-digit for US/Canada)
+ */
+const toSimpleTextingPhone = (phone: string): string => {
+  const cleaned = phone.replace(/[^\d]/g, '');
+  // US/Canada: strip leading 1 if 11 digits
+  if (cleaned.length === 11 && cleaned.startsWith('1')) {
+    return cleaned.slice(1);
+  }
+  return cleaned.slice(-10); // take last 10 digits for international
+};
+
+/**
+ * Send SMS via SimpleTexting API
+ */
+export const sendSms = async (toPhone: string, message: string): Promise<SmsResult> => {
+  const formattedPhone = toSimpleTextingPhone(toPhone);
+
+  const isConfigured = env.SIMPLETEXTING_API_KEY;
+
+  if (!isConfigured) {
+    console.warn('⚠️ SimpleTexting not configured - missing SIMPLETEXTING_API_KEY');
+    console.log(`📱 [DEV] SMS to ${formattedPhone}: ${message}`);
+    return {
+      success: true,
+      messageId: 'dev-mode',
+      error: 'SimpleTexting not configured. Missing: SIMPLETEXTING_API_KEY',
+    };
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append('phone', formattedPhone);
+    params.append('message', message);
+
+    const response = await fetch(SIMPLETEXTING_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.SIMPLETEXTING_API_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      body: params.toString(),
+    });
+
+    const data = (await response.json()) as { code?: number; smsid?: string; message?: string };
+
+    if (data.code === 1) {
+      console.log(`✅ SMS sent to ${formattedPhone}, smsid: ${data.smsid || 'N/A'}`);
+      return {
+        success: true,
+        messageId: data.smsid,
+      };
+    }
+
+    const errorMsg = data.message || 'Failed to send SMS';
+    console.error('❌ SimpleTexting API error:', errorMsg, data);
+    return {
+      success: false,
+      error: errorMsg,
+    };
+  } catch (error: any) {
+    console.error('❌ Failed to send SMS:', error);
+    console.error('   Phone:', formattedPhone);
+    console.error('   Error details:', error.message);
+    return {
+      success: false,
+      error: error.message || 'Failed to send SMS',
+    };
+  }
+};
 
 /**
  * Generate a 6-digit verification code
@@ -64,54 +132,8 @@ export const sendVerificationSms = async (
   verificationCode: string
 ): Promise<SmsResult> => {
   const formattedPhone = formatPhoneNumber(toPhone);
-
-  // Check Twilio configuration
-  const isTwilioConfigured = twilioClient && env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_PHONE_NUMBER;
-  
-  if (!isTwilioConfigured) {
-    const missingConfig = [];
-    if (!env.TWILIO_ACCOUNT_SID) missingConfig.push('TWILIO_ACCOUNT_SID');
-    if (!env.TWILIO_AUTH_TOKEN) missingConfig.push('TWILIO_AUTH_TOKEN');
-    if (!env.TWILIO_PHONE_NUMBER) missingConfig.push('TWILIO_PHONE_NUMBER');
-    
-    console.warn(`⚠️ Twilio not configured - missing: ${missingConfig.join(', ')}`);
-    console.log(`📱 [DEV] Verification code for ${formattedPhone}: ${verificationCode}`);
-    return { 
-      success: true, 
-      messageId: 'dev-mode',
-      error: `Twilio not configured. Missing: ${missingConfig.join(', ')}`,
-    };
-  }
-
-  try {
-    const message = await twilioClient.messages.create({
-      body: `Your SkinAura PRO verification code is: ${verificationCode}. This code expires in ${env.VERIFICATION_CODE_EXPIRY_MINUTES} minutes.`,
-      from: env.TWILIO_PHONE_NUMBER,
-      to: formattedPhone,
-    });
-
-    console.log(`✅ Verification SMS sent to ${formattedPhone}, SID: ${message.sid}`);
-
-    return {
-      success: true,
-      messageId: message.sid,
-    };
-  } catch (error: any) {
-    console.error('❌ Failed to send verification SMS:', error);
-    console.error('   Phone:', formattedPhone);
-    console.error('   Twilio Account SID:', env.TWILIO_ACCOUNT_SID ? 'Set' : 'Missing');
-    console.error('   Twilio Phone Number:', env.TWILIO_PHONE_NUMBER || 'Missing');
-    console.error('   Error details:', {
-      message: error.message,
-      code: error.code,
-      status: error.status,
-      moreInfo: error.moreInfo,
-    });
-    return {
-      success: false,
-      error: error.message || error.code || 'Failed to send SMS',
-    };
-  }
+  const message = `Your SkinAura PRO verification code is: ${verificationCode}. This code expires in ${env.VERIFICATION_CODE_EXPIRY_MINUTES} minutes.`;
+  return sendSms(formattedPhone, message);
 };
 
 /**
@@ -119,32 +141,15 @@ export const sendVerificationSms = async (
  */
 export const sendWelcomeSms = async (toPhone: string): Promise<SmsResult> => {
   const formattedPhone = formatPhoneNumber(toPhone);
-
-  if (!twilioClient || !env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_PHONE_NUMBER) {
-    console.warn('⚠️ Twilio not configured - welcome SMS not sent');
-    return { success: true, messageId: 'dev-mode' };
-  }
-
-  try {
-    const message = await twilioClient.messages.create({
-      body: `Welcome to SkinAura PRO! Your phone has been verified. You're all set to start your skincare journey.`,
-      from: env.TWILIO_PHONE_NUMBER,
-      to: formattedPhone,
-    });
-
-    console.log(`✅ Welcome SMS sent to ${formattedPhone}`);
-    return { success: true, messageId: message.sid };
-  } catch (error: any) {
-    console.error('❌ Failed to send welcome SMS:', error);
-    return { success: false, error: error.message };
-  }
+  const message = `Welcome to SkinAura PRO! Your phone has been verified. You're all set to start your skincare journey.`;
+  return sendSms(formattedPhone, message);
 };
 
 export default {
   generatePhoneVerificationCode,
   getPhoneVerificationCodeExpiry,
   formatPhoneNumber,
+  sendSms,
   sendVerificationSms,
   sendWelcomeSms,
 };
-

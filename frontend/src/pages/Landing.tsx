@@ -420,6 +420,23 @@ const Landing: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {/* FAQ Item 6 */}
+            <div 
+              className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm"
+              itemScope 
+              itemProp="mainEntity" 
+              itemType="https://schema.org/Question"
+            >
+              <h3 className="font-serif font-bold text-lg text-[#2D2A3E] mb-3" itemProp="name">
+                Is the SkinAura PRO facial scan the same as an in-office skin analysis?
+              </h3>
+              <div itemScope itemProp="acceptedAnswer" itemType="https://schema.org/Answer">
+                <p className="text-gray-600" itemProp="text">
+                  No. This is an at-home scan designed for tracking and routine support. A licensed professional may use different tools and clinical judgment during an in-practice evaluation.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* CTA after FAQ */}

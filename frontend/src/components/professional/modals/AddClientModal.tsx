@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Loader2, AlertCircle, Mail, CheckCircle, Send, Clock } from 'lucide-react';
+import { X, Loader2, AlertCircle, Mail, CheckCircle, UserPlus, Clock } from 'lucide-react';
 import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 
@@ -231,9 +231,6 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
                   autoFocus
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                If the client already has an account, they will be added directly to your client list.
-              </p>
             </div>
 
             {/* Actions */}
@@ -253,12 +250,12 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Sending...
+                    Adding...
                   </>
                 ) : (
                   <>
-                    <Send className="w-4 h-4" />
-                    Send Invitation
+                    <UserPlus className="w-4 h-4" />
+                    Add Client
                   </>
                 )}
               </button>

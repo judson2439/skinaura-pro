@@ -50,10 +50,9 @@ export const env = {
   // Verification code expiry (in minutes)
   VERIFICATION_CODE_EXPIRY_MINUTES: parseInt(process.env.VERIFICATION_CODE_EXPIRY_MINUTES || '30', 10),
 
-  // Twilio Configuration for SMS sending
-  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
-  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
-  TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER || '',
+  // SimpleTexting Configuration for SMS sending
+  SIMPLETEXTING_API_KEY: process.env.SIMPLETEXTING_API_KEY || '',
+  SIMPLETEXTING_FROM_NUMBER: process.env.SIMPLETEXTING_FROM_NUMBER || '',
 
   // AI Gateway API Key for product recognition
   GATEWAY_API_KEY: process.env.GATEWAY_API_KEY || '',

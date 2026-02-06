@@ -1064,7 +1064,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               />
               <label htmlFor="smsConsent" className="text-xs text-gray-600 leading-relaxed cursor-pointer flex-1">
                 I have read the <Link to="/privacy" className={`underline ${linkColor}`}>Privacy Policy</Link> and agree to the <Link to="/terms" className={`underline ${linkColor}`}>Terms of Service</Link>.
-                I agree to receive SMS text messages from SkinAura PRO. I agree to receive promotional messages sent via an autodialer, and this agreement isn't a condition of any purchase. Message & data rates may apply. Message frequency varies. Reply STOP to opt out.
+                I agree to receive SMS text messages from SkinAura PRO. I agree to receive promotional messages sent via an autodialer, and this agreement isn't a condition of any purchase. Message & data rates may apply. Message frequency varies. Reply STOP to opt out. Text Help for more information.
               </label>
             </div>
 
@@ -1413,7 +1413,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
             />
             <label htmlFor="smsConsent" className="text-xs text-gray-500 leading-relaxed cursor-pointer">
               {/* By checking this box, I agree to receive informational/transactional SMS text messages from SkinAura PRO in regards to product usage reminders and general customer inquiries, at the phone number provided. Message & data rates may apply. Message frequency varies. Reply STOP to opt out. See our <a href="/privacy" className={`hover:underline ${selectedRole !== 'client' ? 'text-[#CFAFA3]' : 'text-[#2D2A3E]'}`}>Privacy Policy</a>. (Optional) */}
-              By checking this box, I agree to receive information/transactional SMS text messages from SkinAura PRO via an autodialer in regards to product usage reminders and general customer inquiries, at the phone number provided. This isn't a condition of any purchase. Message and data rates may apply. Message frequency varies. Reply STOP to opt out. HELP for help. I also agree to the <Link to="/terms" className="hover:underline text-[#2D2A3E]">Terms and Conditions</Link> and <Link to="/privacy" className="hover:underline text-[#2D2A3E]">Privacy Policy</Link>.
+              By checking this box, I agree to receive information/transactional SMS text messages from SkinAura PRO via an autodialer in regards to product usage reminders and general customer inquiries, at the phone number provided. This isn't a condition of any purchase. Message and data rates may apply. Message frequency varies. Reply STOP to opt out. HELP for help. I also agree to the <Link to="/terms" className="hover:underline text-[#2D2A3E]">Terms and Conditions</Link> and <Link to="/privacy" className="hover:underline text-[#2D2A3E]">Privacy Policy</Link>. Text Help for more information..
             </label>
           </div>
 

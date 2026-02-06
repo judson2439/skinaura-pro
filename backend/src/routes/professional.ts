@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { query, queryOne } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
 import { logAuditFromRequest } from '../lib/auditLogger.js';
+import { sendSms, formatPhoneNumber } from '../lib/sms.js';
 import { env } from '../config/env.js';
 
 const router = Router();
@@ -697,34 +698,25 @@ router.post('/sms/send', async (req: Request, res: Response): Promise<void> => {
 
     const professionalName = professional?.full_name || 'Your Skincare Professional';
 
-    // Format the phone number
-    let formattedPhone = phone.replace(/[^\d+]/g, '');
-    if (!formattedPhone.startsWith('+')) {
-      formattedPhone = '+1' + formattedPhone;
-    }
-
-    // Build the full message with greeting
+    const formattedPhone = formatPhoneNumber(phone);
     const fullMessage = `Hi ${clientName || 'there'}! ${message}\n\n- ${professionalName}`;
 
-    // Import and use Twilio
-    const twilio = await import('twilio');
-    const twilioClient = twilio.default(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
+    const smsResult = await sendSms(formattedPhone, fullMessage);
 
-    const twilioResponse = await twilioClient.messages.create({
-      body: fullMessage,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: formattedPhone,
-    });
+    if (!smsResult.success) {
+      res.status(500).json({
+        success: false,
+        error: smsResult.error || 'Failed to send SMS',
+      } as ApiResponse);
+      return;
+    }
 
-    console.log(`✅ SMS sent successfully: ${twilioResponse.sid}`);
+    console.log(`✅ SMS sent successfully: ${smsResult.messageId}`);
 
     res.status(200).json({
       success: true,
       message: 'SMS sent successfully',
-      data: { messageSid: twilioResponse.sid },
+      data: { messageSid: smsResult.messageId },
     } as ApiResponse);
 
   } catch (error: any) {
@@ -2621,7 +2613,7 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
 
     if (existingUser) {
       console.log(`👤 Existing user found: ${existingUser.full_name} (${existingUser.id}), role: ${existingUser.role}`);
-      
+
       // User exists - check if relationship already exists
       const existingRelationship = await queryOne<ClientProfessionalRelationship>(
         `SELECT * FROM client_professional_relationships 
@@ -2640,49 +2632,26 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
           } as ApiResponse);
           return;
         }
-        // If relationship exists but inactive, create notification to re-connect
-        console.log(`ℹ️ Relationship exists but inactive, proceeding to create notification`);
-      }
-
-      // Check if there's already a pending invitation notification
-      const existingNotification = await queryOne<{ id: string; status: string }>(
-        `SELECT id, status FROM professional_invitation_notifications 
-         WHERE professional_id = $1 AND client_id = $2`,
-        [professionalId, existingUser.id]
-      );
-
-      console.log(`📬 Existing notification: ${existingNotification ? `status=${existingNotification.status}` : 'none'}`);
-
-      if (existingNotification) {
-        if (existingNotification.status === 'unread' || existingNotification.status === 'read') {
-          console.log(`❌ Invitation already pending - returning 400`);
-          res.status(400).json({
-            success: false,
-            error: 'An invitation has already been sent to this client and is pending response.',
-            alreadyInvited: true,
-          } as ApiResponse);
-          return;
-        }
-        // If previously declined, allow re-invitation by updating the notification
+        // Reactivate existing inactive relationship (add client without requiring accept)
         await query(
-          `UPDATE professional_invitation_notifications 
-           SET status = 'unread', created_at = NOW(), read_at = NULL, responded_at = NULL
+          `UPDATE client_professional_relationships 
+           SET status = 'active', updated_at = NOW() 
            WHERE id = $1`,
-          [existingNotification.id]
+          [existingRelationship.id]
         );
-        console.log(`✅ Re-invitation notification updated for existing client: ${existingUser.full_name}`);
+        console.log(`✅ Relationship reactivated for existing client: ${existingUser.full_name}`);
       } else {
-        // Create new invitation notification for existing client
+        // Create relationship directly - client is added without needing to accept
         await query(
-          `INSERT INTO professional_invitation_notifications 
-           (id, client_id, professional_id, status, created_at)
-           VALUES (gen_random_uuid(), $1, $2, 'unread', NOW())`,
-          [existingUser.id, professionalId]
+          `INSERT INTO client_professional_relationships 
+           (professional_id, client_id, status, created_at, updated_at)
+           VALUES ($1, $2, 'active', NOW(), NOW())`,
+          [professionalId, existingUser.id]
         );
-        console.log(`✅ Invitation notification created for existing client: ${existingUser.full_name}`);
+        console.log(`✅ Client added directly to professional list: ${existingUser.full_name}`);
       }
 
-      // Send connection reminder email to existing client
+      // Notify client by email that they were added
       const emailResult = await sendConnectionReminderEmail(
         existingUser.email,
         existingUser.full_name || 'there',
@@ -2693,16 +2662,14 @@ router.post('/clients/invite', async (req: Request, res: Response): Promise<void
 
       if (!emailResult.success) {
         console.error('❌ Failed to send connection reminder email:', emailResult.error);
-        // Still return success since notification was created
       } else {
         console.log(`📧 Connection reminder email sent to ${existingUser.email}`);
       }
 
       res.status(200).json({
         success: true,
-        message: `Invitation notification sent to ${existingUser.full_name}. They will receive an email and see this in their notifications.`,
+        message: `${existingUser.full_name} has been added to your client list.`,
         alreadyRegistered: true,
-        notificationSent: true,
         emailSent: emailResult.success,
       } as ApiResponse);
       return;

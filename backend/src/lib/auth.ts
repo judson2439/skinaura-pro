@@ -35,7 +35,7 @@ import {
  * 
  * When re-enabling, users who signed up without phone verification will need to verify their phone
  */
-export const PHONE_VERIFICATION_ENABLED = false;
+export const PHONE_VERIFICATION_ENABLED = true;
 
 // Types based on the database schema
 export interface AuthUser {

@@ -14,7 +14,6 @@ import {
   MessageSquare,
   Loader2,
   ArrowRight,
-  UserPlus,
 } from 'lucide-react';
 
 // ============================================================================
@@ -32,7 +31,6 @@ interface ClientHeaderProps {
   userAvatar?: string;
   onNavigateToView?: (viewId: string) => void;
   unreadNotifications?: number;
-  unreadInvitations?: number;
 }
 
 interface NotificationItem {
@@ -41,16 +39,6 @@ interface NotificationItem {
   professional_name: string;
   professional_avatar: string | null;
   content: string;
-  created_at: string;
-}
-
-interface InvitationNotification {
-  id: string;
-  professional_id: string;
-  professional_name: string;
-  professional_avatar: string | null;
-  professional_business_name: string | null;
-  status: 'unread' | 'read';
   created_at: string;
 }
 
@@ -69,15 +57,12 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
   userAvatar,
   onNavigateToView,
   unreadNotifications = 0,
-  unreadInvitations = 0,
 }) => {
-  // Calculate total unread count (messages + invitations)
-  const totalUnreadCount = unreadNotifications + unreadInvitations;
+  const totalUnreadCount = unreadNotifications;
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [invitations, setInvitations] = useState<InvitationNotification[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   // Use userAvatar prop (from parent's state) which updates when session changes
@@ -231,8 +216,6 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
                     <h3 className="font-semibold text-gray-900">Notifications</h3>
                     {totalUnreadCount > 0 && (
                       <p className="text-xs text-gray-500 mt-0.5">
-                        {unreadInvitations > 0 && `${unreadInvitations} invitation${unreadInvitations !== 1 ? 's' : ''}`}
-                        {unreadInvitations > 0 && unreadNotifications > 0 && ', '}
                         {unreadNotifications > 0 && `${unreadNotifications} message${unreadNotifications !== 1 ? 's' : ''}`}
                       </p>
                     )}
@@ -243,53 +226,8 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="w-6 h-6 animate-spin text-[#CFAFA3]" />
                       </div>
-                    ) : (invitations.length > 0 || notifications.length > 0) ? (
+                    ) : notifications.length > 0 ? (
                       <div className="divide-y divide-gray-50">
-                        {/* Invitation Notifications - Show first with special styling */}
-                        {invitations.map((invitation) => (
-                          <div
-                            key={`inv-${invitation.id}`}
-                            className={`flex gap-3 p-3 hover:bg-[#CFAFA3]/10 cursor-pointer transition-colors ${
-                              invitation.status === 'unread' ? 'bg-[#CFAFA3]/5' : ''
-                            }`}
-                            onClick={() => {
-                              setShowNotifications(false);
-                              if (onNavigateToView) {
-                                onNavigateToView(`invitation-${invitation.id}`);
-                              } else {
-                                navigate(`/client/invitation-${invitation.id}`);
-                              }
-                            }}
-                          >
-                            <div className="flex-shrink-0 relative">
-                              {invitation.professional_avatar ? (
-                                <EncryptedImage
-                                  src={invitation.professional_avatar}
-                                  alt={invitation.professional_name}
-                                  className="w-10 h-10 rounded-full object-cover border-2 border-[#CFAFA3]/30"
-                                  fallbackClassName="w-10 h-10 rounded-full border-2 border-[#CFAFA3]/30 bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center"
-                                />
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-[#CFAFA3]/20 flex items-center justify-center border-2 border-[#CFAFA3]/30">
-                                  <User className="w-5 h-5 text-[#CFAFA3]" />
-                                </div>
-                              )}
-                              <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#CFAFA3] rounded-full flex items-center justify-center">
-                                <UserPlus className="w-3 h-3 text-white" />
-                              </div>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-900">{invitation.professional_name}</p>
-                              <p className="text-sm text-[#CFAFA3] font-medium">Wants to connect with you</p>
-                              <p className="text-xs text-gray-400 mt-1">{formatTimeAgo(invitation.created_at)}</p>
-                            </div>
-                            {invitation.status === 'unread' && (
-                              <div className="w-2.5 h-2.5 bg-[#CFAFA3] rounded-full flex-shrink-0 mt-1.5" />
-                            )}
-                          </div>
-                        ))}
-                        
-                        {/* Regular Message Notifications */}
                         {notifications.map((notification) => (
                           <div
                             key={notification.id}
@@ -328,8 +266,8 @@ const ClientHeader: React.FC<ClientHeaderProps> = ({
                     )}
                   </div>
 
-                  {/* View All Button - show if more than 3 notifications */}
-                  {(unreadNotifications > 3 || notifications.length > 0) && (
+                  {/* View All Button */}
+                  {(unreadNotifications > 0 || notifications.length > 0) && (
                     <div className="p-3 border-t border-gray-100 bg-gray-50">
                       <button
                         onClick={handleViewAllNotifications}
