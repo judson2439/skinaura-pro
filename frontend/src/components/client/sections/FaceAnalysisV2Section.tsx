@@ -639,22 +639,33 @@ const FaceAnalysisV2Section: React.FC = () => {
         }
       }
 
-      // 2. Process and upload area SVGs
+      // 2. Process and upload overlay SVGs (prefer masks over areas)
+      // masks = detected problem points, areas = analyzed region
+      // Use masks if valid, otherwise fall back to areas
       const areaUrls: Record<string, string | null> = {};
       
       for (const item of analysisData.analysis) {
         const key = item.key;
+        const masksData = item.masks;
         const areasData = item.areas;
+        // Check masks first; if invalid, use areas instead
+        const overlayData = (masksData && masksData.length > 10)
+          ? masksData
+          : (areasData && areasData.length > 10)
+            ? areasData
+            : null;
         
-        if (areasData && areasData.length > 10) { // Make sure it's valid base64 data
+        if (overlayData) {
           try {
-            const svgFile = svgBase64ToFile(areasData, `faceage-area-${key.toLowerCase()}-${Date.now()}.svg`);
+            const svgFile = svgBase64ToFile(overlayData, `faceage-overlay-${key.toLowerCase()}-${Date.now()}.svg`);
             const areaResult = await uploadImage(svgFile, 'photos', token);
             if (areaResult.success && areaResult.data?.image_url) {
               areaUrls[`${key.toLowerCase()}_area`] = areaResult.data.image_url;
+            } else {
+              areaUrls[`${key.toLowerCase()}_area`] = null;
             }
           } catch (err) {
-            console.error(`Failed to upload area SVG for ${key}:`, err);
+            console.error(`Failed to upload overlay SVG for ${key}:`, err);
             areaUrls[`${key.toLowerCase()}_area`] = null;
           }
         } else {
@@ -940,6 +951,7 @@ const FaceAnalysisV2Section: React.FC = () => {
 
         // Get analysis data when available
         faceAge.API.getAdvisorData((data: unknown) => {
+          console.log('data', data);
           const userImage = faceAge.API.getImage();
           setUserImage(userImage || null);
           const advisorData = data as AdvisorDataResponse;
