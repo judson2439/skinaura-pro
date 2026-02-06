@@ -1573,7 +1573,7 @@ const FaceAnalysisV2Section: React.FC = () => {
                         const areaUrl = selectedHistoryItem[attr.areaKey as keyof HistoryEntry] as string | null;
                         if (!areaUrl) return null;
                         return (
-                          <div key={attr.key} className="absolute inset-0">
+                          <div key={attr.key} className="absolute inset-0 opacity-60">
                             <EncryptedImage
                               src={areaUrl}
                               alt={`${attr.label} area`}
@@ -1591,7 +1591,7 @@ const FaceAnalysisV2Section: React.FC = () => {
                         const areaUrl = selectedHistoryItem[attr.areaKey as keyof HistoryEntry] as string | null;
                         if (!areaUrl) return null;
                         return (
-                          <div className="absolute inset-0">
+                          <div className="absolute inset-0 opacity-60">
                             <EncryptedImage
                               src={areaUrl}
                               alt={`${attr.label} area`}
