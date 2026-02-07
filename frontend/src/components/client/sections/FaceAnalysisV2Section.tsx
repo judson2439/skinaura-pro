@@ -36,7 +36,6 @@ import {
 const FACE_AGE_ID = 'sG3mv6Z0qLEuDJIHopSZ';
 const ELEMENT_ID = 'FaceAge-module';
 const FACE_AGE_CDN = 'https://cdn.jsdelivr.net/npm/face-age';
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 // Skincare tips for each problem area
 const SKIN_TIPS: Record<string, string[]> = {
@@ -118,37 +117,6 @@ interface FaceAgeInstance {
     getRoutineGroup: () => unknown;
     setCustomProducts: (products: unknown[]) => void;
   };
-}
-
-interface RecommendedProduct {
-  id: string;
-  professional_id: string;
-  name: string;
-  brand: string | null;
-  category: string | null;
-  description: string | null;
-  ingredients: string | null;
-  skin_types: string[] | null;
-  concerns: string[] | null;
-  price: number | null;
-  currency: string | null;
-  image_url: string | null;
-  purchase_url: string | null;
-  is_active: boolean;
-  is_global: boolean;
-  usage_instructions: string | null;
-  created_at: string;
-  updated_at: string | null;
-}
-
-interface FaceAgeCustomProduct {
-  id: string;
-  url: string;
-  image: string;
-  title: string;
-  description: string;
-  problems: string[];
-  price: number;
 }
 
 interface FaceAgeConstructor {
@@ -473,86 +441,6 @@ const RadarChart: React.FC<RadarChartProps> = ({
   );
 };
 
-/**
- * Upload a blob to Supabase storage and get public URL
- */
-const uploadToSupabaseStorage = async (blob: Blob, productId: string): Promise<string> => {
-  try {
-    const ext = blob.type.split('/')[1] || 'jpg';
-    const fileName = `faceage-products/${productId}-${Date.now()}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('progress-photos')
-      .upload(fileName, blob, {
-        contentType: blob.type,
-        upsert: true,
-      });
-
-    if (uploadError) {
-      console.error('Supabase upload error:', uploadError);
-      throw uploadError;
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('progress-photos')
-      .getPublicUrl(fileName);
-
-    return publicUrl;
-  } catch (error) {
-    console.error('Error uploading to Supabase:', error);
-    throw error;
-  }
-};
-
-/**
- * Fetch, decrypt, and upload image to cloud storage
- */
-const fetchDecryptAndUploadImage = async (
-  imageUrl: string, 
-  token: string | null,
-  productId: string
-): Promise<string> => {
-  try {
-    const fullUrl = imageUrl.startsWith('http') 
-      ? imageUrl 
-      : `${API_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
-    
-    const response = await fetch(fullUrl, {
-      method: 'GET',
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.status}`);
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    let imageBlob: Blob;
-
-    if (contentType.includes('application/json')) {
-      const encryptedData = await response.json();
-      
-      if (!encryptedData.encrypted || !encryptedData.iv) {
-        throw new Error('Invalid encrypted image data');
-      }
-
-      imageBlob = await decryptFileToBlob(
-        encryptedData.encrypted,
-        encryptedData.iv,
-        encryptedData.mimeType || 'image/jpeg'
-      );
-    } else {
-      imageBlob = await response.blob();
-    }
-
-    const publicUrl = await uploadToSupabaseStorage(imageBlob, productId);
-    return publicUrl;
-  } catch (error) {
-    console.error('Error fetching/decrypting/uploading image:', error);
-    return 'https://via.placeholder.com/200x200?text=No+Image';
-  }
-};
-
 // ============================================================================
 // FACE ANALYSIS V2 SECTION
 // ============================================================================
@@ -777,67 +665,6 @@ const FaceAnalysisV2Section: React.FC = () => {
     setActiveAreaFilter('all');
   };
 
-  /**
-   * Fetch recommended products and set them in FaceAge
-   */
-  const fetchAndSetProducts = useCallback(async () => {
-    const faceAge = faceAgeRef.current;
-    if (!faceAge) {
-      return;
-    }
-
-    try {
-      const authSession = getAuthSession();
-      const token = authSession?.token || getAuthToken();
-
-      if (!token) {
-        return;
-      }
-
-      apiClient.setAuthToken(token);
-      const response = await apiClient.get<{
-        success: boolean;
-        data?: { products: RecommendedProduct[]; professional_ids: string[] };
-        error?: string;
-      }>('/api/client/recommended-products');
-
-      if (!response.ok || !response.data?.success || !response.data?.data?.products?.length) {
-        return;
-      }
-
-      const products: RecommendedProduct[] = response.data.data.products;
-
-      const customProducts: FaceAgeCustomProduct[] = await Promise.all(
-        products.map(async (product) => {
-          let imagePublicUrl = 'https://via.placeholder.com/200x200?text=No+Image';
-          
-          if (product.image_url) {
-            imagePublicUrl = await fetchDecryptAndUploadImage(
-              product.image_url, 
-              token, 
-              product.id
-            );
-          }
-
-          return {
-            id: product.id,
-            url: product.purchase_url || '',
-            image: imagePublicUrl,
-            title: product.name,
-            description: product.description || '',
-            problems: product.concerns || [],
-            price: product.price || 0,
-          };
-        })
-      );
-
-      faceAge.API.setCustomProducts(customProducts);
-
-    } catch (error) {
-      console.error('Error fetching recommended products:', error);
-    }
-  }, []);
-
   // Handle reset analysis
   const handleResetAnalysis = () => {
     setAnalysisData(null);
@@ -845,13 +672,12 @@ const FaceAnalysisV2Section: React.FC = () => {
     setSelectedProblem(null);
   };
 
-  // Fetch products when FaceAge becomes ready
+  // FaceAge ready - products and routine display disabled
   useEffect(() => {
     if (faceAgeReady) {
-      fetchAndSetProducts();
       setIsLoading(false);
     }
-  }, [faceAgeReady, fetchAndSetProducts]);
+  }, [faceAgeReady]);
 
   // Fetch history when history tab is selected
   useEffect(() => {
@@ -894,9 +720,9 @@ const FaceAnalysisV2Section: React.FC = () => {
         language: 'en',
         currency: '$',
         quiz: true,
-        showProducts: true,
-        showRoutine: true,
-        showAddToCart: true,
+        showProducts: false,
+        showRoutine: false,
+        showAddToCart: false,
         defaultQuiz: { email: 'hi@getfaceage.com' },
         height: '550px',
         width: '100%',
@@ -912,17 +738,6 @@ const FaceAnalysisV2Section: React.FC = () => {
           'redness',
           'oiliness',
           'acne',
-        ],
-        routinesSupport: [
-          'cleanser',
-          'toner',
-          'serum',
-          'eyeCream',
-          'spotTreatment',
-          'moisturizer',
-          'sunscreen',
-          'faceOil',
-          'nightCream',
         ],
         showCamera: true,
         showUpload: true,

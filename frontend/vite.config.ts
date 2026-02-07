@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "::",
       port: 8000,
-      allowedHosts: ["skinaura.pro"],
+      allowedHosts: ["skinaura.pro", "www.skinaura.pro"],
       // Proxy API requests to backend in production
       proxy: {
         '/api': {
@@ -30,6 +30,9 @@ export default defineConfig(({ mode }) => {
           secure: mode === 'production',
         },
       },
+    },
+    preview: {
+      allowedHosts: ["skinaura.pro", "www.skinaura.pro"],
     },
     plugins: [
       react()
