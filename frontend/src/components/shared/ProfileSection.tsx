@@ -42,6 +42,7 @@ interface ProfileData {
   concerns: string[] | null;
   business_name: string | null;
   license_number: string | null;
+  ncea_certified_profile_number: string | null;
   email_verified: boolean;
   phone_verified: boolean;
   created_at: string;
@@ -67,6 +68,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
   const [phone, setPhone] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
+  const [nceaCertifiedProfileNumber, setNceaCertifiedProfileNumber] = useState('');
 
   // Set auth token on mount
   useEffect(() => {
@@ -114,6 +116,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
     setPhone(profile?.phone || '');
     setBusinessName(profile?.business_name || '');
     setLicenseNumber(profile?.license_number || '');
+    setNceaCertifiedProfileNumber(profile?.ncea_certified_profile_number || '');
     setIsEditing(false);
   };
 
@@ -509,6 +512,27 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({ userRole }) => {
                     ) : (
                       <p className="px-4 py-3 bg-gray-50 rounded-xl text-gray-900">
                         {profile?.license_number || 'Not set'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* NCEA Certified Profile Number */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                      <Shield className="w-4 h-4" />
+                      NCEA Certified Profile Number
+                    </label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={nceaCertifiedProfileNumber}
+                        onChange={(e) => setNceaCertifiedProfileNumber(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent"
+                        placeholder="Enter your NCEA certified profile number"
+                      />
+                    ) : (
+                      <p className="px-4 py-3 bg-gray-50 rounded-xl text-gray-900">
+                        {profile?.ncea_certified_profile_number || 'Not set'}
                       </p>
                     )}
                   </div>

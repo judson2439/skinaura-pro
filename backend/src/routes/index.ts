@@ -8,6 +8,7 @@ import treatmentPlanRouter from './treatmentPlan.js';
 import productRouter from './product.js';
 import aiRouter from './ai.js';
 import adminRouter from './admin.js';
+import jotformRouter from './jotform.js';
 
 const router = Router();
 
@@ -44,5 +45,8 @@ router.use('/ai', aiRouter);
 
 // Admin routes (overview, statistics)
 router.use('/admin', adminRouter);
+
+// Webhooks (external services)
+router.use('/webhooks/jotform', jotformRouter);
 
 export default router;

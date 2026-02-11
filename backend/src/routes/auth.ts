@@ -109,6 +109,7 @@ interface SignUpRequest {
   concerns?: string[];
   businessName?: string;
   licenseNumber?: string;
+  nceaCertifiedProfileNumber?: string;
   avatarUrl?: string;
   // Pre-encrypted avatar data from frontend
   avatarEncrypted?: string;  // Base64 encoded encrypted image
@@ -404,6 +405,7 @@ router.post('/professional/signup', async (req: Request, res: Response): Promise
       role: 'professional',
       businessName: signupData.businessName,
       licenseNumber: signupData.licenseNumber,
+      nceaCertifiedProfileNumber: signupData.nceaCertifiedProfileNumber,
       avatarUrl: avatarUrl,
     });
 
@@ -1896,12 +1898,13 @@ router.get('/profile', profileAuthMiddleware, async (req: Request, res: Response
       concerns: string[] | null;
       business_name: string | null;
       license_number: string | null;
+      ncea_certified_profile_number: string | null;
       email_verified: boolean;
       phone_verified: boolean;
       created_at: string;
     }>(
       `SELECT up.id, up.email, up.full_name, up.phone, up.avatar_url, up.role, 
-              up.skin_type, up.concerns, up.business_name, up.license_number, 
+              up.skin_type, up.concerns, up.business_name, up.license_number, up.ncea_certified_profile_number, 
               COALESCE(a.email_verified, false) as email_verified, 
               COALESCE(a.phone_verified, false) as phone_verified, 
               up.created_at
@@ -1969,7 +1972,7 @@ router.put('/profile', profileAuthMiddleware, async (req: Request, res: Response
       data = decrypted.data;
     }
 
-    const { full_name, phone, business_name, license_number, skin_type, concerns, avatar_url } = data;
+    const { full_name, phone, business_name, license_number, ncea_certified_profile_number, skin_type, concerns, avatar_url } = data;
 
     console.log(`✏️ Updating profile for user: ${userId}`);
 
@@ -1996,6 +1999,11 @@ router.put('/profile', profileAuthMiddleware, async (req: Request, res: Response
     if (license_number !== undefined) {
       updates.push(`license_number = $${paramIndex++}`);
       values.push(license_number?.trim() || null);
+    }
+
+    if (ncea_certified_profile_number !== undefined) {
+      updates.push(`ncea_certified_profile_number = $${paramIndex++}`);
+      values.push(ncea_certified_profile_number?.trim() || null);
     }
 
     if (skin_type !== undefined) {
@@ -2056,12 +2064,13 @@ router.put('/profile', profileAuthMiddleware, async (req: Request, res: Response
       concerns: string[] | null;
       business_name: string | null;
       license_number: string | null;
+      ncea_certified_profile_number: string | null;
       email_verified: boolean;
       phone_verified: boolean;
       created_at: string;
     }>(
       `SELECT up.id, up.email, up.full_name, up.phone, up.avatar_url, up.role, 
-              up.skin_type, up.concerns, up.business_name, up.license_number, 
+              up.skin_type, up.concerns, up.business_name, up.license_number, up.ncea_certified_profile_number, 
               COALESCE(a.email_verified, false) as email_verified, 
               COALESCE(a.phone_verified, false) as phone_verified, 
               up.created_at
@@ -2096,6 +2105,7 @@ router.put('/profile', profileAuthMiddleware, async (req: Request, res: Response
           concerns: updatedProfile.concerns,
           business_name: updatedProfile.business_name,
           license_number: updatedProfile.license_number,
+          ncea_certified_profile_number: updatedProfile.ncea_certified_profile_number,
           email_verified: updatedProfile.email_verified,
           phone_verified: updatedProfile.phone_verified,
           created_at: updatedProfile.created_at,
@@ -2281,3 +2291,4 @@ router.post('/request-password-reset', async (req: Request, res: Response): Prom
 });
 
 export default router;
+

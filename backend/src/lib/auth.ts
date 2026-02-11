@@ -196,6 +196,7 @@ export const createUser = async (userData: {
   concerns?: string[];
   businessName?: string;
   licenseNumber?: string;
+  nceaCertifiedProfileNumber?: string;
   avatarUrl?: string;
 }): Promise<AuthResult> => {
   try {
@@ -232,9 +233,9 @@ export const createUser = async (userData: {
     await query(
       `INSERT INTO user_profiles (
         id, email, full_name, phone, role, avatar_url, 
-        skin_type, concerns, business_name, license_number,
+        skin_type, concerns, business_name, license_number, ncea_certified_profile_number,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())`,
       [
         userId,
         userData.email.toLowerCase(),
@@ -246,6 +247,7 @@ export const createUser = async (userData: {
         userData.concerns && userData.concerns.length > 0 ? userData.concerns : null,
         userData.businessName || null,
         userData.licenseNumber || null,
+        userData.nceaCertifiedProfileNumber || null,
       ]
     );
 

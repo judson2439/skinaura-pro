@@ -120,6 +120,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
   const [selectedConcerns, setSelectedConcerns] = useState<string[]>([]);
   const [businessName, setBusinessName] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
+  const [nceaCertifiedProfileNumber, setNceaCertifiedProfileNumber] = useState('');
 
   // Avatar upload state
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -164,7 +165,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     }
   }, [password]);
 
-  // Simplified signup UI for both client and professional (same layout with password fields)
+  // Simplified signup UI for both client and professional; professionals get one extra field: NCEA Certified Profile Number
   const useSimplifiedSignupUI = view === 'signup' && (selectedRole === 'client' || selectedRole === 'professional');
 
   // Client-side validation
@@ -434,7 +435,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
         concerns: selectedRole === 'client' && selectedConcerns.length > 0 ? selectedConcerns : undefined,
         // Professional-specific fields (use fullName as businessName when simplified UI)
         businessName: selectedRole === 'professional' ? (useSimplifiedSignupUI ? fullName.trim() : businessName.trim()) : undefined,
-        licenseNumber: selectedRole === 'professional' && !useSimplifiedSignupUI ? (licenseNumber.trim() || undefined) : undefined,
+        licenseNumber: selectedRole === 'professional' ? (licenseNumber.trim() || undefined) : undefined,
+        nceaCertifiedProfileNumber: selectedRole === 'professional' ? (nceaCertifiedProfileNumber.trim() || undefined) : undefined,
         // Pre-encrypted avatar data (frontend encrypts, backend just saves)
         avatarEncrypted,
         avatarIv,
@@ -847,6 +849,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
     setSelectedConcerns([]);
     setBusinessName('');
     setLicenseNumber('');
+    setNceaCertifiedProfileNumber('');
     setAvatarFile(null);
     setAvatarPreview('');
     setErrors({});
@@ -1104,6 +1107,33 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
               />
               {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
             </div>
+
+            {selectedRole === 'professional' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">License Number (optional)</label>
+                  <input
+                    type="text"
+                    value={licenseNumber}
+                    onChange={(e) => setLicenseNumber(e.target.value)}
+                    className={`w-full px-4 py-3 border-2 border-gray-200 rounded-xl ${focusRing} outline-none transition-all bg-white`}
+                    placeholder="Professional license number"
+                    maxLength={50}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">NCEA Certified Profile Number (optional)</label>
+                  <input
+                    type="text"
+                    value={nceaCertifiedProfileNumber}
+                    onChange={(e) => setNceaCertifiedProfileNumber(e.target.value)}
+                    className={`w-full px-4 py-3 border-2 border-gray-200 rounded-xl ${focusRing} outline-none transition-all bg-white`}
+                    placeholder="NCEA certified profile number"
+                    maxLength={50}
+                  />
+                </div>
+              </>
+            )}
 
             <div className="flex gap-4">
               <div className="flex-1">
@@ -1395,6 +1425,21 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'l
                     onChange={(e) => setLicenseNumber(e.target.value)}
                     className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none"
                     placeholder="Professional license number"
+                    maxLength={50}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">NCEA Certified Profile Number (optional)</label>
+                <div className="relative">
+                  <Shield className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={nceaCertifiedProfileNumber}
+                    onChange={(e) => setNceaCertifiedProfileNumber(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent outline-none"
+                    placeholder="NCEA certified profile number"
                     maxLength={50}
                   />
                 </div>

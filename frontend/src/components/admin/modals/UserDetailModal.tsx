@@ -154,7 +154,7 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
           </div>
 
           {/* Professional Information */}
-          {(editedUser.role === 'professional' || editedUser.business_name || editedUser.license_number) && (
+          {(editedUser.role === 'professional' || editedUser.business_name || editedUser.license_number || editedUser.ncea_certified_profile_number) && (
             <div>
               <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">Professional Information</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -182,6 +182,19 @@ const UserDetailModal: React.FC<UserDetailModalProps> = ({ user, isOpen, onClose
                     />
                   ) : (
                     <p className="px-4 py-2.5 bg-gray-50 rounded-xl text-gray-900">{editedUser.license_number || 'N/A'}</p>
+                  )}
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">NCEA Certified Profile Number</label>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editedUser.ncea_certified_profile_number || ''}
+                      onChange={(e) => setEditedUser({ ...editedUser, ncea_certified_profile_number: e.target.value })}
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-gray-300 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="px-4 py-2.5 bg-gray-50 rounded-xl text-gray-900">{editedUser.ncea_certified_profile_number || 'N/A'}</p>
                   )}
                 </div>
               </div>

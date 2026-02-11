@@ -134,6 +134,7 @@ const UsersSection: React.FC<UsersSectionProps> = ({ onUsersLoaded }) => {
         skin_type: updatedUser.skin_type,
         business_name: updatedUser.business_name,
         license_number: updatedUser.license_number,
+        ncea_certified_profile_number: updatedUser.ncea_certified_profile_number,
       });
 
       if (response.data.success) {

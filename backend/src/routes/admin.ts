@@ -399,6 +399,7 @@ interface UserProfile {
   concerns: string[] | null;
   business_name: string | null;
   license_number: string | null;
+  ncea_certified_profile_number: string | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -420,7 +421,7 @@ router.get('/users', async (req: Request, res: Response): Promise<void> => {
     // Get all users
     const users = await query<UserProfile>(
       `SELECT id, email, full_name, phone, avatar_url, role, skin_type, concerns, 
-              business_name, license_number, created_at, updated_at
+              business_name, license_number, ncea_certified_profile_number, created_at, updated_at
        FROM user_profiles
        ORDER BY created_at DESC`
     );
@@ -451,7 +452,7 @@ router.get('/users', async (req: Request, res: Response): Promise<void> => {
 router.put('/users/:userId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
-    const { full_name, phone, role, skin_type, business_name, license_number } = req.body;
+    const { full_name, phone, role, skin_type, business_name, license_number, ncea_certified_profile_number } = req.body;
 
     console.log(`✏️ Updating user: ${userId}`);
 
@@ -463,11 +464,12 @@ router.put('/users/:userId', async (req: Request, res: Response): Promise<void> 
         skin_type = COALESCE($4, skin_type),
         business_name = COALESCE($5, business_name),
         license_number = COALESCE($6, license_number),
+        ncea_certified_profile_number = COALESCE($7, ncea_certified_profile_number),
         updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $8
        RETURNING id, email, full_name, phone, avatar_url, role, skin_type, concerns, 
-                 business_name, license_number, created_at, updated_at`,
-      [full_name, phone, role, skin_type, business_name, license_number, userId]
+                 business_name, license_number, ncea_certified_profile_number, created_at, updated_at`,
+      [full_name, phone, role, skin_type, business_name, license_number, ncea_certified_profile_number, userId]
     );
 
     if (updatedUser.length === 0) {

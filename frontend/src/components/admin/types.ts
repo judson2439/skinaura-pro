@@ -13,6 +13,7 @@ export interface UserProfile {
   concerns: string[] | null;
   business_name: string | null;
   license_number: string | null;
+  ncea_certified_profile_number: string | null;
   professional_id: string | null;
   created_at: string | null;
   updated_at: string | null;
