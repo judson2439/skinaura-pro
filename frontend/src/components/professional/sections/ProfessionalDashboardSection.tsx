@@ -468,7 +468,7 @@ const ProfessionalDashboardSection: React.FC<ProfessionalDashboardSectionProps> 
                     <td className="py-3 px-4">
                       {client.routineCompletedToday ? (
                         <span className="flex items-center gap-1 text-green-600">
-                          <Check className="w-4 h-4" /> Done
+                          <Check className="w-4 h-4" /> Completed
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-red-500">

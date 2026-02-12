@@ -530,13 +530,24 @@ const calculateCompliance = (
   return Math.min(compliance, 100);
 };
 
-// Check if routine was completed today
+// Normalize completion_date to YYYY-MM-DD (DB may return Date, ISO string, or date-only string)
+const toDateOnly = (value: string | Date | null | undefined): string => {
+  if (value == null) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+};
+
 const checkCompletedToday = (
   completions: RoutineCompletion[],
   clientId: string
 ): boolean => {
-  const today = new Date().toISOString().split('T')[0];
-  return completions.some(c => c.client_id === clientId && c.completion_date === today);
+  const today = new Date().toISOString().slice(0, 10);
+  const todayCompletions = completions.filter(
+    c => c.client_id === clientId && toDateOnly(c.completion_date) === today
+  );
+  const hasMorning = todayCompletions.some(c => c.routine_type === 'morning');
+  const hasEvening = todayCompletions.some(c => c.routine_type === 'evening');
+  return hasMorning && hasEvening;
 };
 
 /**
@@ -602,7 +613,6 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
        WHERE client_id = ANY($1) AND completion_date >= $2`,
       [clientIds, thirtyDaysAgoStr]
     );
-
     // Create lookup maps
     const gamificationMap = new Map<string, UserGamification>();
     gamificationData.forEach((g) => {
@@ -644,6 +654,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
       : 0;
 
     console.log(`✅ Dashboard data fetched: ${clients.length} clients`);
+    console.log('[professional/dashboard] clients:', JSON.stringify(clients, null, 2));
 
     res.status(200).json({
       success: true,
@@ -2127,6 +2138,7 @@ router.get('/analytics', async (req: Request, res: Response): Promise<void> => {
       completionsResult,
       todayCompletionsResult,
       photosResult,
+      totalPhotosResult,
       productsResult,
       treatmentPlansResult,
     ] = await Promise.all([
@@ -2170,11 +2182,17 @@ router.get('/analytics', async (req: Request, res: Response): Promise<void> => {
         [clientIds, today]
       ),
 
-      // Progress photos for the period
+      // Progress photos for the period (for trend chart)
       query<{ id: string; client_id: string; created_at: string }>(
         `SELECT id, client_id, created_at FROM progress_photos 
          WHERE client_id = ANY($1) AND created_at >= $2 AND created_at <= $3`,
         [clientIds, startDate.toISOString(), endDate.toISOString()]
+      ),
+
+      // Total progress photos count (all time, for Photos Uploaded card)
+      query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM progress_photos WHERE client_id = ANY($1)`,
+        [clientIds]
       ),
 
       // Products (professional's library)
@@ -2240,13 +2258,14 @@ router.get('/analytics', async (req: Request, res: Response): Promise<void> => {
     const completedToday = todayClientIds.size;
     const activePlans = treatmentPlansResult.filter(tp => tp.status === 'active').length;
 
+    const totalPhotosCount = parseInt(totalPhotosResult[0]?.count || '0', 10);
     const overviewMetrics: AnalyticsOverviewMetrics = {
       totalClients: clients.length,
       avgCompliance,
       avgStreak,
       goldPlusClients,
       completedToday,
-      totalPhotos: photosResult.length,
+      totalPhotos: totalPhotosCount,
       totalProducts: productsResult.length,
       activeTreatmentPlans: activePlans,
     };
@@ -2263,14 +2282,15 @@ router.get('/analytics', async (req: Request, res: Response): Promise<void> => {
     }
 
     completionsResult.forEach(c => {
-      const existing = trendMap.get(c.completion_date);
+      const dateKey = toDateOnly(c.completion_date);
+      const existing = trendMap.get(dateKey);
       if (existing) {
         existing.completions++;
       }
     });
 
     photosResult.forEach(p => {
-      const dateStr = new Date(p.created_at).toISOString().split('T')[0];
+      const dateStr = toDateOnly(p.created_at);
       const existing = trendMap.get(dateStr);
       if (existing) {
         existing.photos++;
@@ -2280,7 +2300,6 @@ router.get('/analytics', async (req: Request, res: Response): Promise<void> => {
     const trendData: AnalyticsTrendData[] = Array.from(trendMap.entries())
       .map(([date, data]) => ({ date, ...data }))
       .sort((a, b) => a.date.localeCompare(b.date));
-
     // Calculate product analytics by category
     const categoryMap = new Map<string, number>();
     productsResult.forEach(p => {

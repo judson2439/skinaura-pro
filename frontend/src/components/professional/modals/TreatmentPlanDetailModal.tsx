@@ -30,6 +30,7 @@ import { DatePickerSimple } from '@/components/ui/date-picker';
 import { TimePicker } from '@/components/ui/time-picker';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
 import EncryptedImage from '@/components/ui/encrypted-image';
+import { fixUtf8Mojibake } from '@/lib/utils';
 
 // ============================================================================
 // TYPES
@@ -350,7 +351,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                   fallbackClassName="w-12 h-12 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
                 />
                 <div>
-                  <h3 className="text-xl font-serif font-bold text-gray-900">{plan.title}</h3>
+                  <h3 className="text-xl font-serif font-bold text-gray-900">{fixUtf8Mojibake(plan.title)}</h3>
                   <p className="text-sm text-gray-500">{client?.name || 'Unknown Client'}</p>
                 </div>
               </div>
@@ -419,7 +420,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
             {(plan.description || plan.goals.length > 0) && (
               <div className="bg-gray-50 rounded-xl p-4">
                 {plan.description && (
-                  <p className="text-gray-600 mb-3">{plan.description}</p>
+                  <p className="text-gray-600 mb-3">{fixUtf8Mojibake(plan.description)}</p>
                 )}
                 {plan.goals.length > 0 && (
                   <div>
@@ -428,7 +429,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                       {plan.goals.map((goal, idx) => (
                         <span key={idx} className="flex items-center gap-1 px-3 py-1 bg-white text-[#CFAFA3] rounded-full text-sm border border-[#CFAFA3]/20">
                           <Target className="w-3 h-3" />
-                          {goal}
+                          {fixUtf8Mojibake(goal)}
                         </span>
                       ))}
                     </div>
@@ -502,8 +503,8 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                         {milestone.completed && <Check className="w-4 h-4" />}
                       </button>
                       <div className="flex-1">
-                        <p className={`font-medium ${milestone.completed ? 'text-green-700 line-through' : 'text-gray-900'}`}>{milestone.title}</p>
-                        {milestone.description && <p className="text-xs text-gray-500">{milestone.description}</p>}
+                        <p className={`font-medium ${milestone.completed ? 'text-green-700 line-through' : 'text-gray-900'}`}>{fixUtf8Mojibake(milestone.title)}</p>
+                        {milestone.description && <p className="text-xs text-gray-500">{fixUtf8Mojibake(milestone.description)}</p>}
                       </div>
                       <span className="text-xs text-gray-500">{new Date(milestone.target_date).toLocaleDateString()}</span>
                       <button
@@ -595,15 +596,15 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                     <div key={product.id} className="p-3 bg-white rounded-xl border border-gray-100">
                       <div className="flex items-start justify-between mb-2">
                         <div>
-                          <p className="font-medium text-gray-900">{product.product_name}</p>
-                          {product.product_brand && <p className="text-xs text-[#CFAFA3]">{product.product_brand}</p>}
+                          <p className="font-medium text-gray-900">{fixUtf8Mojibake(product.product_name)}</p>
+                          {product.product_brand && <p className="text-xs text-[#CFAFA3]">{fixUtf8Mojibake(product.product_brand)}</p>}
                         </div>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(product.priority)}`}>
                           {product.priority}
                         </span>
                       </div>
                       {product.usage_instructions && (
-                        <p className="text-xs text-gray-500 mb-2">{product.usage_instructions}</p>
+                        <p className="text-xs text-gray-500 mb-2">{fixUtf8Mojibake(product.usage_instructions)}</p>
                       )}
                       <button
                         onClick={() => openDeleteConfirmation('product', product.id, product.product_name)}
@@ -678,7 +679,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                   {plan.routines.map((routine) => (
                     <div key={routine.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100">
                       <div>
-                        <p className="font-medium text-gray-900">{routine.routine_name}</p>
+                        <p className="font-medium text-gray-900">{fixUtf8Mojibake(routine.routine_name)}</p>
                         {routine.routine_type && <span className="text-xs text-[#CFAFA3]">{routine.routine_type}</span>}
                       </div>
                       <button

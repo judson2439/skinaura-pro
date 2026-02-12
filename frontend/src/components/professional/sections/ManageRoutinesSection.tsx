@@ -657,6 +657,43 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
     }
   };
 
+  const handleUpdateRoutineName = async (routineId: string, name: string) => {
+    const token = getAuthToken();
+    if (!token) return;
+
+    try {
+      apiClient.setAuthToken(token);
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { routine: { id: string; name: string } };
+        error?: string;
+      }>(`/api/routines/${routineId}`, { name: name.trim() });
+
+      if (!response.data.success || !response.data.data?.routine) {
+        toast({
+          title: 'Error',
+          description: response.data.error || 'Failed to update routine name.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const updatedName = response.data.data.routine.name;
+      setRoutines(prev =>
+        prev.map(r => (r.id === routineId ? { ...r, name: updatedName } : r))
+      );
+      if (selectedRoutine?.id === routineId) {
+        setSelectedRoutine(prev => (prev ? { ...prev, name: updatedName } : null));
+      }
+    } catch (err) {
+      console.error('Error updating routine name:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to update routine name. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const handleAssignRoutine = async (clientId: string, notes: string) => {
     if (!selectedRoutine || !profile?.id) {
@@ -954,6 +991,7 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
         onAddStep={handleAddStep}
         onDeleteStep={handleDeleteStep}
         onAssign={handleEditToAssign}
+        onUpdateName={handleUpdateRoutineName}
       />
 
       <AssignRoutineModal

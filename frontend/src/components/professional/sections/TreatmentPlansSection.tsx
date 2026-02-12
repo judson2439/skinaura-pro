@@ -25,6 +25,7 @@ import TreatmentPlanDetailModal from '@/components/professional/modals/Treatment
 import EncryptedImage from '@/components/ui/encrypted-image';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthSession, getAuthToken } from '@/lib/authStorage';
+import { fixUtf8Mojibake } from '@/lib/utils';
 
 // ============================================================================
 // TYPES
@@ -986,7 +987,7 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
                       fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
                     />
                     <div>
-                      <h3 className="font-medium text-gray-900 line-clamp-1">{plan.title}</h3>
+                      <h3 className="font-medium text-gray-900 line-clamp-1">{fixUtf8Mojibake(plan.title)}</h3>
                       <p className="text-xs text-gray-500">{client?.name || 'Unknown Client'}</p>
                     </div>
                   </div>

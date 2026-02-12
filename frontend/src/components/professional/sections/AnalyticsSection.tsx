@@ -264,8 +264,12 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
     long: clients.filter(c => c.currentStreak >= 30).length,
   }), [clients]);
 
-  // Max values for chart scaling
-  const maxTrendCompletions = Math.max(...trendData.map(d => d.completions), 1);
+  // Max values for chart scaling and Y-axis ticks (0, 1, 2, ... max)
+  const maxTrendValue = Math.max(
+    ...trendData.flatMap(d => [d.completions, d.photos]),
+    1
+  );
+  const yAxisTicks = Array.from({ length: maxTrendValue + 1 }, (_, i) => i);
 
   if (loading) {
     return (
@@ -442,39 +446,62 @@ const AnalyticsSection: React.FC<AnalyticsSectionProps> = ({
         </div>
         
         {trendData.length > 0 ? (
-          <div className="relative h-48">
-            {/* Y-axis labels */}
-            <div className="absolute left-0 top-0 bottom-6 w-8 flex flex-col justify-between text-xs text-gray-400">
-              <span>{maxTrendCompletions}</span>
-              <span>{Math.round(maxTrendCompletions / 2)}</span>
-              <span>0</span>
+          <div className="relative">
+            {/* Y-axis labels - 0, 1, 2, ... max */}
+            <div className="absolute left-0 top-0 w-8 flex flex-col justify-between text-xs text-gray-400" style={{ height: '140px' }}>
+              {yAxisTicks.slice().reverse().map((tick) => (
+                <span key={tick}>{tick}</span>
+              ))}
             </div>
             
-            {/* Chart area */}
-            <div className="ml-10 h-full flex items-end gap-1 pb-6">
-              {trendData.map((day, idx) => (
-                <div key={day.date} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex flex-col items-center gap-0.5" style={{ height: '140px' }}>
-                    {/* Completions bar */}
+            {/* Chart + grid area (bars sit on top of grid) */}
+            <div className="ml-10 relative" style={{ height: '140px' }}>
+              {/* Gray grid - horizontal lines */}
+              <div className="absolute inset-0 flex flex-col pointer-events-none">
+                <div className="flex-1 border-t border-gray-200" />
+                <div className="flex-1 border-t border-gray-200" />
+                <div className="flex-1 border-t border-gray-200" />
+              </div>
+              {/* Gray grid - vertical lines (one per day) */}
+              <div className="absolute inset-0 flex gap-0.5 pointer-events-none">
+                {trendData.map((day) => (
+                  <div key={day.date} className="flex-1 min-w-0 border-r border-gray-200 first:border-l first:border-gray-200" />
+                ))}
+              </div>
+              {/* Bars - two per day */}
+              <div className="absolute inset-0 flex gap-0.5 items-end">
+                {trendData.map((day) => (
+                  <div key={day.date} className="flex-1 min-w-0 flex items-end justify-center gap-0.5 h-full">
                     <div 
-                      className="w-full max-w-6 bg-[#007185] rounded-t transition-all hover:bg-[#005a6a]"
+                      className="w-full max-w-5 bg-[#007185] rounded-t transition-all hover:bg-[#005a6a]"
                       style={{ 
-                        height: `${(day.completions / maxTrendCompletions) * 100}%`,
+                        height: `${(day.completions / maxTrendValue) * 100}%`,
                         minHeight: day.completions > 0 ? '4px' : '0'
                       }}
                       title={`${day.completions} completions`}
                     />
-                    {/* Photos indicator */}
-                    {day.photos > 0 && (
-                      <div 
-                        className="w-2 h-2 bg-[#cab0a5] rounded-full"
-                        title={`${day.photos} photos`}
-                      />
-                    )}
+                    <div 
+                      className="w-full max-w-5 bg-[#cab0a5] rounded-t transition-all hover:bg-[#b89a8e]"
+                      style={{ 
+                        height: `${(day.photos / maxTrendValue) * 100}%`,
+                        minHeight: day.photos > 0 ? '4px' : '0'
+                      }}
+                      title={`${day.photos} photos`}
+                    />
                   </div>
-                  {/* X-axis label - show every few days */}
+                ))}
+              </div>
+            </div>
+            
+            {/* X-axis line - below the chart */}
+            <div className="ml-10 h-px bg-gray-300" />
+            
+            {/* Date labels - below X-axis */}
+            <div className="ml-10 flex gap-0.5 pt-2">
+              {trendData.map((day, idx) => (
+                <div key={day.date} className="flex-1 min-w-0 flex justify-center">
                   {(idx === 0 || idx === trendData.length - 1 || idx % 7 === 0) && (
-                    <span className="text-[10px] text-gray-400 mt-1">
+                    <span className="text-[10px] text-gray-500 whitespace-nowrap">
                       {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   )}

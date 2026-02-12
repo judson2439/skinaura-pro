@@ -49,6 +49,23 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
   } catch (error) { console.error("Error creating routine:", error); res.status(500).json({ success: false, error: "Failed to create routine" }); }
 });
 
+router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const routineId = req.params.id;
+    const { name } = req.body;
+    if (!name || typeof name !== "string" || !name.trim()) {
+      res.status(400).json({ success: false, error: "name is required" });
+      return;
+    }
+    const routine = await queryOne<RoutineTemplate>("SELECT id FROM routine_templates WHERE id = $1 AND professional_id = $2", [routineId, professionalId]);
+    if (!routine) { res.status(404).json({ success: false, error: "Routine not found" }); return; }
+    await query("UPDATE routine_templates SET name = $1, updated_at = NOW() WHERE id = $2 AND professional_id = $3", [name.trim(), routineId, professionalId]);
+    const updated = await queryOne<RoutineTemplate>("SELECT * FROM routine_templates WHERE id = $1", [routineId]);
+    res.status(200).json({ success: true, data: { routine: updated } });
+  } catch (error) { console.error("Error updating routine:", error); res.status(500).json({ success: false, error: "Failed to update routine" }); }
+});
+
 router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
     const professionalId = (req as any).userId;

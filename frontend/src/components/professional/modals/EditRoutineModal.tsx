@@ -35,6 +35,7 @@ interface EditRoutineModalProps {
   onAddStep: (step: Omit<RoutineStep, 'id' | 'step_order'>) => void;
   onDeleteStep: (stepId: string) => void;
   onAssign: () => void;
+  onUpdateName?: (routineId: string, name: string) => void | Promise<void>;
 }
 
 // ============================================================================
@@ -48,11 +49,18 @@ const EditRoutineModal: React.FC<EditRoutineModalProps> = ({
   onAddStep,
   onDeleteStep,
   onAssign,
+  onUpdateName,
 }) => {
+  const [editName, setEditName] = useState('');
   const [newStepProduct, setNewStepProduct] = useState('');
   const [newStepType, setNewStepType] = useState('');
   const [newStepInstructions, setNewStepInstructions] = useState('');
   
+  // Sync title when modal opens or routine changes
+  useEffect(() => {
+    if (routine) setEditName(routine.name);
+  }, [routine?.id, routine?.name]);
+
   // Product linking state
   const [linkedProducts, setLinkedProducts] = useState<Record<string, LinkedProduct>>({});
   const [isLoadingLinks, setIsLoadingLinks] = useState(false);
@@ -160,11 +168,23 @@ const EditRoutineModal: React.FC<EditRoutineModalProps> = ({
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
         <div className="bg-white rounded-2xl p-6 w-full max-w-2xl my-8">
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-xl font-serif font-bold">{routine.name}</h3>
-              <p className="text-sm text-gray-500">{getScheduleLabel(routine.schedule_type)} Routine</p>
+            <div className="flex-1 min-w-0 pr-2">
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={() => {
+                  const trimmed = editName.trim();
+                  if (trimmed && trimmed !== routine.name && onUpdateName) {
+                    onUpdateName(routine.id, trimmed);
+                  }
+                }}
+                className="w-full text-xl font-serif font-bold bg-transparent border border-transparent rounded-lg px-1 -ml-1 focus:outline-none focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent hover:border-gray-200"
+                placeholder="Routine name"
+              />
+              <p className="text-sm text-gray-500 mt-0.5">{getScheduleLabel(routine.schedule_type)} Routine</p>
             </div>
-            <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-lg flex-shrink-0">
               <X className="w-5 h-5" />
             </button>
           </div>
