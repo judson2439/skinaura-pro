@@ -4,7 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { query, queryOne } from '../config/database.js';
+import { query, queryOne, pool } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
 import { logAuditFromRequest } from '../lib/auditLogger.js';
 import fs from 'fs';
@@ -319,6 +319,149 @@ router.get('/badges', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch badges',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// PROFESSIONAL RELATIONSHIP CHECK
+// ============================================================================
+
+/**
+ * GET /client/has-professional-relationship
+ * Check if the current client has any active row in client_professional_relationships
+ * and whether consultation form has been submitted (submission_status).
+ * Used to decide whether to show JotForm consultation modal on first login.
+ */
+router.get('/has-professional-relationship', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clientId = (req as any).userId;
+
+    const hasRow = await queryOne<{ exists: boolean }>(
+      `SELECT EXISTS(
+        SELECT 1 FROM client_professional_relationships
+        WHERE client_id = $1 AND status = 'active'
+      ) as exists`,
+      [clientId]
+    );
+    const hasRelationship = hasRow?.exists ?? false;
+
+    const needsFormRow = await queryOne<{ exists: boolean }>(
+      `SELECT EXISTS(
+        SELECT 1 FROM client_professional_relationships
+        WHERE client_id = $1 AND status = 'active'
+          AND (submission_status IS NULL OR submission_status = false)
+      ) as exists`,
+      [clientId]
+    );
+    const needsConsultationForm = needsFormRow?.exists ?? false;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        hasProfessionalRelationship: hasRelationship,
+        needsConsultationForm,
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error checking professional relationship:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check professional relationship',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /client/submit-consultation
+ * Set submission_status = true for all client_professional_relationships
+ * where client_id matches the current signed-in user.
+ */
+router.post('/submit-consultation', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const clientId = (req as any).userId;
+
+    const result = await pool.query(
+      `UPDATE client_professional_relationships
+       SET submission_status = true, updated_at = NOW()
+       WHERE client_id = $1 AND status = 'active'`,
+      [clientId]
+    );
+
+    const rowCount = result.rowCount ?? 0;
+    console.log(`✅ Consultation submission_status updated for client ${clientId}, rows affected: ${rowCount}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Consultation submitted',
+      data: { updated: rowCount },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error updating submission_status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update consultation submission',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// GUIDE STATUS (welcome/guide modal)
+// ============================================================================
+
+/**
+ * GET /client/guide-status
+ * Get guide_status for the current client. When false, show the guide modal.
+ */
+router.get('/guide-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    const row = await queryOne<{ guide_status: boolean }>(
+      `SELECT COALESCE(guide_status, false) as guide_status FROM user_profiles WHERE id = $1`,
+      [userId]
+    );
+
+    const guideStatus = row?.guide_status ?? false;
+
+    res.status(200).json({
+      success: true,
+      data: { guideStatus },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error fetching guide status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch guide status',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /client/guide-status
+ * Set guide_status = true after the user has viewed or dismissed the guide modal.
+ */
+router.patch('/guide-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    await pool.query(
+      `UPDATE user_profiles SET guide_status = true WHERE id = $1`,
+      [userId]
+    );
+
+    console.log(`✅ Guide status set to true for user ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Guide status updated',
+      data: { guideStatus: true },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error updating guide status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update guide status',
     } as ApiResponse);
   }
 });

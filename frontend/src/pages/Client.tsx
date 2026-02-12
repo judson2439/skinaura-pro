@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession, clearFirstLoginFlag } from '@/lib/authStorage';
+import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import { useInactivityTimeout } from '@/hooks/useInactivityTimeout';
@@ -20,6 +20,7 @@ import NotificationsSection from '@/components/client/sections/NotificationsSect
 import GuideSection from '@/components/client/sections/GuideSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import WelcomeModal from '@/components/client/modals/WelcomeModal';
+import JotFormConsultationModal from '@/components/client/modals/JotFormConsultationModal';
 import { Loader2 } from 'lucide-react';
 
 // ============================================================================
@@ -84,8 +85,17 @@ const ClientPage: React.FC = () => {
   // Auth session state - allows re-render when session is updated (e.g., avatar change)
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
   
-  // Welcome modal state for first-time users
+  // Welcome/guide modal state (driven by guide_status from backend)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+
+  // JotForm consultation modal state
+  const [showJotFormModal, setShowJotFormModal] = useState(false);
+  const [needsConsultationForm, setNeedsConsultationForm] = useState(false);
+  const [isCheckingRelationship, setIsCheckingRelationship] = useState(true);
+
+  // Guide status (false = show guide modal)
+  const [guideStatus, setGuideStatus] = useState(true);
+  const [isCheckingGuideStatus, setIsCheckingGuideStatus] = useState(true);
 
   // Track user activity and auto-logout after 10 minutes of inactivity
   useInactivityTimeout({
@@ -105,13 +115,88 @@ const ClientPage: React.FC = () => {
     };
   }, []);
 
-  // Check if this is the user's first login and show welcome modal
+  // Check if client has any row in client_professional_relationships (client_id = current user)
   useEffect(() => {
-    const session = getAuthSession();
-    if (session?.isFirstLogin && !isCheckingSession) {
-      setShowWelcomeModal(true);
+    const checkProfessionalRelationship = async () => {
+      if (isCheckingSession) return;
+
+      const token = getAuthToken();
+      if (!token) {
+        setIsCheckingRelationship(false);
+        return;
+      }
+
+      try {
+        apiClient.setAuthToken(token);
+
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { hasProfessionalRelationship?: boolean; needsConsultationForm?: boolean };
+          error?: string;
+        }>('/api/client/has-professional-relationship');
+
+        if (response.data.success) {
+          setNeedsConsultationForm(
+            response.data.data?.needsConsultationForm ?? false
+          );
+        } else {
+          setNeedsConsultationForm(false);
+        }
+      } catch (error) {
+        console.log('Could not verify professional relationship:', error);
+        setNeedsConsultationForm(false);
+      } finally {
+        setIsCheckingRelationship(false);
+      }
+    };
+
+    if (!isCheckingSession) {
+      checkProfessionalRelationship();
     }
   }, [isCheckingSession]);
+
+  // Fetch guide_status (false = show guide modal)
+  useEffect(() => {
+    const fetchGuideStatus = async () => {
+      if (isCheckingSession || !getAuthToken()) {
+        setIsCheckingGuideStatus(false);
+        return;
+      }
+
+      try {
+        apiClient.setAuthToken(getAuthToken()!);
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { guideStatus?: boolean };
+          error?: string;
+        }>('/api/client/guide-status');
+
+        if (response.data.success) {
+          setGuideStatus(response.data.data?.guideStatus ?? true);
+        }
+      } catch (err) {
+        console.log('Could not fetch guide status:', err);
+        setGuideStatus(true);
+      } finally {
+        setIsCheckingGuideStatus(false);
+      }
+    };
+
+    if (!isCheckingSession) {
+      fetchGuideStatus();
+    }
+  }, [isCheckingSession]);
+
+  // Show JotForm or Welcome modal based on backend state
+  useEffect(() => {
+    if (isCheckingSession || isCheckingRelationship || isCheckingGuideStatus) return;
+
+    if (needsConsultationForm) {
+      setShowJotFormModal(true);
+    } else if (!guideStatus) {
+      setShowWelcomeModal(true);
+    }
+  }, [isCheckingSession, isCheckingRelationship, isCheckingGuideStatus, needsConsultationForm, guideStatus]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -340,16 +425,40 @@ const ClientPage: React.FC = () => {
     setSidebarOpen(false); // Close mobile sidebar after navigation
   };
 
-  // Handle welcome modal close
-  const handleWelcomeModalClose = () => {
-    setShowWelcomeModal(false);
-    clearFirstLoginFlag();
+  // Handle JotForm modal form submission: go to submitting page to update DB then redirect to dashboard
+  const handleJotFormSubmitted = () => {
+    setShowJotFormModal(false);
+    navigate('/client/submitting');
   };
 
-  // Handle go to guide from welcome modal
-  const handleGoToGuide = () => {
+  // Handle welcome modal close: set guide_status to true then close
+  const handleWelcomeModalClose = async () => {
+    const token = getAuthToken();
+    if (token) {
+      try {
+        apiClient.setAuthToken(token);
+        await apiClient.patch('/api/client/guide-status', {});
+        setGuideStatus(true);
+      } catch (err) {
+        console.error('Failed to update guide status:', err);
+      }
+    }
     setShowWelcomeModal(false);
-    clearFirstLoginFlag();
+  };
+
+  // Handle go to guide: set guide_status to true, close modal, navigate
+  const handleGoToGuide = async () => {
+    const token = getAuthToken();
+    if (token) {
+      try {
+        apiClient.setAuthToken(token);
+        await apiClient.patch('/api/client/guide-status', {});
+        setGuideStatus(true);
+      } catch (err) {
+        console.error('Failed to update guide status:', err);
+      }
+    }
+    setShowWelcomeModal(false);
     navigate('/client/guide');
   };
 
@@ -420,6 +529,12 @@ const ClientPage: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
+      {/* JotForm Consultation Modal - shown before Welcome Modal for invited clients */}
+      <JotFormConsultationModal
+        isOpen={showJotFormModal}
+        onFormSubmitted={handleJotFormSubmitted}
+      />
+      
       {/* Welcome Modal for first-time users */}
       <WelcomeModal
         isOpen={showWelcomeModal}

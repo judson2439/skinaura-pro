@@ -12,6 +12,7 @@ import ConfirmEmail from "./pages/ConfirmEmail";
 import CompleteClientProfile from "./pages/CompleteClientProfile";
 import ResetPassword from "./pages/ResetPassword";
 import ClientConfirm from "./pages/ClientConfirm";
+import ClientSubmitting from "./pages/ClientSubmitting";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsAndConditions from "./pages/TermsAndConditions";
 
@@ -42,6 +43,7 @@ const App = () => (
             <Route path="/admin" element={<Admin />} />
             {/* Client routes */}
             <Route path="/client" element={<Navigate to="/client/dashboard" replace />} />
+            <Route path="/client/submitting" element={<ClientSubmitting />} />
             <Route path="/client/:section" element={<Client />} />
             {/* Professional routes */}
             <Route path="/professional" element={<Navigate to="/professional/dashboard" replace />} />

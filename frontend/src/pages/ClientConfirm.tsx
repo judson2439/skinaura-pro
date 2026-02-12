@@ -439,7 +439,39 @@ const ClientConfirm: React.FC = () => {
         setVerificationPhone(phone);
         setView('verify-phone');
       } else {
-        // Phone verification disabled - go to success/login
+        // Phone verification disabled - complete invitation immediately
+        // Complete the invitation - create the relationship
+        if (invitationId && clientId) {
+          try {
+            const completeResponse = await apiClient.post<{
+              success: boolean;
+              message?: string;
+              error?: string;
+            }>('/api/auth/complete-invitation', {
+              invitationId,
+              clientId,
+            });
+
+            if (!completeResponse.data.success) {
+              console.error('Failed to complete invitation:', completeResponse.data.error);
+              // Still proceed to success since account is created
+              toast({
+                title: 'Warning',
+                description: 'Account created but connection to professional may be incomplete. Please contact support.',
+                variant: 'destructive',
+              });
+            }
+          } catch (error: any) {
+            console.error('Error completing invitation:', error);
+            // Still proceed to success since account is created
+            toast({
+              title: 'Warning',
+              description: 'Account created but connection to professional may be incomplete. Please contact support.',
+              variant: 'destructive',
+            });
+          }
+        }
+
         toast({
           title: 'Email Verified!',
           description: 'Your account is ready. You can now sign in.',
