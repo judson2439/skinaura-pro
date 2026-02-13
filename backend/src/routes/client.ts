@@ -438,6 +438,66 @@ router.get('/guide-status', async (req: Request, res: Response): Promise<void> =
 });
 
 /**
+ * GET /client/last-logged-at-status
+ * Get last_logged_at status for the current client. Returns null if never logged in before.
+ */
+router.get('/last-logged-at-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    const row = await queryOne<{ last_logged_at: string | null }>(
+      `SELECT last_logged_at FROM user_profiles WHERE id = $1`,
+      [userId]
+    );
+
+    const lastLoggedAt = row?.last_logged_at ?? null;
+    const isFirstLogin = lastLoggedAt === null;
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        lastLoggedAt,
+        isFirstLogin,
+      },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error fetching last logged at status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch last logged at status',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /client/last-logged-at
+ * Update last_logged_at timestamp when client closes the welcome video modal.
+ */
+router.patch('/last-logged-at', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    await pool.query(
+      `UPDATE user_profiles SET last_logged_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+
+    console.log(`✅ Last logged at updated for user ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Last logged at updated',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error updating last logged at:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update last logged at',
+    } as ApiResponse);
+  }
+});
+
+/**
  * PATCH /client/guide-status
  * Set guide_status = true after the user has viewed or dismissed the guide modal.
  */

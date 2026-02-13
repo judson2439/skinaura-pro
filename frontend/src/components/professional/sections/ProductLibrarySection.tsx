@@ -15,6 +15,9 @@ import {
   Star,
   X,
   Sparkles,
+  Camera,
+  LayoutGrid,
+  ClipboardList,
   Upload,
   FileSpreadsheet,
   ShoppingBag,
@@ -401,6 +404,9 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
         <div>
           <h2 className="text-2xl font-serif font-bold text-gray-900">Product Library</h2>
           <p className="text-gray-500">Manage your skincare product catalog with AI-powered recognition</p>
+          <p className="text-sm text-gray-600 mt-2">
+            <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">How it works:</span> Add products with <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">AI Photo Scan</span>, <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">Add Product</span>, or <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">Bulk Import</span>—then search by <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">brand</span>, <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">category</span>, or <span className="font-bold bg-[#CFAFA3]/30 text-gray-800 px-1 rounded">ingredient</span> anytime.
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -546,36 +552,64 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
             </div>
           )}
 
-          {/* Empty State */}
-          {!loading && filteredProducts.length === 0 && (
+          {/* Empty State - How it works (no products) */}
+          {!loading && filteredProducts.length === 0 && !searchQuery && categoryFilter === 'all' && (
+            <div className="space-y-8">
+              <h3 className="text-2xl font-serif font-bold text-gray-900">How it works</h3>
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                    <Camera className="w-6 h-6 text-gray-600" />
+                  </div>
+                  <h4 className="font-bold text-gray-900 mb-2">Capture products fast</h4>
+                  <p className="text-sm text-gray-600">
+                    Use AI Photo Scan to add products in seconds—or click Add Product for manual entry.
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                    <LayoutGrid className="w-6 h-6 text-gray-600" />
+                  </div>
+                  <h4 className="font-bold text-gray-900 mb-2">Organize your catalog</h4>
+                  <p className="text-sm text-gray-600">
+                    Sort by category, brand, and key ingredients so you can find what you need instantly.
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+                  <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                    <ClipboardList className="w-6 h-6 text-gray-600" />
+                  </div>
+                  <h4 className="font-bold text-gray-900 mb-2">Use products in client plans</h4>
+                  <p className="text-sm text-gray-600">
+                    Add items to treatment plans and routines to support consistent client follow-through between visits.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button
+                  onClick={() => setShowPhotoModal(true)}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+                >
+                  <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={20} height={20} alt="AI" /> AI Photo Scan
+                </button>
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-[#CFAFA3] text-[#CFAFA3] rounded-xl font-medium hover:bg-[#CFAFA3]/5 transition-all"
+                >
+                  <Plus className="w-5 h-5" /> Add Product
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Empty State - No results from search/filter */}
+          {!loading && filteredProducts.length === 0 && (searchQuery || categoryFilter !== 'all') && (
             <div className="bg-white rounded-2xl p-12 border border-gray-100 shadow-sm text-center">
               <div className="w-16 h-16 rounded-full bg-[#CFAFA3]/10 flex items-center justify-center mx-auto mb-4">
                 <Package className="w-8 h-8 text-[#CFAFA3]" />
               </div>
-              <h3 className="text-xl font-serif font-bold text-gray-900 mb-2">
-                {searchQuery || categoryFilter !== 'all' ? 'No Products Found' : 'No Products Yet'}
-              </h3>
-              <p className="text-gray-500 mb-6">
-                {searchQuery || categoryFilter !== 'all'
-                  ? 'Try adjusting your search or filters'
-                  : 'Add your first product using AI photo recognition or manually'}
-              </p>
-              {!searchQuery && categoryFilter === 'all' && (
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <button
-                    onClick={() => setShowPhotoModal(true)}
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
-                  >
-                    <img className="text-[#2D2A3E]" src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} width={20} height={20}/> AI Photo Scan
-                  </button>
-                  <button
-                    onClick={() => setShowAddModal(true)}
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-[#CFAFA3] text-[#CFAFA3] rounded-xl font-medium hover:bg-[#CFAFA3]/5 transition-all"
-                  >
-                    <Plus className="w-5 h-5" /> Add Manually
-                  </button>
-                </div>
-              )}
+              <h3 className="text-xl font-serif font-bold text-gray-900 mb-2">No Products Found</h3>
+              <p className="text-gray-500">Try adjusting your search or filters</p>
             </div>
           )}
 

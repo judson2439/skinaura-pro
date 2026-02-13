@@ -21,6 +21,7 @@ import GuideSection from '@/components/client/sections/GuideSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import WelcomeModal from '@/components/client/modals/WelcomeModal';
 import JotFormConsultationModal from '@/components/client/modals/JotFormConsultationModal';
+import ClientWelcomeVideoModal from '@/components/client/modals/ClientWelcomeVideoModal';
 import { Loader2 } from 'lucide-react';
 
 // ============================================================================
@@ -85,6 +86,11 @@ const ClientPage: React.FC = () => {
   // Auth session state - allows re-render when session is updated (e.g., avatar change)
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => getAuthSession());
   
+  // Welcome video modal state (driven by last_logged_at from backend)
+  const [showWelcomeVideoModal, setShowWelcomeVideoModal] = useState(false);
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
+  const [isCheckingLastLoggedAt, setIsCheckingLastLoggedAt] = useState(true);
+
   // Welcome/guide modal state (driven by guide_status from backend)
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
@@ -114,6 +120,39 @@ const ClientPage: React.FC = () => {
       window.removeEventListener(AUTH_SESSION_UPDATED_EVENT, handleSessionUpdate);
     };
   }, []);
+
+  // Check last_logged_at status (first login check)
+  useEffect(() => {
+    const checkLastLoggedAt = async () => {
+      if (isCheckingSession || !getAuthToken()) {
+        setIsCheckingLastLoggedAt(false);
+        return;
+      }
+
+      try {
+        apiClient.setAuthToken(getAuthToken()!);
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { lastLoggedAt?: string | null; isFirstLogin?: boolean };
+          error?: string;
+        }>('/api/client/last-logged-at-status');
+
+        if (response.data.success) {
+          const isFirst = response.data.data?.isFirstLogin ?? false;
+          setIsFirstLogin(isFirst);
+        }
+      } catch (err) {
+        console.log('Could not fetch last logged at status:', err);
+        setIsFirstLogin(false);
+      } finally {
+        setIsCheckingLastLoggedAt(false);
+      }
+    };
+
+    if (!isCheckingSession) {
+      checkLastLoggedAt();
+    }
+  }, [isCheckingSession]);
 
   // Check if client has any row in client_professional_relationships (client_id = current user)
   useEffect(() => {
@@ -187,16 +226,41 @@ const ClientPage: React.FC = () => {
     }
   }, [isCheckingSession]);
 
-  // Show JotForm or Welcome modal based on backend state
+  // Show modals in sequence: JotForm -> Video -> Guide
   useEffect(() => {
-    if (isCheckingSession || isCheckingRelationship || isCheckingGuideStatus) return;
+    if (isCheckingSession || isCheckingLastLoggedAt || isCheckingRelationship || isCheckingGuideStatus) return;
+    
+    // Don't show any modal if another is already showing
+    if (showJotFormModal || showWelcomeVideoModal || showWelcomeModal) return;
 
+    // First: Show JotForm modal if needed
     if (needsConsultationForm) {
       setShowJotFormModal(true);
-    } else if (!guideStatus) {
+      return;
+    }
+
+    // Second: Show welcome video modal if first login (only after JotForm is handled)
+    if (isFirstLogin) {
+      setShowWelcomeVideoModal(true);
+      return;
+    }
+
+    // Third: Show guide modal if needed
+    if (!guideStatus) {
       setShowWelcomeModal(true);
     }
-  }, [isCheckingSession, isCheckingRelationship, isCheckingGuideStatus, needsConsultationForm, guideStatus]);
+  }, [
+    isCheckingSession,
+    isCheckingLastLoggedAt,
+    isCheckingRelationship,
+    isCheckingGuideStatus,
+    needsConsultationForm,
+    isFirstLogin,
+    guideStatus,
+    showJotFormModal,
+    showWelcomeVideoModal,
+    showWelcomeModal,
+  ]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -431,6 +495,38 @@ const ClientPage: React.FC = () => {
     navigate('/client/submitting');
   };
 
+  // Handle JotForm modal close: proceed to video modal or guide modal
+  const handleJotFormModalClose = () => {
+    setShowJotFormModal(false);
+    
+    // After closing JotForm modal, show video modal if first login, otherwise show guide modal
+    if (isFirstLogin) {
+      setShowWelcomeVideoModal(true);
+    } else if (!guideStatus) {
+      setShowWelcomeModal(true);
+    }
+  };
+
+  // Handle welcome video modal close: update last_logged_at then proceed to guide modal
+  const handleWelcomeVideoModalClose = async () => {
+    const token = getAuthToken();
+    if (token) {
+      try {
+        apiClient.setAuthToken(token);
+        await apiClient.patch('/api/client/last-logged-at', {});
+        setIsFirstLogin(false);
+      } catch (err) {
+        console.error('Failed to update last logged at:', err);
+      }
+    }
+    setShowWelcomeVideoModal(false);
+    
+    // After closing video modal, show guide modal if needed
+    if (!guideStatus) {
+      setShowWelcomeModal(true);
+    }
+  };
+
   // Handle welcome modal close: set guide_status to true then close
   const handleWelcomeModalClose = async () => {
     const token = getAuthToken();
@@ -529,13 +625,20 @@ const ClientPage: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5]">
-      {/* JotForm Consultation Modal - shown before Welcome Modal for invited clients */}
+      {/* JotForm Consultation Modal - shown first */}
       <JotFormConsultationModal
         isOpen={showJotFormModal}
+        onClose={handleJotFormModalClose}
         onFormSubmitted={handleJotFormSubmitted}
       />
       
-      {/* Welcome Modal for first-time users */}
+      {/* Welcome Video Modal - shown second after JotForm modal (for first-time clients) */}
+      <ClientWelcomeVideoModal
+        isOpen={showWelcomeVideoModal}
+        onClose={handleWelcomeVideoModalClose}
+      />
+      
+      {/* Welcome Modal for guide - shown third after JotForm and video modals */}
       <WelcomeModal
         isOpen={showWelcomeModal}
         onClose={handleWelcomeModalClose}

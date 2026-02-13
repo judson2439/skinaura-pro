@@ -20,6 +20,7 @@ import UploadLogoSection from '@/components/professional/sections/UploadLogoSect
 import HelpSection from '@/components/client/sections/HelpSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import ClientProfileModal, { ClientProfile } from '@/components/professional/modals/ClientProfileModal';
+import ProfessionalWelcomeVideoModal from '@/components/professional/modals/ProfessionalWelcomeVideoModal';
 import { Loader2 } from 'lucide-react';
 
 
@@ -65,6 +66,11 @@ const ProfessionalPage: React.FC = () => {
   // Client Profile Modal state
   const [showClientProfileModal, setShowClientProfileModal] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientProfile | null>(null);
+
+  // Welcome video modal (first-time professional sign-in)
+  const [showWelcomeVideoModal, setShowWelcomeVideoModal] = useState(false);
+  const [guideStatus, setGuideStatus] = useState(true);
+  const [isCheckingGuideStatus, setIsCheckingGuideStatus] = useState(true);
 
   // Get active view from URL parameter
   const activeView = section || 'dashboard';
@@ -113,7 +119,42 @@ const ProfessionalPage: React.FC = () => {
     fetchClientCount();
   }, [fetchClientCount]);
 
+  // Fetch guide_status (false = show welcome video on first sign-in)
+  useEffect(() => {
+    const fetchGuideStatus = async () => {
+      if (isCheckingSession || !getAuthToken()) {
+        setIsCheckingGuideStatus(false);
+        return;
+      }
+      try {
+        apiClient.setAuthToken(getAuthToken()!);
+        const response = await apiClient.get<{
+          success: boolean;
+          data?: { guideStatus?: boolean };
+          error?: string;
+        }>('/api/professional/guide-status');
+        if (response.data.success) {
+          setGuideStatus(response.data.data?.guideStatus ?? true);
+        }
+      } catch (err) {
+        console.log('Could not fetch guide status:', err);
+        setGuideStatus(true);
+      } finally {
+        setIsCheckingGuideStatus(false);
+      }
+    };
+    if (!isCheckingSession) {
+      fetchGuideStatus();
+    }
+  }, [isCheckingSession]);
 
+  // Show welcome video when guide_status is false (first-time professional)
+  useEffect(() => {
+    if (isCheckingSession || isCheckingGuideStatus) return;
+    if (!guideStatus) {
+      setShowWelcomeVideoModal(true);
+    }
+  }, [isCheckingSession, isCheckingGuideStatus, guideStatus]);
 
   // Session check on page load/refresh
   // If no session after initialization, redirect to landing page
@@ -227,6 +268,20 @@ const ProfessionalPage: React.FC = () => {
   const handleCloseClientProfileModal = () => {
     setShowClientProfileModal(false);
     setSelectedClient(null);
+  };
+
+  const handleCloseWelcomeVideo = async () => {
+    const token = getAuthToken();
+    if (token) {
+      try {
+        apiClient.setAuthToken(token);
+        await apiClient.patch('/api/professional/guide-status', {});
+        setGuideStatus(true);
+      } catch (err) {
+        console.error('Failed to update guide status:', err);
+      }
+    }
+    setShowWelcomeVideoModal(false);
   };
 
   const handleUpdateClient = (updatedClient: ClientProfile) => {
@@ -390,6 +445,12 @@ const ProfessionalPage: React.FC = () => {
           <ProfessionalFooter />
         </div>
       </div>
+
+      {/* Welcome video modal (first-time professional sign-in) */}
+      <ProfessionalWelcomeVideoModal
+        isOpen={showWelcomeVideoModal}
+        onClose={handleCloseWelcomeVideo}
+      />
 
       {/* Client Profile Modal */}
       {selectedClient && (

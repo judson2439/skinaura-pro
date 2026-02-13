@@ -946,18 +946,22 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
     // Clear failed login attempts on successful login
     await handleSuccessfulLogin(email, req);
 
-    // Check if this is the user's first login by checking last_logged_at
+    // Check if this is the user's first login by checking last_logged_at BEFORE updating
     const userProfile = await queryOne<{ last_logged_at: string | null }>(
       `SELECT last_logged_at FROM user_profiles WHERE id = $1`,
       [result.user?.id]
     );
     const isFirstLogin = userProfile?.last_logged_at === null;
 
-    // Update last_logged_at timestamp
-    await query(
-      `UPDATE user_profiles SET last_logged_at = NOW() WHERE id = $1`,
-      [result.user?.id]
-    );
+    // Only update last_logged_at if it's not the first login (not null)
+    // For first login, we'll update it when the client closes the welcome video modal
+    // This allows the frontend to check if it's the first login and show the video modal accordingly
+    if (!isFirstLogin) {
+      await query(
+        `UPDATE user_profiles SET last_logged_at = NOW() WHERE id = $1`,
+        [result.user?.id]
+      );
+    }
 
     // Log successful login
     await logAudit({

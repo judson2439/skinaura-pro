@@ -5,7 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { query, queryOne } from '../config/database.js';
+import { query, queryOne, pool } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
 import { logAuditFromRequest } from '../lib/auditLogger.js';
 import { sendSms, formatPhoneNumber } from '../lib/sms.js';
@@ -131,6 +131,67 @@ router.get('/clients/count', async (req: Request, res: Response): Promise<void> 
     res.status(500).json({
       success: false,
       error: 'Failed to fetch client count',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// GUIDE STATUS (first-time welcome video)
+// ============================================================================
+
+/**
+ * GET /professional/guide-status
+ * Get guide_status for the current professional. When false, show the welcome video modal.
+ */
+router.get('/guide-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    const row = await queryOne<{ guide_status: boolean }>(
+      `SELECT COALESCE(guide_status, false) as guide_status FROM user_profiles WHERE id = $1`,
+      [userId]
+    );
+
+    const guideStatus = row?.guide_status ?? false;
+
+    res.status(200).json({
+      success: true,
+      data: { guideStatus },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error fetching guide status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch guide status',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /professional/guide-status
+ * Set guide_status = true after the professional has viewed or dismissed the welcome video.
+ */
+router.patch('/guide-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+
+    await pool.query(
+      `UPDATE user_profiles SET guide_status = true WHERE id = $1`,
+      [userId]
+    );
+
+    console.log(`✅ Guide status set to true for professional ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Guide status updated',
+      data: { guideStatus: true },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error updating guide status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update guide status',
     } as ApiResponse);
   }
 });

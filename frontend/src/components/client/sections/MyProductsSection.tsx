@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertTriangle,
   RefreshCw,
+  CheckSquare,
 } from 'lucide-react';
 import AddProductModal, { PRODUCT_CATEGORIES } from '../modals/AddProductModal';
 import ClientAIPhotoScanModal from '../modals/ClientAIPhotoScanModal';
@@ -593,6 +594,9 @@ const MyProductsSection: React.FC = () => {
         <div>
           <h2 className="text-xl font-serif font-bold text-gray-900">My Products</h2>
           <p className="text-sm text-gray-500">Track the products you're currently using with AI-powered recognition</p>
+          <p className="text-sm text-gray-600 mt-2">
+            <span className="font-bold bg-teal-100 text-teal-800 px-1 rounded">How it works:</span> Add the products you use at home. Use <span className="font-bold bg-teal-100 text-teal-800 px-1 rounded">AI Photo Scan</span> or <span className="font-bold bg-teal-100 text-teal-800 px-1 rounded">Add Product</span>, then search by name or category anytime.
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -662,42 +666,70 @@ const MyProductsSection: React.FC = () => {
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && filteredProducts.length === 0 && (
+      {/* Empty State - How it works (no products) */}
+      {!loading && filteredProducts.length === 0 && !searchQuery && categoryFilter === 'all' && (
+        <div className="space-y-8">
+          <h3 className="text-2xl font-serif font-bold text-gray-900">How it works</h3>
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+              <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                <Plus className="w-6 h-6 text-gray-600" />
+              </div>
+              <h4 className="font-bold text-gray-900 mb-2">Add your products</h4>
+              <p className="text-sm text-gray-600">
+                Use AI Photo Scan or Add Product to save what you use at home.
+              </p>
+            </div>
+            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+              <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                <Search className="w-6 h-6 text-gray-600" />
+              </div>
+              <h4 className="font-bold text-gray-900 mb-2">Keep it organized</h4>
+              <p className="text-sm text-gray-600">
+                Search by name and filter by category to find products fast.
+              </p>
+            </div>
+            <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+              <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center mb-4">
+                <CheckSquare className="w-6 h-6 text-gray-600" />
+              </div>
+              <h4 className="font-bold text-gray-900 mb-2">Stay consistent</h4>
+              <p className="text-sm text-gray-600">
+                Your product list helps keep your routine on track between visits.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => setShowAIPhotoModal(true)}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+            >
+              <img
+                className="text-[#2D2A3E]"
+                src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'}
+                width={20}
+                height={20}
+                alt="AI"
+              /> AI Photo Scan
+            </button>
+            <button
+              onClick={() => { resetForm(); setShowAddModal(true); }}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-teal-500 text-teal-600 rounded-xl font-medium hover:bg-teal-50 transition-all"
+            >
+              <Plus className="w-5 h-5" /> Add Product
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Empty State - No results from search/filter */}
+      {!loading && filteredProducts.length === 0 && (searchQuery || categoryFilter !== 'all') && (
         <div className="bg-white rounded-2xl p-12 border border-gray-100 shadow-sm text-center">
           <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center mx-auto mb-4">
             <Package className="w-8 h-8 text-teal-600" />
           </div>
-          <h3 className="text-xl font-serif font-bold text-gray-900 mb-2">
-            {searchQuery || categoryFilter !== 'all' ? 'No Products Found' : 'No Products Yet'}
-          </h3>
-          <p className="text-gray-500 mb-6">
-            {searchQuery || categoryFilter !== 'all'
-              ? 'Try adjusting your search or filters'
-              : 'Add the skincare products you\'re currently using to track your routine'}
-          </p>
-          {!searchQuery && categoryFilter === 'all' && (
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <button
-                onClick={() => setShowAIPhotoModal(true)}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-xl font-medium hover:shadow-lg transition-all"
-              >
-                <img 
-                  className="text-[#2D2A3E]" 
-                  src={'https://emqiscdnvmjjrqapccib.supabase.co/storage/v1/object/public/progress-photos/logo.png'} 
-                  width={20} 
-                  height={20}
-                  alt="AI"
-                /> AI Photo Scan
-              </button>
-              <button
-                onClick={() => { resetForm(); setShowAddModal(true); }}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-teal-500 text-teal-600 rounded-xl font-medium hover:bg-teal-50 transition-all"
-              >
-                <Plus className="w-5 h-5" /> Add Manually
-              </button>
-            </div>
-          )}
+          <h3 className="text-xl font-serif font-bold text-gray-900 mb-2">No Products Found</h3>
+          <p className="text-gray-500">Try adjusting your search or filters</p>
         </div>
       )}
 
