@@ -256,45 +256,47 @@ const HelpSection: React.FC<HelpSectionProps> = ({ userRole = 'client' }) => {
 
   return (
     <div className="space-y-6">
-      {/* Two-column layout: SOP and Help & FAQ side by side */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* Left Column: SOPs Section */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900">Standard Operating Procedures</h2>
-              <p className="text-gray-500 text-sm mt-1">
-                Follow these guidelines for consistent and efficient operations
-              </p>
+      {/* Two-column layout for professionals (SOP + Help & FAQ); single column (Help & FAQ only) for clients */}
+      <div className={`grid gap-6 items-start ${isProfessional ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+        {/* Left Column: SOPs Section (visible only in Professional panel) */}
+        {isProfessional && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-serif font-bold text-gray-900">Standard Operating Procedures</h2>
+                <p className="text-gray-500 text-sm mt-1">
+                  Follow these guidelines for consistent and efficient operations
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={expandAll}
+                  className="px-3 py-1.5 text-sm text-[#CFAFA3] hover:bg-[#CFAFA3]/10 rounded-lg transition-colors"
+                >
+                  Expand All
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Collapse All
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={expandAll}
-                className="px-3 py-1.5 text-sm text-[#CFAFA3] hover:bg-[#CFAFA3]/10 rounded-lg transition-colors"
-              >
-                Expand All
-              </button>
-              <button
-                onClick={collapseAll}
-                className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Collapse All
-              </button>
-            </div>
-          </div>
 
-          {/* SOP Accordions */}
-          <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
-            {SOP_DATA.map((sop) => (
-              <SOPAccordionItem
-                key={sop.id}
-                sop={sop}
-                isExpanded={expandedSOPs.includes(sop.id)}
-                onToggle={() => toggleSOP(sop.id)}
-              />
-            ))}
+            {/* SOP Accordions */}
+            <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
+              {SOP_DATA.map((sop) => (
+                <SOPAccordionItem
+                  key={sop.id}
+                  sop={sop}
+                  isExpanded={expandedSOPs.includes(sop.id)}
+                  onToggle={() => toggleSOP(sop.id)}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Column: Help & FAQ Section */}
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">

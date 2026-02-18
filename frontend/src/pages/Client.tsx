@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getAuthSession, clearAuthSession, validateAuthSession, getAuthToken, AUTH_SESSION_UPDATED_EVENT, AuthSession } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
@@ -74,6 +74,7 @@ function calculateLevel(points: number): string {
 const ClientPage: React.FC = () => {
   const { section } = useParams<{ section: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -261,6 +262,18 @@ const ClientPage: React.FC = () => {
     showWelcomeVideoModal,
     showWelcomeModal,
   ]);
+
+  // When landing on client with firstLogin=1 (from submitting page after Skip), show intro video modal and clear param
+  useEffect(() => {
+    if (isCheckingSession) return;
+    const firstLogin = searchParams.get('firstLogin');
+    if (firstLogin === '1') {
+      setShowWelcomeVideoModal(true);
+      searchParams.delete('firstLogin');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [isCheckingSession, searchParams, setSearchParams]);
+
   const [statsLoading, setStatsLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -489,10 +502,11 @@ const ClientPage: React.FC = () => {
     setSidebarOpen(false); // Close mobile sidebar after navigation
   };
 
-  // Handle JotForm modal form submission: go to submitting page to update DB then redirect to dashboard
+  // Handle JotForm modal Skip: go to submitting page; add firstLogin param when last_logged_at is null
   const handleJotFormSubmitted = () => {
     setShowJotFormModal(false);
-    navigate('/client/submitting');
+    const search = isFirstLogin ? '?firstLogin=1' : '';
+    navigate(`/client/submitting${search}`);
   };
 
   // Handle JotForm modal close: proceed to video modal or guide modal

@@ -4,19 +4,21 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getAuthSession, getAuthToken, clearFirstLoginFlag } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import { Loader2 } from 'lucide-react';
 
 const ClientSubmitting: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const submitAndRedirect = async () => {
       const session = getAuthSession();
       const token = getAuthToken();
+      const firstLogin = searchParams.get('firstLogin');
 
       if (!token || !session?.user) {
         navigate('/', { replace: true });
@@ -27,6 +29,8 @@ const ClientSubmitting: React.FC = () => {
         navigate('/professional', { replace: true });
         return;
       }
+
+      const dashboardPath = firstLogin === '1' ? '/client/dashboard?firstLogin=1' : '/client/dashboard';
 
       try {
         apiClient.setAuthToken(token);
@@ -44,20 +48,20 @@ const ClientSubmitting: React.FC = () => {
             localStorage.setItem(`jotform_consultation_submitted_${userId}`, 'true');
           }
           clearFirstLoginFlag();
-          navigate('/client/dashboard', { replace: true });
+          navigate(dashboardPath, { replace: true });
         } else {
           setError(response.data.error || 'Update failed');
-          setTimeout(() => navigate('/client/dashboard', { replace: true }), 3000);
+          setTimeout(() => navigate(dashboardPath, { replace: true }), 3000);
         }
       } catch (err: unknown) {
         console.error('Submit consultation error:', err);
         setError(err instanceof Error ? err.message : 'Something went wrong');
-        setTimeout(() => navigate('/client/dashboard', { replace: true }), 3000);
+        setTimeout(() => navigate(dashboardPath, { replace: true }), 3000);
       }
     };
 
     submitAndRedirect();
-  }, [navigate]);
+  }, [navigate, searchParams]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#F9F7F5] via-white to-[#F9F7F5] p-4">
