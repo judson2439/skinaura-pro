@@ -16,6 +16,7 @@ import {
   TreatmentPlanProduct,
   TreatmentPlanRoutine,
   TreatmentPlanAppointment,
+  TreatmentPlanPdf,
   getStatusColor,
   calculatePlanProgress,
   CLIENT_IMAGES,
@@ -89,11 +90,11 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
       if (response.data.success && response.data.data) {
         const clientsData = response.data.data.clients || [];
 
-        // Map database data to TreatmentPlanClient interface
-        const mappedClients: TreatmentPlanClient[] = clientsData.map((clientData, index) => ({
+        // Map database data to TreatmentPlanClient interface (only use actual avatar_url; no placeholder images)
+        const mappedClients: TreatmentPlanClient[] = clientsData.map((clientData) => ({
           id: clientData.id,
           name: clientData.full_name || 'Unknown',
-          image: clientData.avatar_url || CLIENT_IMAGES[index % CLIENT_IMAGES.length] || `https://ui-avatars.com/api/?name=${encodeURIComponent(clientData.full_name || 'U')}&background=CFAFA3&color=fff`,
+          image: clientData.avatar_url || '',
         }));
 
         setClients(mappedClients);
@@ -135,6 +136,7 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
           products: any[];
           routines: any[];
           appointments: any[];
+          pdfs: any[];
         };
         error?: string;
       }>('/api/treatment-plans');
@@ -151,12 +153,14 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
       const productsData = response.data.data?.products || [];
       const routinesData = response.data.data?.routines || [];
       const appointmentsData = response.data.data?.appointments || [];
+      const pdfsData = response.data.data?.pdfs || [];
 
       // Group related data by plan_id
       const milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
       const productsMap: Record<string, TreatmentPlanProduct[]> = {};
       const routinesMap: Record<string, TreatmentPlanRoutine[]> = {};
       const appointmentsMap: Record<string, TreatmentPlanAppointment[]> = {};
+      const pdfsMap: Record<string, TreatmentPlanPdf[]> = {};
 
       milestonesData.forEach((milestone: any) => {
         if (!milestonesMap[milestone.plan_id]) milestonesMap[milestone.plan_id] = [];
@@ -209,6 +213,17 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         });
       });
 
+      pdfsData.forEach((pdf: any) => {
+        if (!pdfsMap[pdf.plan_id]) pdfsMap[pdf.plan_id] = [];
+        pdfsMap[pdf.plan_id].push({
+          id: pdf.id,
+          plan_id: pdf.plan_id,
+          professional_pdf_upload_id: pdf.professional_pdf_upload_id,
+          original_name: pdf.original_name || 'PDF',
+          created_at: pdf.created_at,
+        });
+      });
+
       // Map database data to TreatmentPlan interface
       const mappedPlans: TreatmentPlan[] = plansData.map((plan: any) => ({
         id: plan.id,
@@ -224,6 +239,7 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         products: productsMap[plan.id] || [],
         routines: routinesMap[plan.id] || [],
         appointments: appointmentsMap[plan.id] || [],
+        pdfs: pdfsMap[plan.id] || [],
         notes: plan.notes || undefined,
         created_at: plan.created_at,
         updated_at: plan.updated_at || undefined,
@@ -848,7 +864,63 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
     }
   };
 
+  // ============================================================================
+  // ATTACHED PDF HANDLERS
+  // ============================================================================
 
+  const handleAddPdf = async (pdf_upload_id: string) => {
+    if (!selectedPlan) return;
+    const token = getAuthSession()?.token || getAuthToken();
+    if (!token) return;
+    try {
+      apiClient.setAuthToken(token);
+      const response = await apiClient.post<{ success: boolean; data?: { attachment: TreatmentPlanPdf | null }; error?: string }>(
+        `/api/treatment-plans/${selectedPlan.id}/pdfs`,
+        { pdf_upload_id }
+      );
+      if (!response.data.success) {
+        console.error('Error attaching PDF:', response.data.error);
+        return;
+      }
+      const attachment = response.data.data?.attachment;
+      if (attachment) {
+        const updatedPlan = {
+          ...selectedPlan,
+          pdfs: [...selectedPlan.pdfs, attachment],
+          updated_at: new Date().toISOString(),
+        };
+        setSelectedPlan(updatedPlan);
+        setPlans(plans.map(p => (p.id === updatedPlan.id ? updatedPlan : p)));
+      }
+    } catch (err) {
+      console.error('Error attaching PDF:', err);
+    }
+  };
+
+  const handleDeletePdf = async (attachmentId: string) => {
+    if (!selectedPlan) return;
+    const token = getAuthSession()?.token || getAuthToken();
+    if (!token) return;
+    try {
+      apiClient.setAuthToken(token);
+      const response = await apiClient.delete<{ success: boolean; error?: string }>(
+        `/api/treatment-plans/${selectedPlan.id}/pdfs/${attachmentId}`
+      );
+      if (!response.data.success) {
+        console.error('Error removing PDF:', response.data.error);
+        return;
+      }
+      const updatedPlan = {
+        ...selectedPlan,
+        pdfs: selectedPlan.pdfs.filter(p => p.id !== attachmentId),
+        updated_at: new Date().toISOString(),
+      };
+      setSelectedPlan(updatedPlan);
+      setPlans(plans.map(p => (p.id === updatedPlan.id ? updatedPlan : p)));
+    } catch (err) {
+      console.error('Error removing PDF:', err);
+    }
+  };
 
   const handleCloseDetailModal = () => {
     setShowDetailModal(false);
@@ -980,12 +1052,18 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <EncryptedImage
-                      src={client?.image || CLIENT_IMAGES[0]}
-                      alt={client?.name || 'Client'}
-                      className="w-10 h-10 rounded-full object-cover"
-                      fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
-                    />
+                    {client?.image ? (
+                      <EncryptedImage
+                        src={client.image}
+                        alt={client?.name || 'Client'}
+                        className="w-10 h-10 rounded-full object-cover"
+                        fallbackClassName="w-10 h-10 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm font-medium flex-shrink-0">
+                        {(client?.name || 'U').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).join('').toUpperCase().slice(0, 2) || 'U'}
+                      </div>
+                    )}
                     <div>
                       <h3 className="font-medium text-gray-900 line-clamp-1">{fixUtf8Mojibake(plan.title)}</h3>
                       <p className="text-xs text-gray-500">{client?.name || 'Unknown Client'}</p>
@@ -1063,6 +1141,8 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         onAddAppointment={handleAddAppointment}
         onUpdateAppointment={handleUpdateAppointment}
         onDeleteAppointment={handleDeleteAppointment}
+        onAddPdf={handleAddPdf}
+        onDeletePdf={handleDeletePdf}
       />
     </div>
   );

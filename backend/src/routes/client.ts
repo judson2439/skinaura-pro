@@ -2447,6 +2447,16 @@ interface TreatmentPlanAppointment {
   created_at: string;
 }
 
+interface TreatmentPlanPdfRow {
+  id: string;
+  plan_id: string;
+  professional_pdf_upload_id: string;
+  original_name: string;
+  iv: string;
+  mime_type: string;
+  created_at: string;
+}
+
 interface ProfessionalInfo {
   id: string;
   full_name: string;
@@ -2511,6 +2521,16 @@ router.get('/treatment-plans', authMiddleware, async (req: Request, res: Respons
       [planIds]
     );
 
+    // Fetch attached PDFs (with iv and mime_type for client decryption)
+    const pdfs = await query<TreatmentPlanPdfRow>(
+      `SELECT ttp.id, ttp.plan_id, ttp.professional_pdf_upload_id, p.original_name, p.iv, p.mime_type, ttp.created_at
+       FROM treatment_plan_pdfs ttp
+       JOIN professional_pdf_uploads p ON p.id = ttp.professional_pdf_upload_id
+       WHERE ttp.plan_id = ANY($1)
+       ORDER BY ttp.created_at ASC`,
+      [planIds]
+    );
+
     // Fetch professional info
     const professionalIds = [...new Set(plans.map(p => p.professional_id))];
     let professionals: Record<string, ProfessionalInfo> = {};
@@ -2535,6 +2555,7 @@ router.get('/treatment-plans', authMiddleware, async (req: Request, res: Respons
     const productsMap: Record<string, TreatmentPlanProduct[]> = {};
     const routinesMap: Record<string, TreatmentPlanRoutine[]> = {};
     const appointmentsMap: Record<string, TreatmentPlanAppointment[]> = {};
+    const pdfsMap: Record<string, TreatmentPlanPdfRow[]> = {};
 
     milestones.forEach(m => {
       if (!milestonesMap[m.plan_id]) milestonesMap[m.plan_id] = [];
@@ -2556,6 +2577,11 @@ router.get('/treatment-plans', authMiddleware, async (req: Request, res: Respons
       appointmentsMap[a.plan_id].push(a);
     });
 
+    pdfs.forEach(p => {
+      if (!pdfsMap[p.plan_id]) pdfsMap[p.plan_id] = [];
+      pdfsMap[p.plan_id].push(p);
+    });
+
     // Build complete plans with related data
     const completePlans = plans.map(plan => ({
       ...plan,
@@ -2564,6 +2590,7 @@ router.get('/treatment-plans', authMiddleware, async (req: Request, res: Respons
       products: productsMap[plan.id] || [],
       routines: routinesMap[plan.id] || [],
       appointments: appointmentsMap[plan.id] || [],
+      pdfs: pdfsMap[plan.id] || [],
     }));
 
     // Audit log: PHI access (treatment plans contain health information)
@@ -2583,6 +2610,54 @@ router.get('/treatment-plans', authMiddleware, async (req: Request, res: Respons
     res.status(500).json({
       success: false,
       error: 'Failed to fetch treatment plans',
+    } as ApiResponse);
+  }
+});
+
+// GET /client/treatment-plans/:planId/pdfs/:attachmentId/file - Get encrypted PDF file for client to decrypt and view
+const PDF_UPLOAD_DIR = 'pdfs';
+router.get('/treatment-plans/:planId/pdfs/:attachmentId/file', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const { planId, attachmentId } = req.params;
+
+    const plan = await queryOne<{ id: string; client_id: string }>(
+      `SELECT id, client_id FROM treatment_plans WHERE id = $1 AND client_id = $2`,
+      [planId, userId]
+    );
+    if (!plan) {
+      res.status(404).json({ success: false, error: 'Plan not found' } as ApiResponse);
+      return;
+    }
+
+    const row = await queryOne<{ stored_filename: string }>(
+      `SELECT p.stored_filename FROM treatment_plan_pdfs ttp
+       JOIN professional_pdf_uploads p ON p.id = ttp.professional_pdf_upload_id
+       WHERE ttp.id = $1 AND ttp.plan_id = $2`,
+      [attachmentId, planId]
+    );
+    if (!row) {
+      res.status(404).json({ success: false, error: 'PDF not found' } as ApiResponse);
+      return;
+    }
+
+    const filePath = path.join(process.cwd(), 'uploads', PDF_UPLOAD_DIR, row.stored_filename);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ success: false, error: 'File not found' } as ApiResponse);
+      return;
+    }
+
+    const buffer = fs.readFileSync(filePath);
+    res.set({
+      'Content-Type': 'application/octet-stream',
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(buffer);
+  } catch (error) {
+    console.error('❌ Error serving treatment plan PDF:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load PDF',
     } as ApiResponse);
   }
 });

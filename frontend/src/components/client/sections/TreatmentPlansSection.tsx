@@ -14,15 +14,21 @@ import {
   Award,
   AlertCircle,
   User,
+  FileText,
+  ExternalLink,
+  X,
 } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
+import { decryptPdfToBlob } from '@/lib/encryption';
+import { API_CONFIG } from '@/config/api';
 import {
   TreatmentPlan,
   TreatmentPlanMilestone,
   TreatmentPlanProduct,
   TreatmentPlanRoutine,
   TreatmentPlanAppointment,
+  TreatmentPlanPdf,
   getStatusColor,
   getPriorityColor,
   calculatePlanProgress,
@@ -54,6 +60,10 @@ const TreatmentPlansSection: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<TreatmentPlan | null>(null);
   const [updatingMilestone, setUpdatingMilestone] = useState<string | null>(null);
   const [updatingAppointment, setUpdatingAppointment] = useState<string | null>(null);
+  const [loadingPdfId, setLoadingPdfId] = useState<string | null>(null);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfModalUrl, setPdfModalUrl] = useState<string | null>(null);
+  const [pdfModalTitle, setPdfModalTitle] = useState<string>('');
 
   // ============================================================================
   // FETCH TREATMENT PLANS FROM DATABASE
@@ -213,6 +223,46 @@ const TreatmentPlansSection: React.FC = () => {
       console.error('Error toggling appointment:', err);
     } finally {
       setUpdatingAppointment(null);
+    }
+  };
+
+  const closePdfModal = () => {
+    if (pdfModalUrl) {
+      URL.revokeObjectURL(pdfModalUrl);
+    }
+    setPdfModalUrl(null);
+    setPdfModalTitle('');
+    setPdfModalOpen(false);
+  };
+
+  const handleViewPdf = async (plan: TreatmentPlan, pdf: TreatmentPlanPdf) => {
+    if (!pdf.iv || !pdf.mime_type) {
+      console.error('PDF missing iv or mime_type');
+      return;
+    }
+    setLoadingPdfId(pdf.id);
+    try {
+      const token = getAuthToken();
+      const url = `${API_CONFIG.baseUrl}/api/client/treatment-plans/${plan.id}/pdfs/${pdf.id}/file`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to load PDF');
+      const arrayBuffer = await res.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+      const blob = await decryptPdfToBlob(base64, pdf.iv, pdf.mime_type);
+      const objectUrl = URL.createObjectURL(blob);
+      setPdfModalTitle(pdf.original_name);
+      setPdfModalUrl(objectUrl);
+      setPdfModalOpen(true);
+    } catch (err) {
+      console.error('Error loading PDF:', err);
+      setError('Could not load PDF. Please try again.');
+    } finally {
+      setLoadingPdfId(null);
     }
   };
 
@@ -578,6 +628,52 @@ const TreatmentPlansSection: React.FC = () => {
                         </div>
                       )}
 
+                      {/* Attached PDFs */}
+                      {(plan.pdfs?.length ?? 0) > 0 && (
+                        <div>
+                          <h5 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1">
+                            <FileText className="w-4 h-4 text-[#CFAFA3]" /> Attached PDFs
+                          </h5>
+                          <div className="space-y-2">
+                            {(plan.pdfs || []).map((pdf) => {
+                              const isLoading = loadingPdfId === pdf.id;
+                              return (
+                                <div
+                                  key={pdf.id}
+                                  className="flex items-center justify-between gap-3 p-4 rounded-xl border border-gray-100 bg-white hover:border-[#CFAFA3]/30 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <FileText className="w-5 h-5 text-[#CFAFA3] flex-shrink-0" />
+                                    <span className="text-sm font-medium text-gray-900 truncate">{pdf.original_name}</span>
+                                    {pdf.created_at && (
+                                      <span className="text-xs text-gray-500 flex-shrink-0">
+                                        {new Date(pdf.created_at).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleViewPdf(plan, pdf);
+                                    }}
+                                    disabled={isLoading}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#CFAFA3]/10 hover:bg-[#CFAFA3]/20 text-[#CFAFA3] font-medium text-sm transition-colors disabled:opacity-50"
+                                  >
+                                    {isLoading ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <ExternalLink className="w-4 h-4" />
+                                    )}
+                                    View
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Notes */}
                       {plan.notes && (
                         <div className="p-4 bg-[#CFAFA3]/5 rounded-xl border border-[#CFAFA3]/20">
@@ -643,6 +739,32 @@ const TreatmentPlansSection: React.FC = () => {
                       <p className="text-sm text-gray-500">
                         Duration: {new Date(plan.start_date).toLocaleDateString()} - {new Date(plan.end_date).toLocaleDateString()}
                       </p>
+                      {(plan.pdfs?.length ?? 0) > 0 && (
+                        <div className="mt-3">
+                          <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                            <FileText className="w-4 h-4 text-[#CFAFA3]" /> Attached PDFs
+                          </h5>
+                          <div className="space-y-2">
+                            {(plan.pdfs || []).map((pdf) => {
+                              const isLoading = loadingPdfId === pdf.id;
+                              return (
+                                <div key={pdf.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-100 bg-white">
+                                  <span className="text-sm font-medium text-gray-900 truncate">{pdf.original_name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleViewPdf(plan, pdf); }}
+                                    disabled={isLoading}
+                                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#CFAFA3]/10 hover:bg-[#CFAFA3]/20 text-[#CFAFA3] text-sm font-medium disabled:opacity-50"
+                                  >
+                                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                                    View
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       <p className="text-sm text-amber-600 mt-2">
                         This plan is currently paused. Contact your professional for more information.
                       </p>
@@ -714,6 +836,32 @@ const TreatmentPlansSection: React.FC = () => {
                           </div>
                         </div>
                       )}
+                      {(plan.pdfs?.length ?? 0) > 0 && (
+                        <div className="mb-3">
+                          <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                            <FileText className="w-4 h-4 text-[#CFAFA3]" /> Attached PDFs
+                          </h5>
+                          <div className="space-y-2">
+                            {(plan.pdfs || []).map((pdf) => {
+                              const isLoading = loadingPdfId === pdf.id;
+                              return (
+                                <div key={pdf.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-100 bg-white">
+                                  <span className="text-sm font-medium text-gray-900 truncate">{pdf.original_name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); handleViewPdf(plan, pdf); }}
+                                    disabled={isLoading}
+                                    className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#CFAFA3]/10 hover:bg-[#CFAFA3]/20 text-[#CFAFA3] text-sm font-medium disabled:opacity-50"
+                                  >
+                                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                                    View
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       <p className="text-sm text-gray-500">
                         Duration: {new Date(plan.start_date).toLocaleDateString()} - {new Date(plan.end_date).toLocaleDateString()}
                       </p>
@@ -722,6 +870,41 @@ const TreatmentPlansSection: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* PDF Viewer Modal */}
+      {pdfModalOpen && pdfModalUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          onClick={closePdfModal}
+          role="dialog"
+          aria-modal="true"
+          aria-label="PDF viewer"
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl flex flex-col max-w-4xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <h3 className="font-medium text-gray-900 truncate pr-4">{pdfModalTitle}</h3>
+              <button
+                type="button"
+                onClick={closePdfModal}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 flex items-center justify-center bg-gray-100">
+              <iframe
+                src={pdfModalUrl}
+                title={pdfModalTitle}
+                className="w-full h-[75vh] min-h-[400px] border-0"
+              />
+            </div>
           </div>
         </div>
       )}

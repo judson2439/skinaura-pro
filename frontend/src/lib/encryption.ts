@@ -6,6 +6,11 @@
 // Get encryption key from environment variable
 const ENCRYPTION_KEY = import.meta.env.VITE_API_ENCRYPTION_KEY || 'default-dev-key-32-characters!!';
 
+// PDF upload encryption key (optional; falls back to API key if not set)
+export const PDF_ENCRYPTION_KEY =
+  import.meta.env.VITE_PDF_ENCRYPTION_KEY ||
+  'default-dev-key-32-characters!!';
+
 /**
  * Convert string to ArrayBuffer
  */
@@ -209,6 +214,64 @@ export const decryptFileToBlob = async (
 };
 
 // ============================================================================
+// PDF ENCRYPTION (uses VITE_PDF_ENCRYPTION_KEY from .env)
+// ============================================================================
+
+/**
+ * Encrypt a PDF File for upload. Uses VITE_PDF_ENCRYPTION_KEY.
+ */
+export const encryptPdfFile = async (file: File | Blob): Promise<{
+  encrypted: string;
+  iv: string;
+  mimeType: string;
+  originalName?: string;
+}> => {
+  try {
+    const key = await deriveKey(PDF_ENCRYPTION_KEY);
+    const arrayBuffer = await file.arrayBuffer();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, tagLength: 128 },
+      key,
+      arrayBuffer
+    );
+    return {
+      encrypted: arrayBufferToBase64(ciphertext),
+      iv: arrayBufferToBase64(iv.buffer),
+      mimeType: file.type || 'application/pdf',
+      originalName: file instanceof File ? file.name : undefined,
+    };
+  } catch (error) {
+    console.error('PDF encryption failed:', error);
+    throw new Error('Failed to encrypt PDF');
+  }
+};
+
+/**
+ * Decrypt PDF data to a Blob for preview/download. Uses VITE_PDF_ENCRYPTION_KEY.
+ */
+export const decryptPdfToBlob = async (
+  encryptedData: string,
+  iv: string,
+  mimeType: string = 'application/pdf'
+): Promise<Blob> => {
+  try {
+    const key = await deriveKey(PDF_ENCRYPTION_KEY);
+    const ciphertext = base64ToArrayBuffer(encryptedData);
+    const ivBuffer = base64ToArrayBuffer(iv);
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: ivBuffer, tagLength: 128 },
+      key,
+      ciphertext
+    );
+    return new Blob([decrypted], { type: mimeType });
+  } catch (error) {
+    console.error('PDF decryption failed:', error);
+    throw new Error('Failed to decrypt PDF');
+  }
+};
+
+// ============================================================================
 // IMAGE UPLOAD UTILITIES
 // ============================================================================
 
@@ -281,5 +344,7 @@ export default {
   isEncryptionEnabled,
   encryptFile,
   decryptFileToBlob,
+  encryptPdfFile,
+  decryptPdfToBlob,
   uploadImage,
 };

@@ -5,6 +5,8 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import path from 'path';
+import fs from 'fs';
 import { query, queryOne, pool } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
 import { logAuditFromRequest } from '../lib/auditLogger.js';
@@ -3965,6 +3967,52 @@ export const initProfessionalLogoTable = async (): Promise<void> => {
  * This table stores invitation notifications for existing clients
  * When a professional invites an already-registered client, a notification is created here
  */
+/**
+ * Initialize professional_pdf_uploads table
+ * Stores metadata for encrypted PDF uploads (file stored on disk).
+ */
+export const initProfessionalPdfUploadsTable = async (): Promise<void> => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS professional_pdf_uploads (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        professional_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+        original_name TEXT NOT NULL,
+        stored_filename TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        mime_type TEXT NOT NULL DEFAULT 'application/pdf',
+        file_size_bytes BIGINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ professional_pdf_uploads table initialized');
+  } catch (error) {
+    console.error('❌ Error initializing professional_pdf_uploads table:', error);
+    throw error;
+  }
+};
+
+/**
+ * Initialize treatment_plan_pdfs table (links treatment plans to professional PDF uploads).
+ */
+export const initTreatmentPlanPdfsTable = async (): Promise<void> => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS treatment_plan_pdfs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        plan_id UUID NOT NULL REFERENCES treatment_plans(id) ON DELETE CASCADE,
+        professional_pdf_upload_id UUID NOT NULL REFERENCES professional_pdf_uploads(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(plan_id, professional_pdf_upload_id)
+      )
+    `);
+    console.log('✅ treatment_plan_pdfs table initialized');
+  } catch (error) {
+    console.error('❌ Error initializing treatment_plan_pdfs table:', error);
+    throw error;
+  }
+};
+
 export const initProfessionalInvitationNotificationsTable = async (): Promise<void> => {
   try {
     await query(`
@@ -4126,6 +4174,210 @@ router.delete('/logo', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       error: 'Failed to delete logo',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
+// PDF UPLOAD (encrypted storage; encrypt/decrypt on frontend)
+// ============================================================================
+
+const PDF_UPLOAD_DIR = 'pdfs';
+const MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+
+interface PdfUploadItem {
+  encrypted: string;
+  iv: string;
+  originalName?: string;
+  mimeType?: string;
+}
+
+/**
+ * POST /professional/pdfs
+ * Upload one or more encrypted PDFs. Body: { files: [{ encrypted, iv, originalName, mimeType }] }.
+ * Saves encrypted buffer to disk and metadata to professional_pdf_uploads.
+ */
+router.post('/pdfs', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { files } = req.body as { files?: PdfUploadItem[] };
+
+    if (!Array.isArray(files) || files.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'files array is required and must not be empty',
+      } as ApiResponse);
+      return;
+    }
+
+    const uploadDir = path.join(process.cwd(), 'uploads', PDF_UPLOAD_DIR);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const created: Array<{ id: string; original_name: string; stored_filename: string; created_at: string; file_size_bytes: number }> = [];
+
+    for (const item of files) {
+      const { encrypted, iv, originalName, mimeType } = item;
+      if (!encrypted || !iv) {
+        res.status(400).json({ success: false, error: 'Each file must have encrypted and iv' } as ApiResponse);
+        return;
+      }
+
+      const buffer = Buffer.from(encrypted, 'base64');
+      if (buffer.length > MAX_PDF_SIZE_BYTES) {
+        res.status(400).json({
+          success: false,
+          error: 'Each PDF must be less than 10MB',
+        } as ApiResponse);
+        return;
+      }
+
+      const hash = crypto.randomBytes(16).toString('hex');
+      const storedFilename = `pdf_${hash}.enc`;
+      const filePath = path.join(uploadDir, storedFilename);
+      fs.writeFileSync(filePath, buffer);
+
+      const original_name = originalName && originalName.trim() ? originalName.trim() : `document_${hash}.pdf`;
+      const mime_type = mimeType || 'application/pdf';
+      const file_size_bytes = buffer.length;
+
+      const row = await queryOne<{ id: string; original_name: string; stored_filename: string; created_at: string; file_size_bytes: number }>(
+        `INSERT INTO professional_pdf_uploads (professional_id, original_name, stored_filename, iv, mime_type, file_size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, original_name, stored_filename, created_at, file_size_bytes`,
+        [professionalId, original_name, storedFilename, iv, mime_type, file_size_bytes]
+      );
+      if (row) created.push(row);
+    }
+
+    console.log(`✅ ${created.length} PDF(s) uploaded for professional ${professionalId}`);
+
+    res.status(200).json({
+      success: true,
+      data: created,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error uploading PDF(s):', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload PDF(s)',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/pdfs
+ * List all PDF uploads for the current professional (metadata only).
+ */
+router.get('/pdfs', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    const rows = await query<{
+      id: string;
+      original_name: string;
+      stored_filename: string;
+      iv: string;
+      mime_type: string;
+      file_size_bytes: number;
+      created_at: string;
+    }>(
+      `SELECT id, original_name, stored_filename, iv, mime_type, file_size_bytes, created_at
+       FROM professional_pdf_uploads
+       WHERE professional_id = $1
+       ORDER BY created_at DESC`,
+      [professionalId]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error listing PDFs:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to list PDFs',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/pdfs/:id/file
+ * Serve the encrypted file binary (frontend will decrypt).
+ */
+router.get('/pdfs/:id/file', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { id } = req.params;
+
+    const row = await queryOne<{ stored_filename: string }>(
+      `SELECT stored_filename FROM professional_pdf_uploads WHERE id = $1 AND professional_id = $2`,
+      [id, professionalId]
+    );
+    if (!row) {
+      res.status(404).json({ success: false, error: 'PDF not found' } as ApiResponse);
+      return;
+    }
+
+    const filePath = path.join(process.cwd(), 'uploads', PDF_UPLOAD_DIR, row.stored_filename);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ success: false, error: 'File not found' } as ApiResponse);
+      return;
+    }
+
+    const buffer = fs.readFileSync(filePath);
+    res.set({
+      'Content-Type': 'application/octet-stream',
+      'Cache-Control': 'private, no-store',
+    });
+    res.send(buffer);
+  } catch (error) {
+    console.error('❌ Error serving PDF file:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to serve PDF',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * DELETE /professional/pdfs/:id
+ * Delete a PDF upload (row + file).
+ */
+router.delete('/pdfs/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { id } = req.params;
+
+    const row = await queryOne<{ stored_filename: string }>(
+      `SELECT stored_filename FROM professional_pdf_uploads WHERE id = $1 AND professional_id = $2`,
+      [id, professionalId]
+    );
+    if (!row) {
+      res.status(404).json({ success: false, error: 'PDF not found' } as ApiResponse);
+      return;
+    }
+
+    const filePath = path.join(process.cwd(), 'uploads', PDF_UPLOAD_DIR, row.stored_filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    await query(`DELETE FROM professional_pdf_uploads WHERE id = $1 AND professional_id = $2`, [id, professionalId]);
+
+    console.log(`✅ PDF deleted: ${id} for professional ${professionalId}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'PDF deleted successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error deleting PDF:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete PDF',
     } as ApiResponse);
   }
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Plus,
@@ -12,6 +12,8 @@ import {
   Calendar,
   Target,
   AlertTriangle,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import {
   TreatmentPlan,
@@ -20,6 +22,7 @@ import {
   TreatmentPlanProduct,
   TreatmentPlanRoutine,
   TreatmentPlanAppointment,
+  TreatmentPlanPdf,
   getStatusColor,
   getPriorityColor,
   calculatePlanProgress,
@@ -31,6 +34,8 @@ import { TimePicker } from '@/components/ui/time-picker';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
 import EncryptedImage from '@/components/ui/encrypted-image';
 import { fixUtf8Mojibake } from '@/lib/utils';
+import { apiClient } from '@/lib/apiClient';
+import { getAuthToken } from '@/lib/authStorage';
 
 // ============================================================================
 // TYPES
@@ -53,9 +58,11 @@ interface TreatmentPlanDetailModalProps {
   onAddAppointment: (appointment: Omit<TreatmentPlanAppointment, 'id' | 'plan_id' | 'completed'>) => Promise<void>;
   onUpdateAppointment: (appointmentId: string, data: Partial<TreatmentPlanAppointment>) => Promise<void>;
   onDeleteAppointment: (appointmentId: string) => Promise<void>;
+  onAddPdf: (pdf_upload_id: string) => Promise<void>;
+  onDeletePdf: (attachmentId: string) => Promise<void>;
 }
 
-type DeleteItemType = 'milestone' | 'product' | 'routine' | 'appointment' | null;
+type DeleteItemType = 'milestone' | 'product' | 'routine' | 'appointment' | 'pdf' | null;
 
 interface DeleteConfirmation {
   type: DeleteItemType;
@@ -157,12 +164,17 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
   onAddAppointment,
   onUpdateAppointment,
   onDeleteAppointment,
+  onAddPdf,
+  onDeletePdf,
 }) => {
   // Form visibility states
   const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [showAddRoutine, setShowAddRoutine] = useState(false);
   const [showAddAppointment, setShowAddAppointment] = useState(false);
+  const [showAddPdf, setShowAddPdf] = useState(false);
+  const [professionalPdfList, setProfessionalPdfList] = useState<Array<{ id: string; original_name: string; created_at: string }>>([]);
+  const [loadingProfessionalPdfs, setLoadingProfessionalPdfs] = useState(false);
 
   // Delete confirmation state
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
@@ -192,10 +204,37 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
   const [appointmentDuration, setAppointmentDuration] = useState('60');
   const [appointmentNotes, setAppointmentNotes] = useState('');
 
+  // Fetch professional's uploaded PDFs when Add PDF panel is opened
+  useEffect(() => {
+    if (!isOpen || !plan || !showAddPdf) return;
+    const token = getAuthToken();
+    if (!token) return;
+    setLoadingProfessionalPdfs(true);
+    apiClient.setAuthToken(token);
+    apiClient
+      .get<{ success: boolean; data?: Array<{ id: string; original_name: string; created_at: string }> }>('/api/professional/pdfs')
+      .then((res) => {
+        if (res.data?.success && Array.isArray(res.data.data)) {
+          setProfessionalPdfList(res.data.data);
+        }
+      })
+      .catch(() => setProfessionalPdfList([]))
+      .finally(() => setLoadingProfessionalPdfs(false));
+  }, [isOpen, plan?.id, showAddPdf]);
+
   if (!isOpen || !plan) return null;
 
+  const planGoals = plan.goals || [];
+  const planMilestones = plan.milestones || [];
+  const planProducts = plan.products || [];
+  const planRoutines = plan.routines || [];
+  const planAppointments = plan.appointments || [];
+  const planPdfs = plan.pdfs || [];
+
   const progress = calculatePlanProgress(plan);
-  const client = clients.find(c => c.id === plan.client_id);
+  const attachedPdfIds = new Set(planPdfs.map((p) => p.professional_pdf_upload_id));
+  const availablePdfs = professionalPdfList.filter((p) => !attachedPdfIds.has(p.id));
+  const client = (clients || []).find(c => c.id === plan.client_id);
 
   // Select options
   const categoryOptions = [
@@ -317,6 +356,9 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
         case 'appointment':
           await onDeleteAppointment(deleteConfirmation.id);
           break;
+        case 'pdf':
+          await onDeletePdf(deleteConfirmation.id);
+          break;
       }
       closeDeleteConfirmation();
     } catch (error) {
@@ -332,6 +374,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
       case 'product': return 'Product';
       case 'routine': return 'Routine';
       case 'appointment': return 'Appointment';
+      case 'pdf': return 'PDF';
       default: return 'Item';
     }
   };
@@ -344,12 +387,18 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
           <div className="sticky top-0 bg-white border-b border-gray-100 p-6 z-10">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <EncryptedImage
-                  src={client?.image || CLIENT_IMAGES[0]}
-                  alt="Client"
-                  className="w-12 h-12 rounded-full object-cover"
-                  fallbackClassName="w-12 h-12 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
-                />
+                {client?.image ? (
+                  <EncryptedImage
+                    src={client.image}
+                    alt="Client"
+                    className="w-12 h-12 rounded-full object-cover"
+                    fallbackClassName="w-12 h-12 rounded-full bg-gradient-to-br from-[#cab0a5] to-[#a57865] flex items-center justify-center text-white text-sm font-medium"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-base font-medium flex-shrink-0">
+                    {(client?.name || 'U').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).join('').toUpperCase().slice(0, 2) || 'U'}
+                  </div>
+                )}
                 <div>
                   <h3 className="text-xl font-serif font-bold text-gray-900">{fixUtf8Mojibake(plan.title)}</h3>
                   <p className="text-sm text-gray-500">{client?.name || 'Unknown Client'}</p>
@@ -417,16 +466,16 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
           {/* Content */}
           <div className="p-6 space-y-6">
             {/* Description & Goals */}
-            {(plan.description || plan.goals.length > 0) && (
+            {(plan.description || planGoals.length > 0) && (
               <div className="bg-gray-50 rounded-xl p-4">
                 {plan.description && (
                   <p className="text-gray-600 mb-3">{fixUtf8Mojibake(plan.description)}</p>
                 )}
-                {plan.goals.length > 0 && (
+                {planGoals.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Goals</h4>
                     <div className="flex flex-wrap gap-2">
-                      {plan.goals.map((goal, idx) => (
+                      {planGoals.map((goal, idx) => (
                         <span key={idx} className="flex items-center gap-1 px-3 py-1 bg-white text-[#CFAFA3] rounded-full text-sm border border-[#CFAFA3]/20">
                           <Target className="w-3 h-3" />
                           {fixUtf8Mojibake(goal)}
@@ -443,7 +492,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-gray-900 flex items-center gap-2">
                   <Flag className="w-5 h-5 text-[#CFAFA3]" />
-                  Milestones ({plan.milestones.length})
+                  Milestones ({planMilestones.length})
                 </h4>
                 <button
                   onClick={() => setShowAddMilestone(true)}
@@ -490,11 +539,11 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                 </div>
               )}
 
-              {plan.milestones.length === 0 ? (
+              {planMilestones.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl">No milestones yet</p>
               ) : (
                 <div className="space-y-2">
-                  {plan.milestones.map((milestone) => (
+                  {planMilestones.map((milestone) => (
                     <div key={milestone.id} className={`flex items-center gap-3 p-3 rounded-xl border ${milestone.completed ? 'bg-green-50 border-green-200' : 'bg-white border-gray-100'}`}>
                       <button
                         onClick={() => onUpdateMilestone(milestone.id, { completed: !milestone.completed })}
@@ -524,7 +573,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-gray-900 flex items-center gap-2">
                   <Package className="w-5 h-5 text-[#CFAFA3]" />
-                  Recommended Products ({plan.products.length})
+                  Recommended Products ({planProducts.length})
                 </h4>
                 <button
                   onClick={() => setShowAddProduct(true)}
@@ -588,11 +637,11 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                 </div>
               )}
 
-              {plan.products.length === 0 ? (
+              {planProducts.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl">No products yet</p>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
-                  {plan.products.map((product) => (
+                  {planProducts.map((product) => (
                     <div key={product.id} className="p-3 bg-white rounded-xl border border-gray-100">
                       <div className="flex items-start justify-between mb-2">
                         <div>
@@ -624,7 +673,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-gray-900 flex items-center gap-2">
                   <RotateCcw className="w-5 h-5 text-[#CFAFA3]" />
-                  Routines ({plan.routines.length})
+                  Routines ({planRoutines.length})
                 </h4>
                 <button
                   onClick={() => setShowAddRoutine(true)}
@@ -672,11 +721,11 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                 </div>
               )}
 
-              {plan.routines.length === 0 ? (
+              {planRoutines.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl">No routines yet</p>
               ) : (
                 <div className="space-y-2">
-                  {plan.routines.map((routine) => (
+                  {planRoutines.map((routine) => (
                     <div key={routine.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100">
                       <div>
                         <p className="font-medium text-gray-900">{fixUtf8Mojibake(routine.routine_name)}</p>
@@ -699,7 +748,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-medium text-gray-900 flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-[#CFAFA3]" />
-                  Scheduled Appointments ({plan.appointments.length})
+                  Scheduled Appointments ({planAppointments.length})
                 </h4>
                 <button
                   onClick={() => setShowAddAppointment(true)}
@@ -761,11 +810,11 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                 </div>
               )}
 
-              {plan.appointments.length === 0 ? (
+              {planAppointments.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl">No appointments scheduled</p>
               ) : (
                 <div className="space-y-2">
-                  {plan.appointments.map((apt) => (
+                  {planAppointments.map((apt) => (
                     <div key={apt.id} className={`flex items-center gap-3 p-3 rounded-xl border ${apt.completed ? 'bg-green-50 border-green-200' : 'bg-white border-gray-100'}`}>
                       <button
                         onClick={() => onUpdateAppointment(apt.id, { completed: !apt.completed })}
@@ -789,6 +838,92 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Attached PDFs Section */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-[#CFAFA3]" />
+                  Attached PDFs ({planPdfs.length})
+                </h4>
+                <button
+                  onClick={() => setShowAddPdf(!showAddPdf)}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#CFAFA3]/10 text-[#CFAFA3] rounded-lg text-sm font-medium hover:bg-[#CFAFA3]/20 transition-colors"
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </div>
+
+              {showAddPdf && (
+                <div className="bg-gray-50 rounded-xl p-4 mb-3">
+                  <p className="text-sm text-gray-700 mb-3">Select a PDF from your uploaded files to attach to this plan:</p>
+                  {loadingProfessionalPdfs ? (
+                    <div className="flex items-center gap-2 text-gray-500 py-4">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-sm">Loading your PDFs…</span>
+                    </div>
+                  ) : availablePdfs.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-2">No other PDFs available. Upload PDFs in the PDF Upload section first.</p>
+                  ) : (
+                    <ul className="space-y-2 max-h-48 overflow-y-auto">
+                      {availablePdfs.map((pdf) => (
+                        <li key={pdf.id} className="flex items-center justify-between gap-3 p-2 bg-white rounded-lg border border-gray-100">
+                          <span className="text-sm font-medium text-gray-800 truncate flex-1">{fixUtf8Mojibake(pdf.original_name)}</span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await onAddPdf(pdf.id);
+                              setShowAddPdf(false);
+                            }}
+                            className="px-3 py-1.5 bg-[#CFAFA3] text-white rounded-lg text-sm font-medium hover:bg-[#B89A8E]"
+                          >
+                            Attach
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button type="button" onClick={() => setShowAddPdf(false)} className="mt-3 text-sm text-gray-600 hover:text-gray-800">
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {planPdfs.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-xl">No PDFs yet</p>
+              ) : (
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left py-3 px-4 font-medium text-gray-700">Name</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-700">Date attached</th>
+                        <th className="w-20 py-3 px-4 font-medium text-gray-700 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {planPdfs.map((pdf) => (
+                        <tr key={pdf.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
+                          <td className="py-3 px-4 text-gray-900 truncate max-w-[200px]" title={pdf.original_name}>
+                            {fixUtf8Mojibake(pdf.original_name)}
+                          </td>
+                          <td className="py-3 px-4 text-gray-500">{new Date(pdf.created_at).toLocaleDateString()}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => openDeleteConfirmation('pdf', pdf.id, pdf.original_name)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
+                              title="Remove"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

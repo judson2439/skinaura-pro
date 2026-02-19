@@ -13,6 +13,7 @@ import {
   Bell,
   Rocket,
   Upload,
+  FileText,
   LucideIcon,
 } from 'lucide-react';
 import EncryptedImage from '../ui/encrypted-image';
@@ -51,6 +52,7 @@ export const PROFESSIONAL_NAV_ITEMS: NavItem[] = [
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'products', label: 'Product Library', icon: Package },
   { id: 'upload-logo', label: 'Upload Logo', icon: Upload },
+  { id: 'pdf-upload', label: 'PDF Upload', icon: FileText },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'help', label: 'Help & FAQ', icon: HelpCircle },
 ];

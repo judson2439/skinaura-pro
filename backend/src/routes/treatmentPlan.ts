@@ -11,6 +11,7 @@ interface TreatmentPlanMilestone { id: string; plan_id: string; title: string; d
 interface TreatmentPlanProduct { id: string; plan_id: string; product_name: string; product_brand: string | null; product_category: string | null; usage_instructions: string | null; priority: string; created_at: string; }
 interface TreatmentPlanRoutine { id: string; plan_id: string; routine_name: string; routine_type: string | null; notes: string | null; created_at: string; }
 interface TreatmentPlanAppointment { id: string; plan_id: string; appointment_type: string; scheduled_date: string; scheduled_time: string | null; duration_minutes: number; notes: string | null; completed: boolean; created_at: string; }
+interface TreatmentPlanPdf { id: string; plan_id: string; professional_pdf_upload_id: string; original_name: string; created_at: string; }
 interface UserProfile { id: string; full_name: string | null; avatar_url: string | null; }
 
 const authMiddleware = async (req: Request, res: Response, next: () => void): Promise<void> => {
@@ -44,13 +45,17 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const professionalId = (req as any).userId;
     const plans = await query<TreatmentPlan>("SELECT * FROM treatment_plans WHERE professional_id = $1 ORDER BY created_at DESC", [professionalId]);
-    if (plans.length === 0) { res.status(200).json({ success: true, data: { plans: [], milestones: [], products: [], routines: [], appointments: [] } }); return; }
+    if (plans.length === 0) { res.status(200).json({ success: true, data: { plans: [], milestones: [], products: [], routines: [], appointments: [], pdfs: [] } }); return; }
     const planIds = plans.map(p => p.id);
     const milestones = await query<TreatmentPlanMilestone>("SELECT * FROM treatment_plan_milestones WHERE plan_id = ANY($1) ORDER BY order_index ASC", [planIds]);
     const products = await query<TreatmentPlanProduct>("SELECT * FROM treatment_plan_products WHERE plan_id = ANY($1) ORDER BY created_at ASC", [planIds]);
     const routines = await query<TreatmentPlanRoutine>("SELECT * FROM treatment_plan_routines WHERE plan_id = ANY($1) ORDER BY created_at ASC", [planIds]);
     const appointments = await query<TreatmentPlanAppointment>("SELECT * FROM treatment_plan_appointments WHERE plan_id = ANY($1) ORDER BY scheduled_date ASC", [planIds]);
-    res.status(200).json({ success: true, data: { plans, milestones, products, routines, appointments } });
+    const pdfs = await query<TreatmentPlanPdf>(
+      "SELECT ttp.id, ttp.plan_id, ttp.professional_pdf_upload_id, p.original_name, ttp.created_at FROM treatment_plan_pdfs ttp JOIN professional_pdf_uploads p ON p.id = ttp.professional_pdf_upload_id WHERE ttp.plan_id = ANY($1) ORDER BY ttp.created_at ASC",
+      [planIds]
+    );
+    res.status(200).json({ success: true, data: { plans, milestones, products, routines, appointments, pdfs } });
   } catch (error) { console.error("Error fetching treatment plans:", error); res.status(500).json({ success: false, error: "Failed to fetch treatment plans" }); }
 });
 
@@ -87,6 +92,7 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
     await query("DELETE FROM treatment_plan_routines WHERE plan_id = $1", [planId]);
     await query("DELETE FROM treatment_plan_products WHERE plan_id = $1", [planId]);
     await query("DELETE FROM treatment_plan_milestones WHERE plan_id = $1", [planId]);
+    await query("DELETE FROM treatment_plan_pdfs WHERE plan_id = $1", [planId]);
     await query("DELETE FROM treatment_plans WHERE id = $1 AND professional_id = $2", [planId, professionalId]);
     res.status(200).json({ success: true, message: "Treatment plan deleted successfully" });
   } catch (error) { console.error("Error deleting treatment plan:", error); res.status(500).json({ success: false, error: "Failed to delete treatment plan" }); }
@@ -311,4 +317,54 @@ router.delete("/:planId/appointments/:appointmentId", async (req: Request, res: 
     
     res.status(200).json({ success: true, message: "Appointment deleted successfully" });
   } catch (error) { console.error("Error deleting appointment:", error); res.status(500).json({ success: false, error: "Failed to delete appointment" }); }
+});
+
+// ============================================================================
+// ATTACHED PDFs ENDPOINTS
+// ============================================================================
+
+// POST /treatment-plans/:planId/pdfs - Attach a professional PDF to the plan
+router.post("/:planId/pdfs", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const planId = req.params.planId;
+    const { pdf_upload_id } = req.body;
+    if (!pdf_upload_id) { res.status(400).json({ success: false, error: "pdf_upload_id is required" }); return; }
+
+    const plan = await queryOne<TreatmentPlan>("SELECT id FROM treatment_plans WHERE id = $1 AND professional_id = $2", [planId, professionalId]);
+    if (!plan) { res.status(404).json({ success: false, error: "Treatment plan not found" }); return; }
+
+    const pdfUpload = await queryOne<{ id: string }>("SELECT id FROM professional_pdf_uploads WHERE id = $1 AND professional_id = $2", [pdf_upload_id, professionalId]);
+    if (!pdfUpload) { res.status(404).json({ success: false, error: "PDF upload not found or not owned by you" }); return; }
+
+    const attachment = await queryOne<TreatmentPlanPdf>(
+      "INSERT INTO treatment_plan_pdfs (plan_id, professional_pdf_upload_id) VALUES ($1, $2) ON CONFLICT (plan_id, professional_pdf_upload_id) DO NOTHING RETURNING id, plan_id, professional_pdf_upload_id, created_at",
+      [planId, pdf_upload_id]
+    );
+    if (!attachment) {
+      res.status(200).json({ success: true, data: { attachment: null, message: "Already attached" } });
+      return;
+    }
+    const withName = await queryOne<TreatmentPlanPdf>(
+      "SELECT ttp.id, ttp.plan_id, ttp.professional_pdf_upload_id, p.original_name, ttp.created_at FROM treatment_plan_pdfs ttp JOIN professional_pdf_uploads p ON p.id = ttp.professional_pdf_upload_id WHERE ttp.id = $1",
+      [attachment.id]
+    );
+    await query("UPDATE treatment_plans SET updated_at = NOW() WHERE id = $1", [planId]);
+    res.status(201).json({ success: true, data: { attachment: withName || attachment } });
+  } catch (error) { console.error("Error attaching PDF:", error); res.status(500).json({ success: false, error: "Failed to attach PDF" }); }
+});
+
+// DELETE /treatment-plans/:planId/pdfs/:attachmentId - Remove PDF from plan
+router.delete("/:planId/pdfs/:attachmentId", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const { planId, attachmentId } = req.params;
+
+    const plan = await queryOne<TreatmentPlan>("SELECT id FROM treatment_plans WHERE id = $1 AND professional_id = $2", [planId, professionalId]);
+    if (!plan) { res.status(404).json({ success: false, error: "Treatment plan not found" }); return; }
+
+    await query("DELETE FROM treatment_plan_pdfs WHERE id = $1 AND plan_id = $2", [attachmentId, planId]);
+    await query("UPDATE treatment_plans SET updated_at = NOW() WHERE id = $1", [planId]);
+    res.status(200).json({ success: true, message: "PDF removed from plan" });
+  } catch (error) { console.error("Error removing PDF:", error); res.status(500).json({ success: false, error: "Failed to remove PDF" }); }
 });

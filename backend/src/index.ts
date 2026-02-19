@@ -4,7 +4,7 @@ import app from './app.js';
 import { env, validateEnv } from './config/env.js';
 import { testConnection, closePool } from './config/database.js';
 import { initLoginAttemptsTable } from './lib/accountLockout.js';
-import { initProfessionalInvitationNotificationsTable } from './routes/professional.js';
+import { initProfessionalInvitationNotificationsTable, initProfessionalPdfUploadsTable, initTreatmentPlanPdfsTable } from './routes/professional.js';
 
 // Validate environment variables
 validateEnv();
@@ -23,6 +23,12 @@ const initDatabase = async (): Promise<void> => {
   
   // Initialize professional invitation notifications table
   await initProfessionalInvitationNotificationsTable();
+
+  // Initialize professional PDF uploads table
+  await initProfessionalPdfUploadsTable();
+
+  // Initialize treatment plan PDFs junction table
+  await initTreatmentPlanPdfsTable();
 };
 
 /**

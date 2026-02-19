@@ -42,6 +42,17 @@ export interface TreatmentPlanAppointment {
   completed: boolean;
 }
 
+export interface TreatmentPlanPdf {
+  id: string;
+  plan_id: string;
+  professional_pdf_upload_id: string;
+  original_name: string;
+  created_at: string;
+  /** Required for client-side decryption when viewing PDF */
+  iv?: string;
+  mime_type?: string;
+}
+
 export interface TreatmentPlan {
   id: string;
   client_id: string;
@@ -56,6 +67,7 @@ export interface TreatmentPlan {
   products: TreatmentPlanProduct[];
   routines: TreatmentPlanRoutine[];
   appointments: TreatmentPlanAppointment[];
+  pdfs: TreatmentPlanPdf[];
   notes?: string;
   created_at: string;
   updated_at?: string;
@@ -107,8 +119,9 @@ export const getPriorityColor = (priority: string): string => {
 };
 
 export const calculatePlanProgress = (plan: TreatmentPlan): PlanProgress => {
-  const totalMilestones = plan.milestones.length;
-  const completedMilestones = plan.milestones.filter(m => m.completed).length;
+  const milestones = plan.milestones || [];
+  const totalMilestones = milestones.length;
+  const completedMilestones = milestones.filter(m => m.completed).length;
   
   const today = new Date();
   const endDate = new Date(plan.end_date);
