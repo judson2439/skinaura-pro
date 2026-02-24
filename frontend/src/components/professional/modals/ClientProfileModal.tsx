@@ -112,6 +112,11 @@ interface TreatmentPlan {
     priority: 'essential' | 'recommended' | 'optional';
     usage_instructions?: string;
   }[];
+  pdfs?: Array<{
+    id: string;
+    original_name: string;
+    created_at: string;
+  }>;
   notes?: string;
   created_at: string;
   updated_at: string;
@@ -1242,6 +1247,32 @@ const ClientProfileModal: React.FC<ClientProfileModalProps> = ({
                                                 {product.usage_instructions && (
                                                   <p className="text-sm text-gray-600">{product.usage_instructions}</p>
                                                 )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {plan.pdfs && plan.pdfs.length > 0 && (
+                                        <div>
+                                          <h5 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1">
+                                            <FileText className="w-4 h-4 text-[#CFAFA3]" /> Attached PDFs
+                                          </h5>
+                                          <div className="space-y-2">
+                                            {plan.pdfs.map((pdf) => (
+                                              <div
+                                                key={pdf.id}
+                                                className="flex items-center justify-between gap-3 p-4 rounded-xl border border-gray-100 bg-white hover:border-[#CFAFA3]/30 transition-colors"
+                                              >
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                  <FileText className="w-5 h-5 text-[#CFAFA3] flex-shrink-0" />
+                                                  <span className="text-sm font-medium text-gray-900 truncate">{pdf.original_name}</span>
+                                                  {pdf.created_at && (
+                                                    <span className="text-xs text-gray-500 flex-shrink-0">
+                                                      {new Date(pdf.created_at).toLocaleDateString()}
+                                                    </span>
+                                                  )}
+                                                </div>
                                               </div>
                                             ))}
                                           </div>

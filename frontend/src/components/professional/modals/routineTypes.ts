@@ -192,4 +192,6 @@ export const PRODUCT_TYPES = [
   'Eye Cream',
   'Mask',
   'Oil',
+  'Nutrition',
+  'Vitamins',
 ] as const;

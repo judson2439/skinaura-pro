@@ -147,7 +147,11 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, isOpen
                   />
                 ) : (
                   <p className="px-4 py-2.5 bg-gray-50 rounded-xl text-gray-900">
-                    {editedProduct.price ? `$${editedProduct.price.toFixed(2)}` : 'N/A'}
+                    {(() => {
+                      const p = editedProduct.price;
+                      const num = p != null && p !== '' ? Number(p) : NaN;
+                      return Number.isNaN(num) ? 'N/A' : `$${num.toFixed(2)}`;
+                    })()}
                   </p>
                 )}
               </div>

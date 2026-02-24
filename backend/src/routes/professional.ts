@@ -1688,13 +1688,13 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
       compliance_rate: complianceRate,
     };
 
-    // Fetch treatment plan details (milestones, products) if plans exist
-    let treatmentPlans: Array<TreatmentPlan & { milestones: TreatmentPlanMilestone[]; products: TreatmentPlanProduct[] }> = [];
+    // Fetch treatment plan details (milestones, products, PDFs) if plans exist
+    let treatmentPlans: Array<TreatmentPlan & { milestones: TreatmentPlanMilestone[]; products: TreatmentPlanProduct[]; pdfs: Array<{ id: string; original_name: string; created_at: string }> }> = [];
     
     if (treatmentPlansResult.length > 0) {
       const planIds = treatmentPlansResult.map(p => p.id);
 
-      const [milestonesResult, planProductsResult] = await Promise.all([
+      const [milestonesResult, planProductsResult, planPdfsResult] = await Promise.all([
         query<TreatmentPlanMilestone>(
           `SELECT * FROM treatment_plan_milestones WHERE plan_id = ANY($1) ORDER BY order_index`,
           [planIds]
@@ -1703,10 +1703,19 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
           `SELECT * FROM treatment_plan_products WHERE plan_id = ANY($1)`,
           [planIds]
         ),
+        query<{ id: string; plan_id: string; original_name: string; created_at: string }>(
+          `SELECT ttp.id, ttp.plan_id, p.original_name, ttp.created_at 
+           FROM treatment_plan_pdfs ttp
+           JOIN professional_pdf_uploads p ON p.id = ttp.professional_pdf_upload_id
+           WHERE ttp.plan_id = ANY($1)
+           ORDER BY ttp.created_at ASC`,
+          [planIds]
+        ),
       ]);
 
       const milestonesMap: Record<string, TreatmentPlanMilestone[]> = {};
       const productsMap: Record<string, TreatmentPlanProduct[]> = {};
+      const pdfsMap: Record<string, Array<{ id: string; original_name: string; created_at: string }>> = {};
 
       milestonesResult.forEach(m => {
         if (!milestonesMap[m.plan_id]) milestonesMap[m.plan_id] = [];
@@ -1718,11 +1727,21 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
         productsMap[p.plan_id].push(p);
       });
 
+      planPdfsResult.forEach(pdf => {
+        if (!pdfsMap[pdf.plan_id]) pdfsMap[pdf.plan_id] = [];
+        pdfsMap[pdf.plan_id].push({
+          id: pdf.id,
+          original_name: pdf.original_name,
+          created_at: pdf.created_at,
+        });
+      });
+
       treatmentPlans = treatmentPlansResult.map(plan => ({
         ...plan,
         goals: plan.goals || [],
         milestones: milestonesMap[plan.id] || [],
         products: productsMap[plan.id] || [],
+        pdfs: pdfsMap[plan.id] || [],
       }));
     }
 
@@ -1734,7 +1753,7 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
       schedule_type: string;
       assigned_at: string;
       is_active: boolean;
-      steps: AssignedRoutineStep[];
+      steps: Array<AssignedRoutineStep & { product_name?: string; product_type?: string; instructions?: string }>;
       professional_notes: string | null;
     }> = [];
 
@@ -1752,10 +1771,53 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
         ),
       ]);
 
-      const stepsMap: Record<string, AssignedRoutineStep[]> = {};
+      // Fetch step products with product details
+      const stepIds = stepsResult.map(s => s.id);
+      let stepProducts: Array<{
+        routine_step_id: string;
+        product_id: string;
+        name: string;
+        category: string | null;
+        notes: string | null;
+      }> = [];
+
+      if (stepIds.length > 0) {
+        stepProducts = await query<{
+          routine_step_id: string;
+          product_id: string;
+          name: string;
+          category: string | null;
+          notes: string | null;
+        }>(
+          `SELECT 
+            rsp.routine_step_id,
+            rsp.product_id,
+            p.name,
+            p.category,
+            rsp.notes
+           FROM routine_step_products rsp
+           JOIN products p ON rsp.product_id = p.id
+           WHERE rsp.routine_step_id = ANY($1)`,
+          [stepIds]
+        );
+      }
+
+      const stepProductsMap = new Map<string, typeof stepProducts[0]>();
+      stepProducts.forEach(sp => {
+        stepProductsMap.set(sp.routine_step_id, sp);
+      });
+
+      const stepsMap: Record<string, Array<AssignedRoutineStep & { product_name?: string; product_type?: string; instructions?: string }>> = {};
       stepsResult.forEach(s => {
+        const stepProduct = stepProductsMap.get(s.id);
+        const stepWithProduct: AssignedRoutineStep & { product_name?: string; product_type?: string; instructions?: string } = {
+          ...s,
+          product_name: stepProduct?.name || s.step_name,
+          product_type: stepProduct?.category ?? undefined,
+          instructions: stepProduct?.notes ?? s.description ?? undefined,
+        };
         if (!stepsMap[s.routine_id]) stepsMap[s.routine_id] = [];
-        stepsMap[s.routine_id].push(s);
+        stepsMap[s.routine_id].push(stepWithProduct);
       });
 
       assignedRoutines = assignmentsResult.map(a => {

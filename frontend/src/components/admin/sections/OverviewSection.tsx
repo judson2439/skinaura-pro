@@ -403,7 +403,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
                 <p className="text-sm font-medium text-gray-700 mb-3">Top Categories</p>
                 <div className="space-y-2">
                   {productStats.byCategory.map((cat, index) => (
-                    <div key={cat.category} className="flex items-center gap-3">
+                    <div key={`cat-${index}-${cat.category}`} className="flex items-center gap-3">
                       <div className="w-6 text-xs text-gray-400 text-right">{index + 1}.</div>
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
@@ -622,11 +622,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({ onRefresh }) => {
             <div className="mt-6 pt-6 border-t border-gray-100">
               <p className="text-sm font-medium text-gray-700 mb-4">User Levels Distribution</p>
               <div className="flex items-end gap-2 h-24">
-                {gamificationStats.topLevels.map((levelData) => {
+                {gamificationStats.topLevels.map((levelData, index) => {
                   const maxCount = Math.max(...gamificationStats.topLevels.map(l => l.count));
                   const height = (levelData.count / maxCount) * 100;
                   return (
-                    <div key={levelData.level} className="flex-1 flex flex-col items-center gap-1">
+                    <div key={`level-${levelData.level}-${index}`} className="flex-1 flex flex-col items-center gap-1">
                       <span className="text-xs text-gray-500">{levelData.count}</span>
                       <div 
                         className="w-full bg-gradient-to-t from-blue-500 to-blue-400 rounded-t-lg transition-all"

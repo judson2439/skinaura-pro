@@ -1022,6 +1022,252 @@ router.post('/routines/bulk-delete', async (req: Request, res: Response): Promis
 });
 
 // ============================================================================
+// TEMPLATE ROUTINE ENDPOINTS (template_routine_templates + template_routine_steps)
+// ============================================================================
+
+interface TemplateRoutineTemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  schedule_type: string;
+  schedule_days: string[] | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TemplateRoutineStepRow {
+  id: string;
+  routine_id: string;
+  step_order: number;
+  step_name: string;
+  description: string | null;
+  duration_seconds: number | null;
+  product_category: string | null;
+  product_recommendation: string | null;
+  tips: string | null;
+  is_optional: boolean;
+  created_at: string;
+}
+
+/**
+ * GET /admin/template-routines
+ * List all template routines with step count
+ */
+router.get('/template-routines', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rows = await query<TemplateRoutineTemplateRow & { steps_count: number }>(
+      `SELECT t.id, t.name, t.description, t.schedule_type, t.schedule_days,
+              t.is_active, t.created_at, t.updated_at,
+              COALESCE(
+                (SELECT COUNT(*)::int FROM template_routine_steps s WHERE s.routine_id = t.id),
+                0
+              ) as steps_count
+       FROM template_routine_templates t
+       ORDER BY t.created_at DESC`
+    );
+    res.status(200).json({
+      success: true,
+      data: { templates: rows },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching template routines:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch template routines',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /admin/template-routines/:id
+ * Get one template routine with its steps
+ */
+router.get('/template-routines/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const template = await queryOne<TemplateRoutineTemplateRow>(
+      `SELECT id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at
+       FROM template_routine_templates WHERE id = $1`,
+      [id]
+    );
+    if (!template) {
+      res.status(404).json({ success: false, error: 'Template routine not found' } as ApiResponse);
+      return;
+    }
+    const steps = await query<TemplateRoutineStepRow>(
+      `SELECT id, routine_id, step_order, step_name, description, duration_seconds,
+              product_category, product_recommendation, tips, is_optional, created_at
+       FROM template_routine_steps WHERE routine_id = $1 ORDER BY step_order ASC`,
+      [id]
+    );
+    res.status(200).json({
+      success: true,
+      data: { template, steps },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching template routine:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch template routine',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /admin/template-routines
+ * Create a template routine and optionally its steps
+ */
+router.post('/template-routines', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, description, schedule_type, schedule_days, is_active, steps } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ success: false, error: 'name is required' } as ApiResponse);
+      return;
+    }
+    if (!schedule_type || typeof schedule_type !== 'string') {
+      res.status(400).json({ success: false, error: 'schedule_type is required' } as ApiResponse);
+      return;
+    }
+    const scheduleDaysArray = Array.isArray(schedule_days) ? schedule_days : (schedule_days ? [schedule_days] : null);
+    const active = is_active !== false;
+
+    const template = await queryOne<TemplateRoutineTemplateRow>(
+      `INSERT INTO template_routine_templates (id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), NOW())
+       RETURNING id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at`,
+      [name.trim(), description?.trim() || null, schedule_type, scheduleDaysArray, active]
+    );
+    if (!template) {
+      res.status(500).json({ success: false, error: 'Failed to create template' } as ApiResponse);
+      return;
+    }
+
+    const routineId = template.id;
+    const stepsToInsert = Array.isArray(steps) ? steps : [];
+    for (let i = 0; i < stepsToInsert.length; i++) {
+      const step = stepsToInsert[i];
+      const stepOrder = typeof step.step_order === 'number' ? step.step_order : i + 1;
+      await query(
+        `INSERT INTO template_routine_steps (id, routine_id, step_order, step_name, description, duration_seconds, product_category, product_recommendation, tips, is_optional, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+        [
+          routineId,
+          stepOrder,
+          (step.step_name && String(step.step_name).trim()) || 'Step ' + (i + 1),
+          step.description ? String(step.description).trim() : null,
+          step.duration_seconds != null ? Number(step.duration_seconds) : null,
+          step.product_category ? String(step.product_category).trim() : null,
+          step.product_recommendation ? String(step.product_recommendation).trim() : null,
+          step.tips ? String(step.tips).trim() : null,
+          step.is_optional === true,
+        ]
+      );
+    }
+
+    const stepsList = await query<TemplateRoutineStepRow>(
+      `SELECT id, routine_id, step_order, step_name, description, duration_seconds,
+              product_category, product_recommendation, tips, is_optional, created_at
+       FROM template_routine_steps WHERE routine_id = $1 ORDER BY step_order ASC`,
+      [routineId]
+    );
+    res.status(201).json({
+      success: true,
+      data: { template, steps: stepsList },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error creating template routine:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create template routine',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PUT /admin/template-routines/:id
+ * Update a template routine and its steps
+ */
+router.put('/template-routines/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { name, description, schedule_type, schedule_days, is_active, steps } = req.body;
+
+    const existing = await queryOne<TemplateRoutineTemplateRow>(
+      `SELECT id FROM template_routine_templates WHERE id = $1`,
+      [id]
+    );
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Template routine not found' } as ApiResponse);
+      return;
+    }
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ success: false, error: 'name is required' } as ApiResponse);
+      return;
+    }
+    if (!schedule_type || typeof schedule_type !== 'string') {
+      res.status(400).json({ success: false, error: 'schedule_type is required' } as ApiResponse);
+      return;
+    }
+    const scheduleDaysArray = Array.isArray(schedule_days) ? schedule_days : (schedule_days ? [schedule_days] : null);
+    const active = is_active !== false;
+
+    await query(
+      `UPDATE template_routine_templates SET
+        name = $1, description = $2, schedule_type = $3, schedule_days = $4, is_active = $5, updated_at = NOW()
+       WHERE id = $6`,
+      [name.trim(), description?.trim() || null, schedule_type, scheduleDaysArray, active, id]
+    );
+
+    await query(`DELETE FROM template_routine_steps WHERE routine_id = $1`, [id]);
+
+    const stepsToInsert = Array.isArray(steps) ? steps : [];
+    for (let i = 0; i < stepsToInsert.length; i++) {
+      const step = stepsToInsert[i];
+      const stepOrder = typeof step.step_order === 'number' ? step.step_order : i + 1;
+      await query(
+        `INSERT INTO template_routine_steps (id, routine_id, step_order, step_name, description, duration_seconds, product_category, product_recommendation, tips, is_optional, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+        [
+          id,
+          stepOrder,
+          (step.step_name && String(step.step_name).trim()) || 'Step ' + (i + 1),
+          step.description ? String(step.description).trim() : null,
+          step.duration_seconds != null ? Number(step.duration_seconds) : null,
+          step.product_category ? String(step.product_category).trim() : null,
+          step.product_recommendation ? String(step.product_recommendation).trim() : null,
+          step.tips ? String(step.tips).trim() : null,
+          step.is_optional === true,
+        ]
+      );
+    }
+
+    const template = await queryOne<TemplateRoutineTemplateRow>(
+      `SELECT id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at
+       FROM template_routine_templates WHERE id = $1`,
+      [id]
+    );
+    const stepsList = await query<TemplateRoutineStepRow>(
+      `SELECT id, routine_id, step_order, step_name, description, duration_seconds,
+              product_category, product_recommendation, tips, is_optional, created_at
+       FROM template_routine_steps WHERE routine_id = $1 ORDER BY step_order ASC`,
+      [id]
+    );
+    res.status(200).json({
+      success: true,
+      data: { template, steps: stepsList },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error updating template routine:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update template routine',
+    } as ApiResponse);
+  }
+});
+
+// ============================================================================
 // PROGRESS PHOTOS MANAGEMENT ENDPOINTS
 // ============================================================================
 

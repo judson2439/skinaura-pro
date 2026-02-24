@@ -19,6 +19,8 @@ export const PRODUCT_CATEGORIES = [
   'Treatment',
   'Oil',
   'Mist',
+  'Nutrition',
+  'Vitamins',
   'Other',
 ];
 

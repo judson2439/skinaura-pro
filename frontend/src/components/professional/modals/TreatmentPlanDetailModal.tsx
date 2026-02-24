@@ -239,7 +239,7 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
   // Select options
   const categoryOptions = [
     { value: '', label: 'Category' },
-    ...createOptions(PRODUCT_CATEGORIES)
+    ...createOptions([...PRODUCT_CATEGORIES])
   ];
 
   const priorityOptions = [

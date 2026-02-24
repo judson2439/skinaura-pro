@@ -17,6 +17,7 @@ import OverviewSection from '@/components/admin/sections/OverviewSection';
 import UsersSection from '@/components/admin/sections/UsersSection';
 import ProductsSection from '@/components/admin/sections/ProductsSection';
 import RoutinesSection from '@/components/admin/sections/RoutinesSection';
+import RoutineTemplatesSection from '@/components/admin/sections/RoutineTemplatesSection';
 import ProgressPhotosSection from '@/components/admin/sections/ProgressPhotosSection';
 import AuditLogsSection from '@/components/admin/sections/AuditLogsSection';
 import { Loader2 } from 'lucide-react';
@@ -242,6 +243,10 @@ const Admin: React.FC = () => {
 
         {activeTab === 'routines' && (
           <RoutinesSection onRoutinesLoaded={handleRoutinesLoaded} />
+        )}
+
+        {activeTab === 'routine-templates' && (
+          <RoutineTemplatesSection />
         )}
 
         {activeTab === 'progress-photos' && (

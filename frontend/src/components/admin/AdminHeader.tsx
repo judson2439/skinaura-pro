@@ -16,6 +16,7 @@ import {
   Camera,
   ClipboardList,
   FileText,
+  LayoutTemplate,
 } from 'lucide-react';
 import { AdminTabType } from './types';
 
@@ -60,6 +61,7 @@ const AdminHeader: React.FC<AdminHeaderProps> = ({
     { id: 'users' as AdminTabType, label: 'Users', icon: Users },
     { id: 'products' as AdminTabType, label: 'Products', icon: Package },
     { id: 'routines' as AdminTabType, label: 'Routines', icon: ClipboardList },
+    { id: 'routine-templates' as AdminTabType, label: 'Routine Templates', icon: LayoutTemplate },
     { id: 'progress-photos' as AdminTabType, label: 'Progress Photos', icon: Camera },
     { id: 'audit-logs' as AdminTabType, label: 'Audit Logs', icon: FileText },
   ];
