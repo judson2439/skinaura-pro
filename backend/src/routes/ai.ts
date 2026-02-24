@@ -15,11 +15,14 @@ const PRODUCT_CATEGORIES = [
   'Moisturizer',
   'Sunscreen',
   'Treatment',
-  'Eye Cream',
+  'Eye Cream',  
   'Mask',
   'Oil',
-  'Nutrition',
-  'Vitamins',
+  'Exfoliant',
+  'Essence',
+  'Mist',
+  'Lip Care',
+  'Body Care',
 ];
 
 // Must match frontend SKIN_TYPES in productLibraryTypes.ts

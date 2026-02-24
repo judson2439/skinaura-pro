@@ -19,8 +19,8 @@ import {
 import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
 import {
-  AdminTemplateRoutineTemplate,
-  AdminTemplateRoutineStep,
+  AdminRoutineTemplate,
+  AdminRoutineStep,
   SCHEDULE_TYPES,
   PRODUCT_CATEGORIES,
 } from '../types';
@@ -47,8 +47,8 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const [template, setTemplate] = useState<AdminTemplateRoutineTemplate | null>(null);
-  const [steps, setSteps] = useState<AdminTemplateRoutineStep[]>([]);
+  const [template, setTemplate] = useState<AdminRoutineTemplate | null>(null);
+  const [steps, setSteps] = useState<AdminRoutineStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +80,7 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
         apiClient.setAuthToken(authToken);
         const response = await apiClient.get<{
           success: boolean;
-          data?: { template: AdminTemplateRoutineTemplate; steps: AdminTemplateRoutineStep[] };
+          data?: { template: AdminRoutineTemplate; steps: AdminRoutineStep[] };
         }>(`/api/admin/template-routines/${templateId}`);
 
         if (response.data.success && response.data.data) {
@@ -220,7 +220,7 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
 
       const response = await apiClient.put<{
         success: boolean;
-        data?: { template: AdminTemplateRoutineTemplate; steps: AdminTemplateRoutineStep[] };
+          data?: { template: AdminRoutineTemplate; steps: AdminRoutineStep[] };
         error?: string;
       }>(`/api/admin/template-routines/${templateId}`, payload);
 
