@@ -1,15 +1,16 @@
 /**
  * @fileoverview Create Template Routine Modal (Admin)
  * Matches professional "Create New Routine" + "Add New Step": template fields and step fields only.
- * Template: name, description, schedule (single select: Morning / Evening / Daily / Weekly).
+ * Template: name, description, schedule (single select: Morning / Evening / Custom / Weekly).
+ * When Custom: user picks specific dates (schedule_days).
  * Step: Product Name *, Instructions, Product Type.
  */
 
 import React, { useState } from 'react';
-import { X, Plus, Trash2, Loader2, Sun, Moon, Calendar, RefreshCw } from 'lucide-react';
+import { X, Plus, Trash2, Loader2, Sun, Moon, Calendar, CalendarRange } from 'lucide-react';
 import { getAuthToken } from '@/lib/authStorage';
 import { apiClient } from '@/lib/apiClient';
-import { PRODUCT_CATEGORIES } from '../types';
+import { PRODUCT_TYPES } from '@/components/professional/modals/routineTypes';
 
 interface StepForm {
   step_order: number;
@@ -18,7 +19,7 @@ interface StepForm {
   product_category: string; // Product Type
 }
 
-type ScheduleValue = 'morning' | 'evening' | 'daily' | 'weekly';
+type ScheduleValue = 'morning' | 'evening' | 'custom' | 'weekly';
 
 interface CreateTemplateRoutineModalProps {
   isOpen: boolean;
@@ -29,7 +30,7 @@ interface CreateTemplateRoutineModalProps {
 const SCHEDULE_OPTIONS: { value: ScheduleValue; label: string; icon: typeof Sun }[] = [
   { value: 'morning', label: 'Morning', icon: Sun },
   { value: 'evening', label: 'Evening', icon: Moon },
-  { value: 'daily', label: 'Daily', icon: RefreshCw },
+  { value: 'custom', label: 'Custom', icon: CalendarRange },
   { value: 'weekly', label: 'Weekly', icon: Calendar },
 ];
 
@@ -41,9 +42,23 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [schedule, setSchedule] = useState<ScheduleValue>('morning');
+  const [customDates, setCustomDates] = useState<string[]>([]);
+  const [newDateInput, setNewDateInput] = useState('');
   const [steps, setSteps] = useState<StepForm[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const addCustomDate = () => {
+    if (!newDateInput.trim()) return;
+    const dateStr = newDateInput.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    setCustomDates((prev) => (prev.includes(dateStr) ? prev : [...prev, dateStr].sort()));
+    setNewDateInput('');
+  };
+
+  const removeCustomDate = (dateStr: string) => {
+    setCustomDates((prev) => prev.filter((d) => d !== dateStr));
+  };
 
   const addStep = () => {
     setSteps((prev) => [
@@ -77,6 +92,10 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
       setError('Routine name is required.');
       return;
     }
+    if (schedule === 'custom' && customDates.length === 0) {
+      setError('Please add at least one date for Custom schedule.');
+      return;
+    }
     setError(null);
     setSaving(true);
 
@@ -93,7 +112,7 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
         name: name.trim(),
         description: description.trim() || null,
         schedule_type: schedule,
-        schedule_days: null,
+        schedule_days: schedule === 'custom' ? customDates : null,
         is_active: true,
         steps: steps
           .filter((s) => s.step_name.trim())
@@ -133,6 +152,8 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
     setName('');
     setDescription('');
     setSchedule('morning');
+    setCustomDates([]);
+    setNewDateInput('');
     setSteps([]);
     setError(null);
   };
@@ -206,6 +227,47 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
                 </button>
               ))}
             </div>
+            {schedule === 'custom' && (
+              <div className="mt-3 space-y-2">
+                <label className="block text-xs font-medium text-gray-600">Pick dates</label>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="date"
+                    value={newDateInput}
+                    onChange={(e) => setNewDateInput(e.target.value)}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomDate}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#CFAFA3] hover:bg-[#CFAFA3]/10 rounded-lg border border-[#CFAFA3] transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add date
+                  </button>
+                </div>
+                {customDates.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {customDates.map((d) => (
+                      <span
+                        key={d}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm"
+                      >
+                        {d}
+                        <button
+                          type="button"
+                          onClick={() => removeCustomDate(d)}
+                          className="p-0.5 hover:bg-gray-200 rounded"
+                          aria-label={`Remove ${d}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div>
@@ -264,7 +326,7 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent"
                     >
                       <option value="">Select type...</option>
-                      {PRODUCT_CATEGORIES.map((c) => (
+                      {PRODUCT_TYPES.map((c) => (
                         <option key={c} value={c}>
                           {c}
                         </option>
@@ -289,7 +351,7 @@ const CreateTemplateRoutineModal: React.FC<CreateTemplateRoutineModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || (schedule === 'custom' && customDates.length === 0)}
             className="flex-1 py-3 bg-[#CFAFA3] text-white rounded-xl font-medium hover:bg-[#B89A8E] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? (

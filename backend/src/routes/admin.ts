@@ -1267,6 +1267,39 @@ router.put('/template-routines/:id', async (req: Request, res: Response): Promis
   }
 });
 
+/**
+ * DELETE /admin/template-routines/:id
+ * Delete a template routine and its steps
+ */
+router.delete('/template-routines/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const existing = await queryOne<TemplateRoutineTemplateRow>(
+      `SELECT id FROM template_routine_templates WHERE id = $1`,
+      [id]
+    );
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Template routine not found' } as ApiResponse);
+      return;
+    }
+
+    await query(`DELETE FROM template_routine_steps WHERE routine_id = $1`, [id]);
+    await query(`DELETE FROM template_routine_templates WHERE id = $1 RETURNING id`, [id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Template routine deleted successfully',
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error deleting template routine:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete template routine',
+    } as ApiResponse);
+  }
+});
+
 // ============================================================================
 // PROGRESS PHOTOS MANAGEMENT ENDPOINTS
 // ============================================================================

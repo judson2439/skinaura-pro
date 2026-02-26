@@ -11,10 +11,11 @@ import {
   Search,
   RefreshCw,
   Eye,
+  Trash2,
   Sun,
   Moon,
   Calendar,
-  RefreshCw as DailyIcon,
+  CalendarRange,
   ClipboardList,
   ChevronDown,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ import {
 } from '../types';
 import CreateTemplateRoutineModal from '../modals/CreateTemplateRoutineModal';
 import TemplateRoutineDetailModal from '../modals/TemplateRoutineDetailModal';
+import TemplateRoutineDeleteModal from '../modals/TemplateRoutineDeleteModal';
 
 const RoutineTemplatesSection: React.FC = () => {
   const [templates, setTemplates] = useState<AdminRoutineTemplate[]>([]);
@@ -36,6 +38,13 @@ const RoutineTemplatesSection: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [templateToDelete, setTemplateToDelete] = useState<{
+    id: string;
+    name: string;
+    steps_count?: number;
+  } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchTemplates = async () => {
     const authToken = getAuthToken();
@@ -97,14 +106,59 @@ const RoutineTemplatesSection: React.FC = () => {
     setIsDetailModalOpen(false);
   };
 
+  const openDeleteModal = (template: AdminRoutineTemplate) => {
+    setDeleteError(null);
+    setTemplateToDelete({
+      id: template.id,
+      name: template.name,
+      steps_count: template.steps_count,
+    });
+  };
+
+  const closeDeleteModal = () => {
+    if (!deletingId) setTemplateToDelete(null);
+  };
+
+  const confirmDeleteTemplate = async () => {
+    if (!templateToDelete) return;
+    const authToken = getAuthToken();
+    if (!authToken) return;
+
+    const { id } = templateToDelete;
+    setDeleteError(null);
+    setDeletingId(id);
+    try {
+      apiClient.setAuthToken(authToken);
+      const response = await apiClient.delete<{ success: boolean; error?: string }>(
+        `/api/admin/template-routines/${id}`
+      );
+      if (response.data.success) {
+        setTemplateToDelete(null);
+        if (selectedTemplateId === id) {
+          setSelectedTemplateId(null);
+          setIsDetailModalOpen(false);
+        }
+        fetchTemplates();
+      } else {
+        setDeleteError(response.data.error || 'Failed to delete template.');
+      }
+    } catch (err) {
+      console.error('Error deleting template routine:', err);
+      setDeleteError('Failed to delete template routine. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const getScheduleIcon = (scheduleType: string) => {
     switch (scheduleType) {
       case 'morning':
         return <Sun className="w-4 h-4 text-amber-500" />;
       case 'evening':
         return <Moon className="w-4 h-4 text-indigo-500" />;
+      case 'custom':
       case 'daily':
-        return <DailyIcon className="w-4 h-4 text-green-500" />;
+        return <CalendarRange className="w-4 h-4 text-green-500" />;
       case 'weekly':
         return <Calendar className="w-4 h-4 text-purple-500" />;
       default:
@@ -205,7 +259,20 @@ const RoutineTemplatesSection: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {deleteError && (
+              <div className="mx-4 mt-4 p-3 rounded-xl bg-red-50 text-red-700 text-sm flex items-center justify-between">
+                <span>{deleteError}</span>
+                <button
+                  type="button"
+                  onClick={() => setDeleteError(null)}
+                  className="text-red-500 hover:text-red-700 font-medium"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/80">
@@ -249,7 +316,7 @@ const RoutineTemplatesSection: React.FC = () => {
                       <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
                         {getScheduleIcon(template.schedule_type)}
                         {SCHEDULE_TYPES.find((s) => s.value === template.schedule_type)?.label ||
-                          template.schedule_type}
+                          (template.schedule_type === 'daily' ? 'Custom' : template.schedule_type)}
                       </span>
                     </td>
                     <td className="py-3 px-4">
@@ -276,19 +343,35 @@ const RoutineTemplatesSection: React.FC = () => {
                         : '—'}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleViewTemplate(template.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleViewTemplate(template.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View
+                        </button>
+                        <button
+                          onClick={() => openDeleteModal(template)}
+                          disabled={deletingId === template.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Delete template"
+                        >
+                          {deletingId === template.id ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -303,6 +386,15 @@ const RoutineTemplatesSection: React.FC = () => {
         isOpen={isDetailModalOpen}
         onClose={handleCloseDetail}
         onSuccess={fetchTemplates}
+      />
+
+      <TemplateRoutineDeleteModal
+        templateName={templateToDelete?.name ?? ''}
+        stepsCount={templateToDelete?.steps_count ?? 0}
+        isOpen={templateToDelete !== null}
+        onClose={closeDeleteModal}
+        onConfirm={confirmDeleteTemplate}
+        isDeleting={deletingId !== null}
       />
     </div>
   );

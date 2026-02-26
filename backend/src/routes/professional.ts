@@ -3118,6 +3118,204 @@ router.get('/routines/:routineId/step-products', async (req: Request, res: Respo
   }
 });
 
+// ============================================================================
+// PLATFORM TEMPLATE ROUTINES (template_routine_templates + template_routine_steps)
+// Read-only for professionals to browse and use.
+// ============================================================================
+
+interface TemplateRoutineTemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  schedule_type: string;
+  schedule_days: string[] | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TemplateRoutineStepRow {
+  id: string;
+  routine_id: string;
+  step_order: number;
+  step_name: string;
+  description: string | null;
+  duration_seconds: number | null;
+  product_category: string | null;
+  product_recommendation: string | null;
+  tips: string | null;
+  is_optional: boolean;
+  created_at: string;
+}
+
+/**
+ * GET /professional/template-routines
+ * List platform template routines with steps (for "Use Templates" modal)
+ */
+router.get('/template-routines', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rows = await query<TemplateRoutineTemplateRow & { steps_count: number }>(
+      `SELECT t.id, t.name, t.description, t.schedule_type, t.schedule_days,
+              t.is_active, t.created_at, t.updated_at,
+              COALESCE(
+                (SELECT COUNT(*)::int FROM template_routine_steps s WHERE s.routine_id = t.id),
+                0
+              ) as steps_count
+       FROM template_routine_templates t
+       WHERE t.is_active = true
+       ORDER BY t.created_at DESC`
+    );
+
+    const templateIds = rows.map((r) => r.id);
+    const stepsByRoutine: Record<string, { step_order: number; step_name: string }[]> = {};
+    if (templateIds.length > 0) {
+      const steps = await query<{ routine_id: string; step_order: number; step_name: string }>(
+        `SELECT routine_id, step_order, step_name
+         FROM template_routine_steps
+         WHERE routine_id = ANY($1)
+         ORDER BY routine_id, step_order ASC`,
+        [templateIds]
+      );
+      for (const s of steps) {
+        if (!stepsByRoutine[s.routine_id]) stepsByRoutine[s.routine_id] = [];
+        stepsByRoutine[s.routine_id].push({ step_order: s.step_order, step_name: s.step_name });
+      }
+    }
+
+    const templates = rows.map((r) => ({
+      ...r,
+      steps: stepsByRoutine[r.id] || [],
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: { templates },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching template routines:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch template routines',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * POST /professional/template-routines/:id/apply
+ * Copy a platform template into the professional's routines (routine_templates + routine_steps)
+ */
+router.post('/template-routines/:id/apply', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const templateId = req.params.id;
+
+    const template = await queryOne<TemplateRoutineTemplateRow>(
+      `SELECT id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at
+       FROM template_routine_templates WHERE id = $1 AND is_active = true`,
+      [templateId]
+    );
+    if (!template) {
+      res.status(404).json({ success: false, error: 'Template routine not found' } as ApiResponse);
+      return;
+    }
+
+    const newRoutine = await queryOne<{ id: string; name: string; schedule_type: string }>(
+      `INSERT INTO routine_templates (professional_id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
+       RETURNING id, name, schedule_type`,
+      [
+        professionalId,
+        template.name,
+        template.description,
+        template.schedule_type,
+        template.schedule_days,
+      ]
+    );
+    if (!newRoutine) {
+      res.status(500).json({ success: false, error: 'Failed to create routine' } as ApiResponse);
+      return;
+    }
+
+    const templateSteps = await query<TemplateRoutineStepRow>(
+      `SELECT id, routine_id, step_order, step_name, description, duration_seconds,
+              product_category, product_recommendation, tips, is_optional, created_at
+       FROM template_routine_steps WHERE routine_id = $1 ORDER BY step_order ASC`,
+      [templateId]
+    );
+
+    for (const step of templateSteps) {
+      await query(
+        `INSERT INTO routine_steps (routine_id, step_order, step_name, description, duration_seconds, product_category, product_recommendation, tips, is_optional, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+        [
+          newRoutine.id,
+          step.step_order,
+          step.step_name,
+          step.description,
+          step.duration_seconds,
+          step.product_category,
+          step.product_recommendation,
+          step.tips,
+          step.is_optional,
+        ]
+      );
+    }
+
+    const newSteps = await query<TemplateRoutineStepRow>(
+      `SELECT id, routine_id, step_order, step_name, description, duration_seconds,
+              product_category, product_recommendation, tips, is_optional, created_at
+       FROM routine_steps WHERE routine_id = $1 ORDER BY step_order ASC`,
+      [newRoutine.id]
+    );
+
+    res.status(201).json({
+      success: true,
+      data: { routine: newRoutine, steps: newSteps },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error applying template routine:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to apply template routine',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/template-routines/:id
+ * Get one platform template routine with its steps
+ */
+router.get('/template-routines/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const template = await queryOne<TemplateRoutineTemplateRow>(
+      `SELECT id, name, description, schedule_type, schedule_days, is_active, created_at, updated_at
+       FROM template_routine_templates WHERE id = $1 AND is_active = true`,
+      [id]
+    );
+    if (!template) {
+      res.status(404).json({ success: false, error: 'Template routine not found' } as ApiResponse);
+      return;
+    }
+    const steps = await query<TemplateRoutineStepRow>(
+      `SELECT id, routine_id, step_order, step_name, description, duration_seconds,
+              product_category, product_recommendation, tips, is_optional, created_at
+       FROM template_routine_steps WHERE routine_id = $1 ORDER BY step_order ASC`,
+      [id]
+    );
+    res.status(200).json({
+      success: true,
+      data: { template, steps },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('Error fetching template routine:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch template routine',
+    } as ApiResponse);
+  }
+});
+
 /**
  * GET /professional/products/list
  * Fetch products for the professional (owned or global)

@@ -10,7 +10,7 @@ import {
   Sun,
   Moon,
   Calendar,
-  RefreshCw,
+  CalendarRange,
   Package,
   Edit2,
   Trash2,
@@ -24,6 +24,7 @@ import {
   SCHEDULE_TYPES,
   PRODUCT_CATEGORIES,
 } from '../types';
+import { PRODUCT_TYPES } from '@/components/professional/modals/routineTypes';
 
 interface TemplateRoutineDetailModalProps {
   templateId: string | null;
@@ -32,12 +33,12 @@ interface TemplateRoutineDetailModalProps {
   onSuccess?: () => void;
 }
 
-type ScheduleValue = 'morning' | 'evening' | 'daily' | 'weekly';
+type ScheduleValue = 'morning' | 'evening' | 'custom' | 'weekly';
 
 const SCHEDULE_OPTIONS: { value: ScheduleValue; label: string; icon: typeof Sun }[] = [
   { value: 'morning', label: 'Morning', icon: Sun },
   { value: 'evening', label: 'Evening', icon: Moon },
-  { value: 'daily', label: 'Daily', icon: RefreshCw },
+  { value: 'custom', label: 'Custom', icon: CalendarRange },
   { value: 'weekly', label: 'Weekly', icon: Calendar },
 ];
 
@@ -58,6 +59,8 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formSchedule, setFormSchedule] = useState<ScheduleValue>('morning');
+  const [formScheduleDays, setFormScheduleDays] = useState<string[]>([]);
+  const [formNewDateInput, setFormNewDateInput] = useState('');
   const [formIsActive, setFormIsActive] = useState(true);
   const [formSteps, setFormSteps] = useState<{ step_order: number; step_name: string; description: string; product_category: string }[]>([]);
 
@@ -90,7 +93,8 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
           setSteps(s);
           setFormName(t.name);
           setFormDescription(t.description || '');
-          setFormSchedule((t.schedule_type as ScheduleValue) || 'morning');
+          setFormSchedule((t.schedule_type === 'daily' ? 'custom' : (t.schedule_type as ScheduleValue)) || 'morning');
+          setFormScheduleDays(Array.isArray(t.schedule_days) ? t.schedule_days : []);
           setFormIsActive(t.is_active);
           setFormSteps(
             s.length > 0
@@ -122,8 +126,9 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
         return <Sun className="w-4 h-4 text-amber-500" />;
       case 'evening':
         return <Moon className="w-4 h-4 text-indigo-500" />;
+      case 'custom':
       case 'daily':
-        return <RefreshCw className="w-4 h-4 text-green-500" />;
+        return <CalendarRange className="w-4 h-4 text-green-500" />;
       case 'weekly':
         return <Calendar className="w-4 h-4 text-purple-500" />;
       default:
@@ -131,10 +136,24 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
     }
   };
 
+  const addFormScheduleDate = () => {
+    if (!formNewDateInput.trim()) return;
+    const dateStr = formNewDateInput.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    if (formScheduleDays.includes(dateStr)) return;
+    setFormScheduleDays((prev) => [...prev, dateStr].sort());
+    setFormNewDateInput('');
+  };
+
+  const removeFormScheduleDate = (dateStr: string) => {
+    setFormScheduleDays((prev) => prev.filter((d) => d !== dateStr));
+  };
+
   const handleEdit = () => {
     setFormName(template?.name ?? '');
     setFormDescription(template?.description ?? '');
-    setFormSchedule((template?.schedule_type as ScheduleValue) ?? 'morning');
+    setFormSchedule((template?.schedule_type === 'daily' ? 'custom' : (template?.schedule_type as ScheduleValue)) ?? 'morning');
+    setFormScheduleDays(Array.isArray(template?.schedule_days) ? template.schedule_days : []);
     setFormIsActive(template?.is_active ?? true);
     setFormSteps(
       steps.map((st) => ({
@@ -190,6 +209,10 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
       setError('Routine name is required.');
       return;
     }
+    if (formSchedule === 'custom' && formScheduleDays.length === 0) {
+      setError('Please add at least one date for Custom schedule.');
+      return;
+    }
 
     const authToken = getAuthToken();
     if (!authToken) return;
@@ -202,7 +225,7 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
         name: formName.trim(),
         description: formDescription.trim() || null,
         schedule_type: formSchedule,
-        schedule_days: null,
+        schedule_days: formSchedule === 'custom' ? formScheduleDays : null,
         is_active: formIsActive,
         steps: formSteps
           .filter((s) => s.step_name.trim())
@@ -286,7 +309,7 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
                     <span className="inline-flex items-center gap-1.5 text-sm text-gray-600">
                       {getScheduleIcon(template.schedule_type)}
                       {SCHEDULE_TYPES.find((s) => s.value === template.schedule_type)?.label ||
-                        template.schedule_type}
+                        (template.schedule_type === 'daily' ? 'Custom' : template.schedule_type)}
                     </span>
                     {template.schedule_days && template.schedule_days.length > 0 && (
                       <span className="text-sm text-gray-500">
@@ -383,6 +406,47 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
                       </button>
                     ))}
                   </div>
+                  {formSchedule === 'custom' && (
+                    <div className="mt-3 space-y-2">
+                      <label className="block text-xs font-medium text-gray-600">Pick dates</label>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <input
+                          type="date"
+                          value={formNewDateInput}
+                          onChange={(e) => setFormNewDateInput(e.target.value)}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent"
+                        />
+                        <button
+                          type="button"
+                          onClick={addFormScheduleDate}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#CFAFA3] hover:bg-[#CFAFA3]/10 rounded-lg border border-[#CFAFA3] transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add date
+                        </button>
+                      </div>
+                      {formScheduleDays.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {formScheduleDays.map((d) => (
+                            <span
+                              key={d}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm"
+                            >
+                              {d}
+                              <button
+                                type="button"
+                                onClick={() => removeFormScheduleDate(d)}
+                                className="p-0.5 hover:bg-gray-200 rounded"
+                                aria-label={`Remove ${d}`}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -453,7 +517,7 @@ const TemplateRoutineDetailModal: React.FC<TemplateRoutineDetailModalProps> = ({
                             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-[#CFAFA3] focus:border-transparent"
                           >
                             <option value="">Select type...</option>
-                            {PRODUCT_CATEGORIES.map((c) => (
+                            {PRODUCT_TYPES.map((c) => (
                               <option key={c} value={c}>
                                 {c}
                               </option>

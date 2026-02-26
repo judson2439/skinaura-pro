@@ -10,6 +10,7 @@ import {
   AlertCircle,
   AlertTriangle,
   X,
+  Layers,
 } from 'lucide-react';
 import {
   Routine,
@@ -29,6 +30,7 @@ import CreateRoutineModal from '@/components/professional/modals/CreateRoutineMo
 import EditRoutineModal from '@/components/professional/modals/EditRoutineModal';
 import AssignRoutineModal from '@/components/professional/modals/AssignRoutineModal';
 import AddClientPlaceholderModal from '@/components/professional/modals/AddClientPlaceholderModal';
+import UseTemplatesModal from '@/components/professional/modals/UseTemplatesModal';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
 import { getAuthSession } from '@/lib/authStorage';
@@ -176,6 +178,7 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showUseTemplatesModal, setShowUseTemplatesModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -851,12 +854,21 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
           <h2 className="text-2xl font-serif font-bold text-gray-900">Routine Templates</h2>
           <p className="text-gray-500">Create and manage skincare routines for your clients</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white rounded-xl font-medium hover:shadow-lg transition-all"
-        >
-          <Plus className="w-5 h-5" /> Create Routine
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowUseTemplatesModal(true)}
+            className="flex items-center gap-2 px-4 py-2 border-2 border-[#CFAFA3] text-[#B89A8E] rounded-xl font-medium hover:bg-[#CFAFA3]/10 transition-all"
+          >
+            <Layers className="w-5 h-5" /> Use Templates
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#CFAFA3] to-[#B89A8E] text-white rounded-xl font-medium hover:shadow-lg transition-all"
+          >
+            <Plus className="w-5 h-5" /> Create Routine
+          </button>
+        </div>
       </div>
 
       {/* Error State */}
@@ -982,6 +994,12 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onCreate={handleCreateRoutine}
+      />
+
+      <UseTemplatesModal
+        isOpen={showUseTemplatesModal}
+        onClose={() => setShowUseTemplatesModal(false)}
+        onApplySuccess={fetchRoutines}
       />
 
       <EditRoutineModal

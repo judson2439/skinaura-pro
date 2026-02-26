@@ -168,6 +168,6 @@ export interface AdminRoutineStep {
 export const SCHEDULE_TYPES = [
   { value: 'morning', label: 'Morning' },
   { value: 'evening', label: 'Evening' },
-  { value: 'daily', label: 'Daily' },
+  { value: 'custom', label: 'Custom' },
   { value: 'weekly', label: 'Weekly' },
 ];
