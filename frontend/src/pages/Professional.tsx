@@ -11,6 +11,7 @@ import ProfessionalDashboardSection from '@/components/professional/sections/Pro
 import OnboardingSection from '@/components/professional/sections/OnboardingSection';
 import MyClientsSection from '@/components/professional/sections/MyClientsSection';
 import ClientPhotosSection from '@/components/professional/sections/ClientPhotosSection';
+import ClientFacialScanSection from '@/components/professional/sections/ClientFacialScanSection';
 import ManageRoutinesSection from '@/components/professional/sections/ManageRoutinesSection';
 import TreatmentPlansSection from '@/components/professional/sections/TreatmentPlansSection';
 import AnalyticsSection from '@/components/professional/sections/AnalyticsSection';
@@ -344,6 +345,8 @@ const ProfessionalPage: React.FC = () => {
         );
       case 'photos':
         return <ClientPhotosSection />;
+      case 'facial-scan-reports':
+        return <ClientFacialScanSection />;
       case 'routines':
         return (
           <ManageRoutinesSection

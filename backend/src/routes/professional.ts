@@ -1101,6 +1101,36 @@ interface UserProfile {
   role: string | null;
 }
 
+interface SkinAnalysisEntry {
+  id: string;
+  user_id: string;
+  sent: boolean;
+  checked: boolean;
+  original_area: string | null;
+  skin_health: number | null;
+  finewrinkles: number | null;
+  eyewrinkles: number | null;
+  deepwrinkles: number | null;
+  darkcircle: number | null;
+  eyebag: number | null;
+  pores: number | null;
+  pigment: number | null;
+  redness: number | null;
+  oiliness: number | null;
+  acne: number | null;
+  finewrinkles_area: string | null;
+  eyewrinkles_area: string | null;
+  deepwrinkles_area: string | null;
+  darkcircle_area: string | null;
+  eyebag_area: string | null;
+  pores_area: string | null;
+  pigment_area: string | null;
+  redness_area: string | null;
+  oiliness_area: string | null;
+  acne_area: string | null;
+  created_at: string;
+}
+
 /**
  * GET /professional/client-photos
  * Get all progress photos from clients linked to this professional
@@ -1154,6 +1184,115 @@ router.get('/client-photos', async (req: Request, res: Response): Promise<void> 
     res.status(500).json({
       success: false,
       error: 'Failed to fetch client photos',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * GET /professional/facial-scan-reports
+ * Get skin_analysis records for active clients where sent = true
+ */
+router.get('/facial-scan-reports', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+
+    console.log(`🔬 Fetching facial scan reports for professional: ${professionalId}`);
+
+    // Step 1: Get client_ids from client_professional_relationships (active only)
+    const relationships = await query<{ client_id: string }>(
+      `SELECT client_id FROM client_professional_relationships
+       WHERE professional_id = $1 AND status = 'active'`,
+      [professionalId]
+    );
+
+    const clientIds = relationships.map(r => r.client_id);
+
+    if (clientIds.length === 0) {
+      res.status(200).json({
+        success: true,
+        data: { analyses: [], clients: [] },
+      } as ApiResponse);
+      return;
+    }
+
+    // Step 2: Get skin_analysis where user_id IN (client_ids) AND sent = true
+    const analyses = await query<SkinAnalysisEntry>(
+      `SELECT * FROM skin_analysis
+       WHERE user_id = ANY($1) AND sent = true
+       ORDER BY created_at DESC`,
+      [clientIds]
+    );
+
+    // Step 3: Get client profiles for display
+    const clients = await query<UserProfile>(
+      `SELECT id, email, full_name, avatar_url, role FROM user_profiles WHERE id = ANY($1)`,
+      [clientIds]
+    );
+
+    console.log(`✅ Found ${analyses.length} facial scan reports from ${clients.length} clients`);
+
+    res.status(200).json({
+      success: true,
+      data: { analyses, clients },
+    } as ApiResponse);
+
+  } catch (error) {
+    console.error('❌ Error fetching facial scan reports:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch facial scan reports',
+    } as ApiResponse);
+  }
+});
+
+/**
+ * PATCH /professional/facial-scan-reports/:id/check
+ * Mark a facial scan report as checked when the professional opens the detail modal
+ */
+router.patch('/facial-scan-reports/:id/check', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const reportId = req.params.id;
+
+    // Get active client ids for this professional
+    const relationships = await query<{ client_id: string }>(
+      `SELECT client_id FROM client_professional_relationships
+       WHERE professional_id = $1 AND status = 'active'`,
+      [professionalId]
+    );
+    const clientIds = relationships.map(r => r.client_id);
+
+    if (clientIds.length === 0) {
+      res.status(403).json({ success: false, error: 'No active clients' } as ApiResponse);
+      return;
+    }
+
+    // Verify the report belongs to one of the professional's clients, then set checked = true
+    const updated = await queryOne<SkinAnalysisEntry>(
+      `UPDATE skin_analysis
+       SET checked = true
+       WHERE id = $1 AND user_id = ANY($2) AND sent = true
+       RETURNING *`,
+      [reportId, clientIds]
+    );
+
+    if (!updated) {
+      res.status(404).json({
+        success: false,
+        error: 'Report not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { analysis: updated },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error marking facial scan report as checked:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update report',
     } as ApiResponse);
   }
 });

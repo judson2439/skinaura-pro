@@ -14,6 +14,7 @@ import {
   Rocket,
   Upload,
   FileText,
+  ScanFace,
   LucideIcon,
 } from 'lucide-react';
 import EncryptedImage from '../ui/encrypted-image';
@@ -47,6 +48,7 @@ export const PROFESSIONAL_NAV_ITEMS: NavItem[] = [
   { id: 'onboarding', label: 'Onboarding', icon: Rocket },
   { id: 'clients', label: 'My Clients', icon: Users },
   { id: 'photos', label: 'Client Photos', icon: Camera },
+  { id: 'facial-scan-reports', label: 'Facial Scan', icon: ScanFace },
   { id: 'routines', label: 'Manage Routines', icon: Clock },
   { id: 'treatments', label: 'Treatment Plans', icon: ClipboardList },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
