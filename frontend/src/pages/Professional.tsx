@@ -19,6 +19,8 @@ import ProductLibrarySection from '@/components/professional/sections/ProductLib
 import NotificationsSection from '@/components/professional/sections/NotificationsSection';
 import UploadLogoSection from '@/components/professional/sections/UploadLogoSection';
 import PdfUploadSection from '@/components/professional/sections/PdfUploadSection';
+import NewPageSection from '@/components/professional/sections/NewPageSection';
+import ConsultSection from '@/components/professional/sections/ConsultSection';
 import HelpSection from '@/components/client/sections/HelpSection';
 import ProfileSection from '@/components/shared/ProfileSection';
 import ClientProfileModal, { ClientProfile } from '@/components/professional/modals/ClientProfileModal';
@@ -374,6 +376,18 @@ const ProfessionalPage: React.FC = () => {
       case 'upload-logo':
         return (
           <UploadLogoSection
+            onNavigateToView={handleNavigateToView}
+          />
+        );
+      case 'consult':
+        return (
+          <ConsultSection
+            onNavigateToView={handleNavigateToView}
+          />
+        );
+      case 'new-page':
+        return (
+          <NewPageSection
             onNavigateToView={handleNavigateToView}
           />
         );
