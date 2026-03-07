@@ -216,7 +216,7 @@ router.get('/notifications/unread-count', async (req: Request, res: Response): P
     // and sender_type is 'client' or null (messages from clients)
     const result = await query<{ count: string }>(
       `SELECT COUNT(*) as count 
-       FROM routine_notes 
+       FROM notification 
        WHERE professional_id = $1 
          AND read_status = false 
          AND professional_deleted = false
@@ -260,7 +260,7 @@ router.get('/notifications', async (req: Request, res: Response): Promise<void> 
 
     const notifications = await query<RoutineNote>(
       `SELECT rn.*, up.full_name as client_name, up.avatar_url as client_avatar
-       FROM routine_notes rn
+       FROM notification rn
        LEFT JOIN user_profiles up ON rn.client_id = up.id
        WHERE rn.professional_id = $1 
          AND rn.professional_deleted = false
@@ -302,7 +302,7 @@ router.patch('/notifications/:id/read', async (req: Request, res: Response): Pro
     console.log(`📝 Marking notification ${notificationId} as read`);
 
     await query(
-      `UPDATE routine_notes 
+      `UPDATE notification 
        SET read_status = true 
        WHERE id = $1 AND professional_id = $2`,
       [notificationId, professionalId]
@@ -339,7 +339,7 @@ router.patch('/notifications/read-all', async (req: Request, res: Response): Pro
     console.log(`📝 Marking all notifications as read for professional: ${professionalId}`);
 
     const result = await query(
-      `UPDATE routine_notes 
+      `UPDATE notification 
        SET read_status = true 
        WHERE professional_id = $1 
          AND read_status = false
@@ -380,7 +380,7 @@ router.delete('/notifications/:id', async (req: Request, res: Response): Promise
     console.log(`🗑️ Deleting notification ${notificationId}`);
 
     await query(
-      `UPDATE routine_notes 
+        `UPDATE notification 
        SET professional_deleted = true 
        WHERE id = $1 AND professional_id = $2`,
       [notificationId, professionalId]
@@ -826,7 +826,7 @@ router.get('/notifications/grouped', async (req: Request, res: Response): Promis
       created_at: string;
     }>(
       `SELECT id, client_id, content, sender_type, read_status, created_at
-       FROM routine_notes
+       FROM notification
        WHERE professional_id = $1
          AND professional_deleted = false
        ORDER BY created_at DESC`,
@@ -934,7 +934,7 @@ router.get('/chat/:clientId', async (req: Request, res: Response): Promise<void>
       created_at: string;
     }>(
       `SELECT id, client_id, professional_id, content, sender_type, read_status, created_at
-       FROM routine_notes
+       FROM notification
        WHERE client_id = $1
          AND professional_id = $2
          AND professional_deleted = false
@@ -991,7 +991,7 @@ router.post('/chat/:clientId', async (req: Request, res: Response): Promise<void
       read_status: boolean;
       created_at: string;
     }>(
-      `INSERT INTO routine_notes (client_id, professional_id, content, sender_type, read_status, client_deleted, professional_deleted)
+      `INSERT INTO notification (client_id, professional_id, content, sender_type, read_status, client_deleted, professional_deleted)
        VALUES ($1, $2, $3, 'professional', false, false, false)
        RETURNING id, client_id, professional_id, content, sender_type, read_status, created_at`,
       [clientId, professionalId, content.trim()]
@@ -1029,7 +1029,7 @@ router.patch('/chat/:clientId/mark-read', async (req: Request, res: Response): P
     console.log(`✅ Marking messages from client ${clientId} as read`);
 
     await query(
-      `UPDATE routine_notes
+      `UPDATE notification
        SET read_status = true
        WHERE client_id = $1
          AND professional_id = $2
@@ -1644,13 +1644,14 @@ router.delete('/photos/:photoId/annotations/:annotationId', async (req: Request,
 // CLIENT PROFILE ENDPOINTS (for ClientProfileModal)
 // ============================================================================
 
+/** Notification row used as "client note" (from notification table) */
 interface ClientNote {
   id: string;
   client_id: string;
   professional_id: string;
   content: string;
   created_at: string;
-  updated_at: string | null;
+  updated_at?: string | null;
 }
 
 interface ClientProduct {
@@ -1797,10 +1798,14 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
         [clientId]
       ),
 
-      // Client notes
-      query<ClientNote>(
-        `SELECT * FROM client_notes WHERE client_id = $1 ORDER BY created_at DESC`,
-        [clientId]
+      // Client notes (from notification table; chat thread, chronological for UI)
+      query<ClientNote & { sender_type: string | null }>(
+        `SELECT id, client_id, professional_id, content, created_at, sender_type
+         FROM notification
+         WHERE client_id = $1 AND professional_id = $2
+           AND (professional_deleted = false OR professional_deleted IS NULL)
+         ORDER BY created_at ASC`,
+        [clientId, professionalId]
       ),
     ]);
 
@@ -1996,13 +2001,17 @@ router.get('/clients/:clientId/profile', async (req: Request, res: Response): Pr
       created_at: p.created_at,
     }));
 
-    // Format notes
-    const notes = notesResult.map(n => ({
-      id: n.id,
-      content: n.content,
-      created_at: n.created_at,
-      updated_at: n.updated_at || undefined,
-    }));
+    // Format notes (include sender_type for chat UI; null = legacy professional note)
+    const notes = notesResult.map(n => {
+      const raw = n as { sender_type?: string | null };
+      return {
+        id: n.id,
+        content: n.content,
+        created_at: n.created_at,
+        updated_at: (n as { updated_at?: string }).updated_at || undefined,
+        sender_type: raw.sender_type ?? 'professional',
+      };
+    });
 
     // Audit log: Professional accessing client's full PHI profile
     await logAuditFromRequest(req, 'VIEW', 'user_profile', clientId, {
@@ -2121,18 +2130,26 @@ router.get('/clients/:clientId/notes', async (req: Request, res: Response): Prom
       return;
     }
 
-    const notes = await query<ClientNote>(
-      `SELECT * FROM client_notes 
+    const notes = await query<ClientNote & { sender_type: string | null }>(
+      `SELECT id, client_id, professional_id, content, created_at, sender_type
+       FROM notification
        WHERE client_id = $1 AND professional_id = $2
-       ORDER BY created_at DESC`,
+         AND (professional_deleted = false OR professional_deleted IS NULL)
+       ORDER BY created_at ASC`,
       [clientId, professionalId]
     );
+
+    // Normalize sender_type for chat UI (null = legacy professional note)
+    const notesForClient = notes.map(n => ({
+      ...n,
+      sender_type: n.sender_type ?? 'professional',
+    }));
 
     console.log(`✅ Found ${notes.length} notes`);
 
     res.status(200).json({
       success: true,
-      data: { notes },
+      data: { notes: notesForClient },
     } as ApiResponse);
 
   } catch (error) {
@@ -2180,9 +2197,9 @@ router.post('/clients/:clientId/notes', async (req: Request, res: Response): Pro
     }
 
     const note = await queryOne<ClientNote>(
-      `INSERT INTO client_notes (client_id, professional_id, content, created_at)
-       VALUES ($1, $2, $3, NOW())
-       RETURNING *`,
+      `INSERT INTO notification (client_id, professional_id, content, read_status, client_deleted, professional_deleted, sender_type, created_at)
+       VALUES ($1, $2, $3, false, false, false, 'professional', NOW())
+       RETURNING id, client_id, professional_id, content, created_at`,
       [clientId, professionalId, content.trim()]
     );
 
@@ -2223,11 +2240,9 @@ router.put('/clients/:clientId/notes/:noteId', async (req: Request, res: Respons
     console.log(`✏️ Updating note: ${noteId}`);
 
     const note = await queryOne<ClientNote>(
-      `UPDATE client_notes SET
-        content = $1,
-        updated_at = NOW()
-       WHERE id = $2 AND client_id = $3 AND professional_id = $4
-       RETURNING *`,
+      `UPDATE notification SET content = $1
+       WHERE id = $2 AND client_id = $3 AND professional_id = $4 AND sender_type = 'professional'
+       RETURNING id, client_id, professional_id, content, created_at`,
       [content.trim(), noteId, clientId, professionalId]
     );
 
@@ -2267,7 +2282,7 @@ router.delete('/clients/:clientId/notes/:noteId', async (req: Request, res: Resp
     console.log(`🗑️ Deleting note: ${noteId}`);
 
     const result = await query(
-      `DELETE FROM client_notes 
+      `UPDATE notification SET professional_deleted = true
        WHERE id = $1 AND client_id = $2 AND professional_id = $3
        RETURNING id`,
       [noteId, clientId, professionalId]
@@ -2655,7 +2670,7 @@ router.get('/notifications/unread', async (req: Request, res: Response): Promise
       created_at: string;
     }>(
       `SELECT id, client_id, professional_id, content, read_status, sender_type, created_at
-       FROM routine_notes
+       FROM notification
        WHERE professional_id = $1 
          AND read_status = false
          AND professional_deleted = false
@@ -2729,7 +2744,7 @@ router.patch('/notifications/:noteId/read', async (req: Request, res: Response):
     console.log(`📝 Marking notification ${noteId} as read for professional: ${professionalId}`);
 
     const result = await query(
-      `UPDATE routine_notes 
+      `UPDATE notification 
        SET read_status = true 
        WHERE id = $1 AND professional_id = $2
        RETURNING id`,
@@ -2771,7 +2786,7 @@ router.patch('/notifications/mark-all-read', async (req: Request, res: Response)
     console.log(`📝 Marking all notifications as read for professional: ${professionalId}`);
 
     const result = await query(
-      `UPDATE routine_notes 
+      `UPDATE notification 
        SET read_status = true 
        WHERE professional_id = $1 
          AND read_status = false

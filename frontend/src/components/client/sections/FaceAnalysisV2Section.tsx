@@ -27,6 +27,8 @@ import {
   X,
   Calendar,
   Layers,
+  Send,
+  Check,
 } from 'lucide-react';
 
 // ============================================================================
@@ -196,6 +198,7 @@ interface HistoryEntry {
   oiliness_area: string | null;
   acne_area: string | null;
   created_at: string;
+  sent?: boolean;
 }
 
 // Skin problem attribute config
@@ -465,6 +468,7 @@ const FaceAnalysisV2Section: React.FC = () => {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryEntry | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [activeAreaFilter, setActiveAreaFilter] = useState<'all' | string>('all');
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   /**
    * Convert base64 data URL to File
@@ -664,6 +668,33 @@ const FaceAnalysisV2Section: React.FC = () => {
     setSelectedHistoryItem(null);
     setActiveAreaFilter('all');
   };
+
+  /**
+   * Mark analysis as sent (share with professional)
+   */
+  const handleSendAnalysis = useCallback(async (entry: HistoryEntry, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (entry.sent) return;
+    const token = getAuthSession()?.token || getAuthToken();
+    if (!token) return;
+
+    setSendingId(entry.id);
+    try {
+      apiClient.setAuthToken(token);
+      const response = await apiClient.patch<{ success: boolean; data?: { analysis: HistoryEntry } }>(
+        `/api/client/faceage-analysis/${entry.id}/sent`
+      );
+      if (response.ok && response.data?.success) {
+        setHistoryData((prev) =>
+          prev.map((a) => (a.id === entry.id ? { ...a, sent: true } : a))
+        );
+      }
+    } catch (err) {
+      console.error('Failed to mark analysis as sent:', err);
+    } finally {
+      setSendingId(null);
+    }
+  }, []);
 
   // Handle reset analysis
   const handleResetAnalysis = () => {
@@ -1204,17 +1235,38 @@ const FaceAnalysisV2Section: React.FC = () => {
                                 </div>
                               </div>
 
-                              {/* View Detail Button */}
-                              <button
-                                className="flex items-center gap-1 px-3 py-2 bg-[#007185] text-white rounded-lg text-sm font-medium hover:bg-[#005a6a] transition-colors"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleViewHistoryDetail(entry);
-                                }}
-                              >
-                                <Eye className="w-4 h-4" />
-                                View Detail
-                              </button>
+                              {/* Actions */}
+                              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                {entry.sent ? (
+                                  <span className="flex items-center gap-1 px-3 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium">
+                                    <Check className="w-4 h-4" />
+                                    Sent
+                                  </span>
+                                ) : (
+                                  <button
+                                    className="flex items-center gap-1 px-3 py-2 bg-[#007185] text-white rounded-lg text-sm font-medium hover:bg-[#005a6a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    onClick={(e) => handleSendAnalysis(entry, e)}
+                                    disabled={sendingId === entry.id}
+                                  >
+                                    {sendingId === entry.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Send className="w-4 h-4" />
+                                    )}
+                                    Send
+                                  </button>
+                                )}
+                                <button
+                                  className="flex items-center gap-1 px-3 py-2 bg-[#007185] text-white rounded-lg text-sm font-medium hover:bg-[#005a6a] transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleViewHistoryDetail(entry);
+                                  }}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  View Detail
+                                </button>
+                              </div>
                             </div>
                           );
                         })}

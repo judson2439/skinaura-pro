@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ScanFace, Loader2, RefreshCw, User, Calendar, Eye, CheckCircle, Circle } from 'lucide-react';
+import { ScanFace, Loader2, RefreshCw, User, Calendar, Eye, CheckCircle, Circle, StickyNote } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -7,6 +7,7 @@ import { EncryptedImage } from '@/components/ui/encrypted-image';
 import FacialScanReportDetailModal, {
   type FacialScanReportEntry,
 } from '@/components/shared/FacialScanReportDetailModal';
+import ProfessionalClientChatModal from '../modals/ProfessionalClientChatModal';
 
 // ============================================================================
 // TYPES
@@ -34,6 +35,7 @@ const ClientFacialScanSection: React.FC = () => {
   const [analyses, setAnalyses] = useState<SkinAnalysisEntry[]>([]);
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [selectedReport, setSelectedReport] = useState<SkinAnalysisEntry | null>(null);
+  const [noteReport, setNoteReport] = useState<SkinAnalysisEntry | null>(null);
 
   const handleOpenReportDetail = useCallback(
     async (analysis: SkinAnalysisEntry) => {
@@ -248,6 +250,17 @@ const ClientFacialScanSection: React.FC = () => {
                   )}
                   <button
                     type="button"
+                    className="flex items-center gap-1 px-3 py-2 border border-gray-200 bg-white text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors flex-shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNoteReport(analysis);
+                    }}
+                  >
+                    <StickyNote className="w-4 h-4" />
+                    Note
+                  </button>
+                  <button
+                    type="button"
                     className="flex items-center gap-1 px-3 py-2 bg-[#CFAFA3] text-[#2D2A3E] rounded-lg text-sm font-medium hover:bg-[#CFAFA3]/80 transition-colors flex-shrink-0"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -271,6 +284,16 @@ const ClientFacialScanSection: React.FC = () => {
           onClose={() => setSelectedReport(null)}
         />
       )}
+
+      <ProfessionalClientChatModal
+        isOpen={!!noteReport}
+        onClose={() => setNoteReport(null)}
+        clientId={noteReport?.user_id ?? null}
+        clientName={noteReport ? getClientName(noteReport.user_id) : ''}
+        clientAvatarUrl={
+          noteReport ? (clients.find((c) => c.id === noteReport.user_id)?.avatar_url ?? null) : null
+        }
+      />
     </div>
   );
 };

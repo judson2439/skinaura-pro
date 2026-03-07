@@ -934,27 +934,23 @@ router.post('/routine-completions', async (req: Request, res: Response): Promise
 
 /**
  * GET /client/notifications/unread-count
- * Get count of unread notifications (messages from professionals)
  */
 router.get('/notifications/unread-count', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId;
 
-    console.log(`📊 Fetching unread notifications for client: ${userId}`);
+    console.log(`📊 Fetching notifications count for client: ${userId}`);
 
     const result = await query<{ count: string }>(
-      `SELECT COUNT(*) as count 
-       FROM routine_notes 
-       WHERE client_id = $1 
-         AND read_status = false 
-         AND client_deleted = false
-         AND sender_type = 'professional'`,
+      `SELECT COUNT(*) as count FROM notification
+       WHERE client_id = $1 AND read_status = false
+         AND (client_deleted = false OR client_deleted IS NULL)`,
       [userId]
     );
 
     const count = parseInt(result[0]?.count || '0', 10);
 
-    console.log(`✅ Unread notifications count: ${count}`);
+    console.log(`✅ Notifications count: ${count}`);
 
     res.status(200).json({
       success: true,
@@ -962,26 +958,24 @@ router.get('/notifications/unread-count', async (req: Request, res: Response): P
     } as ApiResponse);
 
   } catch (error) {
-    console.error('❌ Error fetching unread notifications:', error);
+    console.error('❌ Error fetching notifications count:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch unread notifications count',
+      error: 'Failed to fetch notifications count',
     } as ApiResponse);
   }
 });
 
 /**
  * GET /client/notifications/recent
- * Get recent unread notifications for the header dropdown
  */
 router.get('/notifications/recent', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId;
     const limit = parseInt(req.query.limit as string) || 5;
 
-    console.log(`🔔 Fetching recent unread notifications for client: ${userId}`);
+    console.log(`🔔 Fetching recent notifications for client: ${userId}`);
 
-    // Fetch recent unread messages from professionals
     const notifications = await query<{
       id: string;
       professional_id: string;
@@ -989,18 +983,15 @@ router.get('/notifications/recent', async (req: Request, res: Response): Promise
       created_at: string;
     }>(
       `SELECT id, professional_id, content, created_at
-       FROM routine_notes
-       WHERE client_id = $1 
-         AND client_deleted = false
-         AND sender_type = 'professional'
-         AND read_status = false
+       FROM notification
+       WHERE client_id = $1
+         AND (client_deleted = false OR client_deleted IS NULL)
        ORDER BY created_at DESC
        LIMIT $2`,
       [userId, limit]
     );
 
     if (notifications.length === 0) {
-      console.log(`ℹ️ No recent unread notifications for client: ${userId}`);
       res.status(200).json({
         success: true,
         data: { notifications: [] },
@@ -1008,10 +999,7 @@ router.get('/notifications/recent', async (req: Request, res: Response): Promise
       return;
     }
 
-    // Get unique professional IDs
     const professionalIds = [...new Set(notifications.map(n => n.professional_id))];
-
-    // Fetch professional profiles
     const professionals = await query<{
       id: string;
       full_name: string | null;
@@ -1020,10 +1008,8 @@ router.get('/notifications/recent', async (req: Request, res: Response): Promise
       `SELECT id, full_name, avatar_url FROM user_profiles WHERE id = ANY($1)`,
       [professionalIds]
     );
-
     const professionalsMap = new Map(professionals.map(p => [p.id, p]));
 
-    // Map notifications with professional info
     const notificationsWithProfessionals = notifications.map(n => {
       const professional = professionalsMap.get(n.professional_id);
       return {
@@ -1035,8 +1021,6 @@ router.get('/notifications/recent', async (req: Request, res: Response): Promise
         created_at: n.created_at,
       };
     });
-
-    console.log(`✅ Found ${notificationsWithProfessionals.length} recent unread notifications`);
 
     res.status(200).json({
       success: true,
@@ -1054,7 +1038,7 @@ router.get('/notifications/recent', async (req: Request, res: Response): Promise
 
 /**
  * GET /client/notifications
- * Get all notifications for a client
+ * Get all notifications for a client (from notification table with professional info)
  */
 router.get('/notifications', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1067,20 +1051,19 @@ router.get('/notifications', async (req: Request, res: Response): Promise<void> 
     const notifications = await query<{
       id: string;
       professional_id: string;
-      note: string;
-      sender_type: string;
-      read_status: boolean;
+      content: string;
       created_at: string;
+      read_status: boolean;
       professional_name: string;
       professional_avatar: string | null;
     }>(
-      `SELECT rn.*, up.full_name as professional_name, up.avatar_url as professional_avatar
-       FROM routine_notes rn
-       LEFT JOIN user_profiles up ON rn.professional_id = up.id
-       WHERE rn.client_id = $1 
-         AND rn.client_deleted = false
-         AND rn.sender_type = 'professional'
-       ORDER BY rn.created_at DESC
+      `SELECT n.id, n.professional_id, n.content, n.created_at, n.read_status,
+              up.full_name as professional_name, up.avatar_url as professional_avatar
+       FROM notification n
+       LEFT JOIN user_profiles up ON n.professional_id = up.id
+       WHERE n.client_id = $1
+         AND (n.client_deleted = false OR n.client_deleted IS NULL)
+       ORDER BY n.created_at DESC
        LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
     );
@@ -1110,22 +1093,17 @@ router.patch('/notifications/:id/read', async (req: Request, res: Response): Pro
     const userId = (req as any).userId;
     const notificationId = req.params.id;
 
-    console.log(`📝 Marking notification ${notificationId} as read`);
-
     await query(
-      `UPDATE routine_notes 
-       SET read_status = true 
-       WHERE id = $1 AND client_id = $2`,
+      `UPDATE notification SET read_status = true
+       WHERE id = $1 AND client_id = $2
+       RETURNING id`,
       [notificationId, userId]
     );
-
-    console.log(`✅ Notification marked as read`);
 
     res.status(200).json({
       success: true,
       message: 'Notification marked as read',
     } as ApiResponse);
-
   } catch (error) {
     console.error('❌ Error marking notification as read:', error);
     res.status(500).json({
@@ -1137,30 +1115,22 @@ router.patch('/notifications/:id/read', async (req: Request, res: Response): Pro
 
 /**
  * PATCH /client/notifications/mark-all-read
- * Mark all notifications from professionals as read
+ * Mark all notifications for the client as read
  */
 router.patch('/notifications/mark-all-read', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId;
 
-    console.log(`📝 Marking all notifications as read for client: ${userId}`);
-
     await query(
-      `UPDATE routine_notes 
-       SET read_status = true 
-       WHERE client_id = $1 
-         AND sender_type = 'professional' 
-         AND read_status = false`,
+      `UPDATE notification SET read_status = true
+       WHERE client_id = $1 AND read_status = false`,
       [userId]
     );
-
-    console.log(`✅ All notifications marked as read`);
 
     res.status(200).json({
       success: true,
       message: 'All notifications marked as read',
     } as ApiResponse);
-
   } catch (error) {
     console.error('❌ Error marking all notifications as read:', error);
     res.status(500).json({
@@ -1563,7 +1533,7 @@ router.delete('/invitation-notifications/:id', async (req: Request, res: Respons
 });
 
 // ============================================================================
-// CONVERSATIONS/CHAT ENDPOINTS
+// CONVERSATIONS/CHAT ENDPOINTS (notification table)
 // ============================================================================
 
 interface ConversationGroup {
@@ -1579,7 +1549,7 @@ interface ConversationGroup {
 
 /**
  * GET /client/conversations
- * Get all conversations grouped by professional
+ * Get all conversations grouped by professional (from notification table)
  */
 router.get('/conversations', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1587,37 +1557,32 @@ router.get('/conversations', async (req: Request, res: Response): Promise<void> 
 
     console.log(`📊 Fetching conversations for client: ${userId}`);
 
-    // Get all notes for this client grouped by professional
     const conversationData = await query<{
       professional_id: string;
       total_count: string;
       unread_count: string;
       last_message: string;
       last_message_time: string;
-      last_sender_type: string;
     }>(
       `SELECT 
-        rn.professional_id,
+        n.professional_id,
         COUNT(*) as total_count,
-        COUNT(*) FILTER (WHERE rn.sender_type = 'professional' AND rn.read_status = false) as unread_count,
-        (SELECT content FROM routine_notes rn2 
-         WHERE rn2.client_id = $1 
-           AND rn2.professional_id = rn.professional_id 
-           AND rn2.client_deleted = false 
-         ORDER BY rn2.created_at DESC LIMIT 1) as last_message,
-        (SELECT created_at FROM routine_notes rn2 
-         WHERE rn2.client_id = $1 
-           AND rn2.professional_id = rn.professional_id 
-           AND rn2.client_deleted = false 
-         ORDER BY rn2.created_at DESC LIMIT 1) as last_message_time,
-        (SELECT sender_type FROM routine_notes rn2 
-         WHERE rn2.client_id = $1 
-           AND rn2.professional_id = rn.professional_id 
-           AND rn2.client_deleted = false 
-         ORDER BY rn2.created_at DESC LIMIT 1) as last_sender_type
-       FROM routine_notes rn
-       WHERE rn.client_id = $1 AND rn.client_deleted = false
-       GROUP BY rn.professional_id`,
+        (SELECT COUNT(*) FROM notification n3 
+         WHERE n3.client_id = $1 AND n3.professional_id = n.professional_id 
+           AND n3.read_status = false 
+           AND (n3.client_deleted = false OR n3.client_deleted IS NULL)) as unread_count,
+        (SELECT content FROM notification n2 
+         WHERE n2.client_id = $1 AND n2.professional_id = n.professional_id 
+           AND (n2.client_deleted = false OR n2.client_deleted IS NULL)
+         ORDER BY n2.created_at DESC LIMIT 1) as last_message,
+        (SELECT created_at FROM notification n2 
+         WHERE n2.client_id = $1 AND n2.professional_id = n.professional_id 
+           AND (n2.client_deleted = false OR n2.client_deleted IS NULL)
+         ORDER BY n2.created_at DESC LIMIT 1) as last_message_time
+       FROM notification n
+       WHERE n.client_id = $1
+         AND (n.client_deleted = false OR n.client_deleted IS NULL)
+       GROUP BY n.professional_id`,
       [userId]
     );
 
@@ -1643,18 +1608,18 @@ router.get('/conversations', async (req: Request, res: Response): Promise<void> 
 
     const professionalsMap = new Map(professionals.map(p => [p.id, p]));
 
-    // Build conversation groups
+    // Build conversation groups from notification table
     const conversations: ConversationGroup[] = conversationData.map(c => {
       const professional = professionalsMap.get(c.professional_id);
       return {
         professional_id: c.professional_id,
         professional_name: professional?.full_name || 'Professional',
         professional_avatar: professional?.avatar_url || null,
-        unread_count: parseInt(c.unread_count, 10),
+        unread_count: parseInt(c.unread_count, 10) || 0,
         total_count: parseInt(c.total_count, 10),
         last_message: c.last_message || '',
         last_message_time: c.last_message_time || '',
-        last_sender_type: c.last_sender_type || 'professional',
+        last_sender_type: 'professional',
       };
     });
 
@@ -1694,24 +1659,41 @@ interface ChatMessage {
 
 /**
  * GET /client/conversations/:professionalId/messages
- * Get chat messages with a specific professional
+ * Get messages from notification table (conversation with professional)
  */
 router.get('/conversations/:professionalId/messages', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId;
     const professionalId = req.params.professionalId;
 
-    console.log(`📊 Fetching messages between client ${userId} and professional ${professionalId}`);
+    console.log(`📊 Fetching messages for client ${userId} from professional ${professionalId}`);
 
-    const messages = await query<ChatMessage>(
-      `SELECT id, client_id, professional_id, content, sender_type, read_status, created_at
-       FROM routine_notes
-       WHERE client_id = $1 
-         AND professional_id = $2 
-         AND client_deleted = false
+    const rows = await query<{
+      id: string;
+      client_id: string;
+      professional_id: string;
+      content: string;
+      read_status: boolean;
+      sender_type: string | null;
+      created_at: string;
+    }>(
+      `SELECT id, client_id, professional_id, content, read_status, sender_type, created_at
+       FROM notification
+       WHERE client_id = $1 AND professional_id = $2
+         AND (client_deleted = false OR client_deleted IS NULL)
        ORDER BY created_at ASC`,
       [userId, professionalId]
     );
+
+    const messages: ChatMessage[] = rows.map(n => ({
+      id: n.id,
+      client_id: n.client_id,
+      professional_id: n.professional_id,
+      content: n.content,
+      sender_type: n.sender_type || 'professional',
+      read_status: n.read_status,
+      created_at: n.created_at,
+    }));
 
     console.log(`✅ Found ${messages.length} messages`);
 
@@ -1758,7 +1740,7 @@ router.post('/conversations/:professionalId/messages', async (req: Request, res:
     console.log(`📝 Sending message from client ${userId} to professional ${professionalId}`);
 
     const newMessage = await queryOne<ChatMessage>(
-      `INSERT INTO routine_notes (
+      `INSERT INTO notification (
         client_id, professional_id, content, sender_type, 
         read_status, client_deleted, professional_deleted, created_at
       ) VALUES ($1, $2, $3, 'client', false, false, false, NOW())
@@ -1794,7 +1776,7 @@ router.patch('/conversations/:professionalId/mark-read', async (req: Request, re
     console.log(`📝 Marking messages from professional ${professionalId} as read for client ${userId}`);
 
     await query(
-      `UPDATE routine_notes 
+      `UPDATE notification 
        SET read_status = true 
        WHERE client_id = $1 
          AND professional_id = $2 
@@ -1831,7 +1813,7 @@ router.patch('/messages/:messageId/read', async (req: Request, res: Response): P
     console.log(`📝 Marking message ${messageId} as read`);
 
     await query(
-      `UPDATE routine_notes 
+      `UPDATE notification 
        SET read_status = true 
        WHERE id = $1 AND client_id = $2`,
       [messageId, userId]
@@ -3344,6 +3326,7 @@ interface FaceAgeAnalysisEntry {
   oiliness_area: string | null;
   acne_area: string | null;
   created_at: string;
+  sent?: boolean;
 }
 
 // POST /client/faceage-analysis - Save FaceAge V2 skin analysis
@@ -3445,6 +3428,46 @@ router.get('/faceage-analysis/history', authMiddleware, async (req: Request, res
     res.status(500).json({
       success: false,
       error: 'Failed to fetch analysis history',
+    } as ApiResponse);
+  }
+});
+
+// PATCH /client/faceage-analysis/:id/sent - Mark analysis as sent (share with professional)
+router.patch('/faceage-analysis/:id/sent', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId;
+    const { id } = req.params;
+
+    if (!id) {
+      res.status(400).json({ success: false, error: 'Analysis ID required' } as ApiResponse);
+      return;
+    }
+
+    const updated = await queryOne<FaceAgeAnalysisEntry>(
+      `UPDATE skin_analysis
+       SET sent = true
+       WHERE id = $1 AND user_id = $2
+       RETURNING *`,
+      [id, userId]
+    );
+
+    if (!updated) {
+      res.status(404).json({
+        success: false,
+        error: 'Analysis not found or access denied',
+      } as ApiResponse);
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { analysis: updated },
+    } as ApiResponse);
+  } catch (error) {
+    console.error('❌ Error marking analysis as sent:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update analysis',
     } as ApiResponse);
   }
 });

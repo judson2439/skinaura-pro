@@ -244,7 +244,7 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
             )}
           </h1>
           <p className="text-gray-500 mt-1">
-            View and manage conversations with your skincare professionals
+            View notes and messages from your skincare professionals
           </p>
         </div>
 
@@ -348,12 +348,12 @@ const NotificationsSection: React.FC<NotificationsSectionProps> = ({
               <Inbox className="w-8 h-8 text-gray-400" />
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-1">
-              {searchQuery ? 'No matching conversations' : 'No conversations yet'}
+              {searchQuery ? 'No matching professionals' : 'No notifications yet'}
             </h3>
             <p className="text-gray-500">
               {searchQuery
                 ? 'Try a different search term'
-                : 'Messages from your skincare professionals will appear here'}
+                : 'Notes from your skincare professionals will appear here'}
             </p>
           </div>
         )}
