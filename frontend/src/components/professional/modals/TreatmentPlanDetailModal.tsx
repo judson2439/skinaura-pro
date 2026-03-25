@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   FileText,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import {
   TreatmentPlan,
@@ -60,6 +61,7 @@ interface TreatmentPlanDetailModalProps {
   onDeleteAppointment: (appointmentId: string) => Promise<void>;
   onAddPdf: (pdf_upload_id: string) => Promise<void>;
   onDeletePdf: (attachmentId: string) => Promise<void>;
+  onUpdatePlan: (planId: string, data: { title?: string; description?: string }) => Promise<void>;
 }
 
 type DeleteItemType = 'milestone' | 'product' | 'routine' | 'appointment' | 'pdf' | null;
@@ -166,7 +168,15 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
   onDeleteAppointment,
   onAddPdf,
   onDeletePdf,
+  onUpdatePlan,
 }) => {
+  // Edit plan title/description
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState('');
+  const [editDescriptionValue, setEditDescriptionValue] = useState('');
+  const [savingPlan, setSavingPlan] = useState(false);
+
   // Form visibility states
   const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
@@ -235,6 +245,60 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
   const attachedPdfIds = new Set(planPdfs.map((p) => p.professional_pdf_upload_id));
   const availablePdfs = professionalPdfList.filter((p) => !attachedPdfIds.has(p.id));
   const client = (clients || []).find(c => c.id === plan.client_id);
+
+  const startEditTitle = () => {
+    setEditTitleValue(plan.title);
+    setEditingTitle(true);
+  };
+  const startEditDescription = () => {
+    setEditDescriptionValue(plan.description ?? '');
+    setEditingDescription(true);
+  };
+  const saveTitle = async () => {
+    const trimmed = editTitleValue.trim();
+    if (trimmed === plan.title) {
+      setEditingTitle(false);
+      return;
+    }
+    if (!trimmed) {
+      setEditingTitle(false);
+      setEditTitleValue(plan.title);
+      return;
+    }
+    setSavingPlan(true);
+    try {
+      await onUpdatePlan(plan.id, { title: trimmed });
+      setEditingTitle(false);
+    } catch (e) {
+      console.error('Error saving plan title:', e);
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+  const cancelEditTitle = () => {
+    setEditTitleValue(plan.title);
+    setEditingTitle(false);
+  };
+  const saveDescription = async () => {
+    const value = editDescriptionValue.trim();
+    if (value === (plan.description ?? '')) {
+      setEditingDescription(false);
+      return;
+    }
+    setSavingPlan(true);
+    try {
+      await onUpdatePlan(plan.id, { description: value || undefined });
+      setEditingDescription(false);
+    } catch (e) {
+      console.error('Error saving plan description:', e);
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+  const cancelEditDescription = () => {
+    setEditDescriptionValue(plan.description ?? '');
+    setEditingDescription(false);
+  };
 
   // Select options
   const categoryOptions = [
@@ -381,8 +445,8 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl w-full max-w-4xl my-8 max-h-[90vh] overflow-y-auto">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-hidden">
+        <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col scrollbar-dark">
           {/* Header */}
           <div className="sticky top-0 bg-white border-b border-gray-100 p-6 z-10">
             <div className="flex items-start justify-between">
@@ -399,9 +463,54 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                     {(client?.name || 'U').trim().split(/\s+/).filter(Boolean).map((s) => s[0]).join('').toUpperCase().slice(0, 2) || 'U'}
                   </div>
                 )}
-                <div>
-                  <h3 className="text-xl font-serif font-bold text-gray-900">{fixUtf8Mojibake(plan.title)}</h3>
-                  <p className="text-sm text-gray-500">{client?.name || 'Unknown Client'}</p>
+                <div className="min-w-0 flex-1">
+                  {editingTitle ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editTitleValue}
+                        onChange={(e) => setEditTitleValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveTitle();
+                          if (e.key === 'Escape') cancelEditTitle();
+                        }}
+                        className="flex-1 min-w-0 text-xl font-serif font-bold text-gray-900 border border-[#CFAFA3] rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-[#CFAFA3]/30 focus:outline-none"
+                        autoFocus
+                        disabled={savingPlan}
+                      />
+                      <button
+                        type="button"
+                        onClick={saveTitle}
+                        disabled={savingPlan || !editTitleValue.trim()}
+                        className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg disabled:opacity-50"
+                        title="Save"
+                      >
+                        <Check className="w-5 h-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditTitle}
+                        disabled={savingPlan}
+                        className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg"
+                        title="Cancel"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 group">
+                      <h3 className="text-xl font-serif font-bold text-gray-900">{fixUtf8Mojibake(plan.title)}</h3>
+                      <button
+                        type="button"
+                        onClick={startEditTitle}
+                        className="p-1.5 text-gray-400 hover:text-[#CFAFA3] hover:bg-gray-100 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Edit title"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-sm text-gray-500 mt-0.5">{client?.name || 'Unknown Client'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -466,12 +575,59 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
           {/* Content */}
           <div className="p-6 space-y-6">
             {/* Description & Goals */}
-            {(plan.description || planGoals.length > 0) && (
-              <div className="bg-gray-50 rounded-xl p-4">
-                {plan.description && (
-                  <p className="text-gray-600 mb-3">{fixUtf8Mojibake(plan.description)}</p>
+            <div className="bg-gray-50 rounded-xl p-4">
+                {editingDescription ? (
+                  <div className="mb-3">
+                    <textarea
+                      value={editDescriptionValue}
+                      onChange={(e) => setEditDescriptionValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') cancelEditDescription();
+                      }}
+                      rows={8}
+                      className="w-full text-gray-600 border border-[#CFAFA3] rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#CFAFA3]/30 focus:outline-none resize-y min-h-[120px]"
+                      placeholder="Describe the treatment plan..."
+                      autoFocus
+                      disabled={savingPlan}
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={saveDescription}
+                        disabled={savingPlan}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-[#CFAFA3] text-white rounded-lg text-sm font-medium hover:bg-[#B89A8E] disabled:opacity-50"
+                      >
+                        {savingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditDescription}
+                        disabled={savingPlan}
+                        className="px-3 py-1.5 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 group/desc mb-3">
+                    {plan.description ? (
+                      <p className="text-gray-600 flex-1 whitespace-pre-wrap">{fixUtf8Mojibake(plan.description)}</p>
+                    ) : (
+                      <p className="text-gray-400 italic flex-1">No description</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={startEditDescription}
+                      className="p-1.5 text-gray-400 hover:text-[#CFAFA3] hover:bg-gray-100 rounded-lg opacity-0 group-hover/desc:opacity-100 transition-opacity flex-shrink-0"
+                      title="Edit description"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
-                {planGoals.length > 0 && (
+                {!editingDescription && planGoals.length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-2">Goals</h4>
                     <div className="flex flex-wrap gap-2">
@@ -485,7 +641,6 @@ const TreatmentPlanDetailModal: React.FC<TreatmentPlanDetailModalProps> = ({
                   </div>
                 )}
               </div>
-            )}
 
             {/* Milestones Section */}
             <div>

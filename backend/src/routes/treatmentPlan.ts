@@ -83,6 +83,39 @@ router.patch("/:id/status", async (req: Request, res: Response): Promise<void> =
   } catch (error) { console.error("Error updating status:", error); res.status(500).json({ success: false, error: "Failed to update status" }); }
 });
 
+// PATCH /treatment-plans/:id - Update plan title and/or description
+router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const professionalId = (req as any).userId;
+    const planId = req.params.id;
+    const { title, description } = req.body;
+    if (title === undefined && description === undefined) {
+      res.status(400).json({ success: false, error: "At least one of title or description is required" });
+      return;
+    }
+    const updates: string[] = [];
+    const values: (string | null)[] = [];
+    let idx = 1;
+    if (title !== undefined) {
+      updates.push(`title = $${idx}`);
+      values.push(title);
+      idx++;
+    }
+    if (description !== undefined) {
+      updates.push(`description = $${idx}`);
+      values.push(description === "" ? null : description);
+      idx++;
+    }
+    values.push(planId, professionalId);
+    const plan = await queryOne<TreatmentPlan>(
+      `UPDATE treatment_plans SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${idx} AND professional_id = $${idx + 1} RETURNING *`,
+      values
+    );
+    if (!plan) { res.status(404).json({ success: false, error: "Treatment plan not found" }); return; }
+    res.status(200).json({ success: true, data: { plan } });
+  } catch (error) { console.error("Error updating treatment plan:", error); res.status(500).json({ success: false, error: "Failed to update treatment plan" }); }
+});
+
 // DELETE /treatment-plans/:id - Delete treatment plan
 router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
   try {

@@ -378,6 +378,39 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
   };
 
   // ============================================================================
+  // UPDATE TREATMENT PLAN (title / description)
+  // ============================================================================
+
+  const handleUpdatePlan = async (planId: string, data: { title?: string; description?: string }) => {
+    const authSession = getAuthSession();
+    const token = authSession?.token || getAuthToken();
+    if (!token) return;
+
+    try {
+      apiClient.setAuthToken(token);
+      const response = await apiClient.patch<{
+        success: boolean;
+        data?: { plan: any };
+        error?: string;
+      }>(`/api/treatment-plans/${planId}`, data);
+
+      if (!response.data.success || !response.data.data?.plan) {
+        console.error('Error updating plan:', response.data.error);
+        throw new Error(response.data.error || 'Failed to update plan');
+      }
+
+      const updated = response.data.data.plan;
+      setPlans(plans.map(p => p.id === planId ? { ...p, title: updated.title, description: updated.description ?? p.description, updated_at: updated.updated_at } : p));
+      if (selectedPlan?.id === planId) {
+        setSelectedPlan({ ...selectedPlan, title: updated.title, description: updated.description ?? selectedPlan.description, updated_at: updated.updated_at });
+      }
+    } catch (err) {
+      console.error('Error updating plan:', err);
+      throw err;
+    }
+  };
+
+  // ============================================================================
   // DELETE TREATMENT PLAN
   // ============================================================================
 
@@ -1143,6 +1176,7 @@ const TreatmentPlansSection: React.FC<TreatmentPlansSectionProps> = ({
         onDeleteAppointment={handleDeleteAppointment}
         onAddPdf={handleAddPdf}
         onDeletePdf={handleDeletePdf}
+        onUpdatePlan={handleUpdatePlan}
       />
     </div>
   );

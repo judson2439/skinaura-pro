@@ -234,13 +234,6 @@ const ManageRoutinesSection: React.FC<ManageRoutinesSectionProps> = ({
     }
   }, [profile?.id]);
 
-
-
-
-
-
-
-
   // ============================================================================
   // FETCH ASSIGNMENTS FROM BACKEND API
   // ============================================================================

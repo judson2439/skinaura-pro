@@ -163,14 +163,15 @@ const ConsultSection: React.FC<ConsultSectionProps> = ({ onNavigateToView }) => 
             Schedule Live Room consults and join them in one click from your SkinAura PRO dashboard. Everything after the consult — summaries, care plans, documents — stays in your client's SkinAura PRO profile where it belongs.
           </p>
           <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => onNavigateToView?.('dashboard')}
-              className="inline-flex items-center gap-2 bg-[#2D2A3E] text-white px-6 py-3 rounded-lg text-base font-medium transition hover:bg-[#2D2A3E]/90 hover:-translate-y-0.5"
+            <a
+              href="http://skinaura.circle.so/events"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 bg-[#2D2A3E] text-white px-6 py-3 rounded-lg text-base font-medium transition hover:bg-[#2D2A3E]/90 hover:-translate-y-0.5 no-underline"
             >
               Open My Consult Room
               <ArrowRight className="w-4 h-4" />
-            </button>
+            </a>
             <button
               type="button"
               onClick={scrollToWorkflow}

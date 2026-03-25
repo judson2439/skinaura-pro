@@ -754,9 +754,9 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
 
       // Calculate level
       let level = 'Bronze';
-      if (totalPoints >= 5000) level = 'Diamond';
-      else if (totalPoints >= 2500) level = 'Platinum';
-      else if (totalPoints >= 1000) level = 'Gold';
+      if (totalPoints >= 7000) level = 'Diamond';
+      else if (totalPoints >= 3500) level = 'Platinum';
+      else if (totalPoints >= 1500) level = 'Gold';
       else if (totalPoints >= 500) level = 'Silver';
 
       // Upsert gamification data

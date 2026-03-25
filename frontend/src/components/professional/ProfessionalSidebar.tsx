@@ -15,7 +15,6 @@ import {
   Upload,
   FileText,
   ScanFace,
-  Layout,
   MessageCircle,
   LucideIcon,
 } from 'lucide-react';
@@ -55,8 +54,7 @@ export const PROFESSIONAL_NAV_ITEMS: NavItem[] = [
   { id: 'treatments', label: 'Treatment Plans', icon: ClipboardList },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
   { id: 'products', label: 'Product Library', icon: Package },
-  { id: 'consult', label: 'Consult', icon: MessageCircle },
-  { id: 'new-page', label: 'New Page', icon: Layout },
+  { id: 'consult', label: 'Virtual Consult', icon: MessageCircle },
   { id: 'upload-logo', label: 'Upload Logo', icon: Upload },
   { id: 'pdf-upload', label: 'PDF Upload', icon: FileText },
   { id: 'notifications', label: 'Notifications', icon: Bell },
