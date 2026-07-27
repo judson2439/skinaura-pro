@@ -735,53 +735,65 @@ const MyProductsSection: React.FC = () => {
 
       {/* Products Grid */}
       {!loading && filteredProducts.length > 0 && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
           {filteredProducts.map((product) => (
             <div
               key={product.id}
-              className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
+              className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-2xl hover:shadow-3xl transition-shadow min-h-[500px]"
             >
               {/* Product Image */}
-              <div className="relative h-40 bg-gradient-to-br from-gray-100 to-gray-50">
-                <EncryptedImage
-                  src={product.image_url}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                  fallbackIcon="package"
-                  showFallback={true}
-                />
-                {/* Badge for photo vs manual */}
-                <div className="absolute top-3 left-3">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    hasImage(product)
-                      ? 'bg-purple-100 text-purple-700'
-                      : 'bg-teal-100 text-teal-700'
-                  }`}>
-                    {hasImage(product) ? 'AI Scan' : 'Manual'}
+              <div className="relative aspect-[3/5] w-full bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+                {product.image_url ? (
+                  <EncryptedImage
+                    src={product.image_url}
+                    alt={product.name}
+                    className="w-full h-full object-cover rounded-lg"
+                    fallbackIcon="package"
+                    showFallback={true}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-white/70 rounded-lg">
+                    <Package className="w-12 h-12 text-gray-300" />
+                  </div>
+                )}
+
+                {product.category && (
+                  <div className="absolute top-3 left-3">
+                    <span className="px-2 py-1 bg-[#CFAFA3] text-white text-xs font-medium rounded-full">
+                      {product.category}
+                    </span>
+                  </div>
+                )}
+
+                <div className="absolute top-3 right-3">
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      product.added_via === 'photo'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-teal-100 text-teal-700'
+                    }`}
+                  >
+                    {product.added_via === 'photo' ? 'AI Scan' : 'Manual'}
                   </span>
                 </div>
               </div>
 
               {/* Product Info */}
-              <div className="p-4">
+              <div className="p-5">
                 {product.brand && (
-                  <p className="text-xs text-teal-600 font-medium mb-1">{product.brand}</p>
+                  <p className="text-xs text-[#CFAFA3] font-medium mb-1">{product.brand}</p>
                 )}
-                <h4 className="font-medium text-gray-900 line-clamp-1 mb-1">{product.name}</h4>
-                {product.category && (
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
-                    {product.category}
-                  </span>
-                )}
+                <h4 className="font-medium text-gray-900 line-clamp-1 mb-2">{product.name}</h4>
                 {product.notes && (
-                  <p className="text-xs text-gray-500 mt-2 line-clamp-2">{product.notes}</p>
+                  <p className="text-sm text-gray-500 line-clamp-2 mb-3">{product.notes}</p>
                 )}
 
+                <p className="text-xs text-gray-400 mb-3">
+                  Added {new Date(product.created_at).toLocaleDateString()}
+                </p>
+
                 {/* Actions */}
-                <div className="flex items-center justify-between pt-3 mt-3 border-t border-gray-100">
-                  <span className="text-xs text-gray-400">
-                    Added {new Date(product.created_at).toLocaleDateString()}
-                  </span>
+                <div className="flex items-center justify-end gap-1 pt-3 border-t border-gray-100">
                   <div className="flex gap-1">
                     <button
                       onClick={() => openEditModal(product)}

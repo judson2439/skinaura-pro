@@ -17,6 +17,7 @@ import {
   ClipboardList,
   FileText,
   LayoutTemplate,
+  HeartHandshake,
 } from 'lucide-react';
 import { AdminTabType } from './types';
 
@@ -59,6 +60,7 @@ const AdminHeader: React.FC<AdminHeaderProps> = ({
   const tabs = [
     { id: 'overview' as AdminTabType, label: 'Overview', icon: BarChart3 },
     { id: 'users' as AdminTabType, label: 'Users', icon: Users },
+    { id: 'relationship' as AdminTabType, label: 'Relationship', icon: HeartHandshake },
     { id: 'products' as AdminTabType, label: 'Products', icon: Package },
     { id: 'routines' as AdminTabType, label: 'Routines', icon: ClipboardList },
     { id: 'routine-templates' as AdminTabType, label: 'Routine Templates', icon: LayoutTemplate },

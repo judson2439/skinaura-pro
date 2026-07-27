@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 const ClientFooter: React.FC = () => {
   return (
     <footer className="py-6 px-4 lg:px-8 border-t border-gray-100 bg-white mt-6">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row items-center md:items-center justify-between gap-5">
         {/* Logo */}
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#CFAFA3] to-[#E8D5D0] flex items-center justify-center">
@@ -14,8 +14,8 @@ const ClientFooter: React.FC = () => {
         </div>
 
         {/* Links */}
-        <div className="flex items-center gap-6">
-          <nav className="flex items-center gap-6 text-sm text-gray-500">
+        <div className="flex w-full md:w-auto flex-col items-center md:items-end gap-4">
+          <nav className="flex flex-wrap items-center justify-center md:justify-end gap-x-6 gap-y-2 text-sm text-gray-500">
             <Link
               to="/privacy"
               className="hover:text-[#CFAFA3] transition-colors"
@@ -47,7 +47,7 @@ const ClientFooter: React.FC = () => {
           </nav>
 
           {/* Copyright */}
-          <p className="text-sm text-gray-400">
+          <p className="max-w-[220px] md:max-w-none text-center md:text-right text-sm leading-6 text-gray-400">
             © 2026 SkinAura AI. Skincare is Selfcare.
           </p>
         </div>

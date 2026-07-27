@@ -155,8 +155,8 @@ const AWARD_LEVELS = [
   { name: 'Bronze', minPoints: 0, color: 'from-amber-600 to-amber-700', icon: Medal },
   { name: 'Silver', minPoints: 500, color: 'from-gray-400 to-gray-500', icon: Medal },
   { name: 'Gold', minPoints: 1500, color: 'from-yellow-400 to-amber-500', icon: Crown },
-  { name: 'Platinum', minPoints: 3000, color: 'from-cyan-300 to-blue-400', icon: Crown },
-  { name: 'Diamond', minPoints: 5000, color: 'from-purple-400 to-pink-500', icon: Trophy },
+  { name: 'Platinum', minPoints: 3500, color: 'from-cyan-300 to-blue-400', icon: Crown },
+  { name: 'Diamond', minPoints: 7000, color: 'from-purple-400 to-pink-500', icon: Trophy },
 ];
 
 const SKIN_TYPES = ['Normal', 'Dry', 'Oily', 'Combination', 'Sensitive'];

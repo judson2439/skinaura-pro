@@ -33,6 +33,7 @@ import ShopifyProductImport from '@/components/professional/modals/ShopifyProduc
 import { apiClient } from '@/lib/apiClient';
 import { getAuthToken, getAuthSession } from '@/lib/authStorage';
 import { CustomSelect, createOptions } from '@/components/ui/custom-select';
+import EncryptedImage from '@/components/ui/encrypted-image';
 
 
 // ============================================================================
@@ -615,22 +616,24 @@ const ProductLibrarySection: React.FC<ProductLibrarySectionProps> = ({
 
           {/* Products Grid */}
           {!loading && filteredProducts.length > 0 && (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5 gap-5">
               {filteredProducts.map((product) => (
                 <div
                   key={product.id}
-                  className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
+                  className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-2xl hover:shadow-3xl transition-shadow min-h-[500px]"
                 >
                   {/* Product Image */}
-                  <div className="relative h-48 bg-gradient-to-br from-gray-100 to-gray-50">
+                  <div className="relative aspect-[3/4] w-full bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
                     {product.image_url ? (
-                      <img
+                      <EncryptedImage
                         src={product.image_url}
                         alt={product.name}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover rounded-lg"
+                        fallbackIcon="package"
+                        showFallback={true}
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center">
+                      <div className="w-full h-full flex items-center justify-center bg-white/70 rounded-lg">
                         <Package className="w-12 h-12 text-gray-300" />
                       </div>
                     )}

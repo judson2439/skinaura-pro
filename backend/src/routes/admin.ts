@@ -575,6 +575,98 @@ router.post('/users/bulk-delete', async (req: Request, res: Response): Promise<v
   }
 });
 
+interface ProfessionalClientRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  phone: string | null;
+  relationship_id: string;
+  relationship_status: string;
+  relationship_created_at: string;
+  relationship_updated_at: string;
+  submission_status: boolean | null;
+}
+
+/**
+ * GET /admin/professionals/:professionalId/clients
+ * Relationship rows from client_professional_relationships; client identity from auth (no password).
+ */
+router.get(
+  '/professionals/:professionalId/clients',
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const rawId = req.params.professionalId;
+      const professionalId =
+        typeof rawId === 'string' ? rawId.trim() : String(rawId ?? '').trim();
+
+      if (!professionalId) {
+        res.status(400).json({
+          success: false,
+          error: 'Professional ID is required',
+        } as ApiResponse);
+        return;
+      }
+
+      const pro = await queryOne<{ role: string | null }>(
+        `SELECT role FROM user_profiles WHERE id = $1`,
+        [professionalId]
+      );
+
+      const roleNorm = (pro?.role ?? '').toString().trim().toLowerCase();
+      const hasProfessionalRole = roleNorm === 'professional';
+
+      const hasRelationshipAsProfessional = !!(await queryOne<{ ok: number }>(
+        `SELECT 1 AS ok FROM client_professional_relationships WHERE professional_id = $1 LIMIT 1`,
+        [professionalId]
+      ));
+
+      if (!hasProfessionalRole && !hasRelationshipAsProfessional) {
+        res.status(404).json({
+          success: false,
+          error: 'Professional not found',
+        } as ApiResponse);
+        return;
+      }
+
+      const clients = await query<ProfessionalClientRow>(
+        `SELECT
+          a.id,
+          a.email,
+          a.full_name,
+          a.phone,
+          cpr.id as relationship_id,
+          cpr.status as relationship_status,
+          cpr.created_at as relationship_created_at,
+          cpr.updated_at as relationship_updated_at,
+          cpr.submission_status
+         FROM client_professional_relationships cpr
+         INNER JOIN auth a ON cpr.client_id = a.id
+         WHERE cpr.professional_id = $1
+         ORDER BY
+           CASE cpr.status
+             WHEN 'active' THEN 1
+             WHEN 'pending' THEN 2
+             ELSE 3
+           END,
+           a.full_name ASC NULLS LAST,
+           a.email ASC`,
+        [professionalId]
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { clients },
+      } as ApiResponse);
+    } catch (error) {
+      console.error('❌ Error fetching professional clients for admin:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch clients for professional',
+      } as ApiResponse);
+    }
+  }
+);
+
 // ============================================================================
 // PRODUCT MANAGEMENT ENDPOINTS
 // ============================================================================

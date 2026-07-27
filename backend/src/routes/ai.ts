@@ -91,12 +91,12 @@ IMPORTANT:
 - If you cannot identify certain fields, use empty string for text fields or empty array for arrays.
 - Always provide your best guess for name, brand, and category based on the packaging design, colors, and any visible text.`;
 
-    // Call AI Gateway with GPT-4.1-mini for vision capabilities
-    const response = await fetch('https://ai.gateway.fastrouter.io/api/v1/chat/completions', {
+    // Call OpenAI directly with GPT-4.1-mini for vision capabilities
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': gatewayApiKey,
+        Authorization: `Bearer ${gatewayApiKey}`,
       },
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
@@ -122,7 +122,7 @@ IMPORTANT:
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI Gateway error:', errorText);
+      console.error('OpenAI error:', errorText);
       res.status(500).json({ 
         success: false, 
         error: 'AI service error' 

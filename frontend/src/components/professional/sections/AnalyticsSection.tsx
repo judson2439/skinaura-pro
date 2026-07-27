@@ -83,9 +83,9 @@ interface AnalyticsSectionProps {
 const AWARD_LEVELS = [
   { name: 'Bronze', minPoints: 0, color: 'from-amber-600 to-amber-700', bgColor: 'bg-amber-100', textColor: 'text-amber-700' },
   { name: 'Silver', minPoints: 500, color: 'from-gray-400 to-gray-500', bgColor: 'bg-gray-100', textColor: 'text-gray-600' },
-  { name: 'Gold', minPoints: 1000, color: 'from-yellow-400 to-yellow-500', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700' },
-  { name: 'Platinum', minPoints: 2500, color: 'from-cyan-400 to-cyan-500', bgColor: 'bg-cyan-100', textColor: 'text-cyan-700' },
-  { name: 'Diamond', minPoints: 5000, color: 'from-purple-400 to-purple-500', bgColor: 'bg-purple-100', textColor: 'text-purple-700' },
+  { name: 'Gold', minPoints: 1500, color: 'from-yellow-400 to-yellow-500', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700' },
+  { name: 'Platinum', minPoints: 3500, color: 'from-cyan-400 to-cyan-500', bgColor: 'bg-cyan-100', textColor: 'text-cyan-700' },
+  { name: 'Diamond', minPoints: 7000, color: 'from-purple-400 to-purple-500', bgColor: 'bg-purple-100', textColor: 'text-purple-700' },
 ];
 
 const TIME_PERIODS = [

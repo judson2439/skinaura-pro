@@ -20,6 +20,7 @@ import RoutinesSection from '@/components/admin/sections/RoutinesSection';
 import RoutineTemplatesSection from '@/components/admin/sections/RoutineTemplatesSection';
 import ProgressPhotosSection from '@/components/admin/sections/ProgressPhotosSection';
 import AuditLogsSection from '@/components/admin/sections/AuditLogsSection';
+import RelationshipSection from '@/components/admin/sections/RelationshipSection';
 import { Loader2 } from 'lucide-react';
 import { validateAuthSession, getAuthSession, clearAuthSession } from '@/lib/authStorage';
 import { useToast } from '@/hooks/use-toast';
@@ -255,6 +256,10 @@ const Admin: React.FC = () => {
 
         {activeTab === 'audit-logs' && (
           <AuditLogsSection />
+        )}
+
+        {activeTab === 'relationship' && (
+          <RelationshipSection />
         )}
       </main>
     </div>

@@ -565,8 +565,8 @@ interface RoutineCompletion {
 
 // Calculate level based on points
 const calculateLevel = (points: number): string => {
-  if (points >= 5000) return 'Diamond';
-  if (points >= 3000) return 'Platinum';
+  if (points >= 7000) return 'Diamond';
+  if (points >= 3500) return 'Platinum';
   if (points >= 1500) return 'Gold';
   if (points >= 500) return 'Silver';
   return 'Bronze';

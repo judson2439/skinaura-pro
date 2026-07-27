@@ -87,7 +87,15 @@ export const PRODUCT_CATEGORIES = [
   'Body Care',
 ];
 
-export type AdminTabType = 'overview' | 'users' | 'products' | 'routines' | 'progress-photos' | 'audit-logs';
+export type AdminTabType =
+  | 'overview'
+  | 'users'
+  | 'relationship'
+  | 'products'
+  | 'routines'
+  | 'routine-templates'
+  | 'progress-photos'
+  | 'audit-logs';
 
 // ============================================================================
 // AUDIT LOG TYPES

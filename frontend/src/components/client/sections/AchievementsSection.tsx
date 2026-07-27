@@ -121,9 +121,9 @@ const BADGE_IMAGES = [
 const AWARD_LEVELS: AwardLevel[] = [
   { name: 'Bronze', minPoints: 0, color: 'from-amber-700 to-orange-800', icon: Medal },
   { name: 'Silver', minPoints: 500, color: 'from-gray-400 to-gray-500', icon: Star },
-  { name: 'Gold', minPoints: 1000, color: 'from-yellow-400 to-amber-500', icon: Crown },
-  { name: 'Platinum', minPoints: 2000, color: 'from-blue-400 to-indigo-500', icon: Trophy },
-  { name: 'Diamond', minPoints: 5000, color: 'from-purple-500 to-pink-600', icon: Gem },
+  { name: 'Gold', minPoints: 1500, color: 'from-yellow-400 to-amber-500', icon: Crown },
+  { name: 'Platinum', minPoints: 3500, color: 'from-blue-400 to-indigo-500', icon: Trophy },
+  { name: 'Diamond', minPoints: 7000, color: 'from-purple-500 to-pink-600', icon: Gem },
 ];
 
 // Default stats when no data exists
