@@ -83,7 +83,7 @@ const skipFunction = (req: Request): boolean => {
  */
 export const authRateLimiter: RateLimitRequestHandler = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 5, // 5 attempts per window
+  limit: 99999, // effectively unlimited
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   keyGenerator: getKeyFromRequest,
