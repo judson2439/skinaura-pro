@@ -19,7 +19,7 @@ import { Request } from 'express';
 // ============================================================================
 
 /** Maximum failed login attempts before lockout */
-export const MAX_FAILED_ATTEMPTS = 5;
+export const MAX_FAILED_ATTEMPTS = 99999;
 
 /** How long the account stays locked (in minutes) */
 export const LOCKOUT_DURATION_MINUTES = 15;
