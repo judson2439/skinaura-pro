@@ -21,6 +21,9 @@ if (env.TRUST_PROXY) {
 
 // Helmet security middleware (basic security headers)
 app.use(helmet({
+  // API is consumed cross-origin from the frontend host; same-origin CORP
+  // can cause browsers to treat successful responses as opaque network failures.
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -36,14 +39,21 @@ app.use(helmet({
   },
 }));
 
-// CORS configuration - always include localhost:8080 for production
-const corsOrigins: (string | RegExp)[] = ['http://localhost:8000'];
-if (env.CORS_ORIGIN && env.CORS_ORIGIN !== 'http://localhost:8000') {
-  corsOrigins.push(env.CORS_ORIGIN);
+// CORS configuration — allow configured production origin + local Vite ports
+const corsOrigins = new Set<string>([
+  'http://localhost:8000',
+  'http://localhost:8080',
+  'http://localhost:5173',
+]);
+if (env.CORS_ORIGIN) {
+  env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean).forEach((o) => corsOrigins.add(o));
+}
+if (env.FRONTEND_URL) {
+  corsOrigins.add(env.FRONTEND_URL);
 }
 
 app.use(cors({
-  origin: corsOrigins,
+  origin: Array.from(corsOrigins),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Encrypted'],
@@ -52,11 +62,10 @@ app.use(cors({
 // Request logging
 app.use(morgan('dev'));
 
-// Body parsing - increased limit to accommodate encrypted file uploads
-// 5MB file + base64 encoding (~33% increase) + encryption overhead = ~8-10MB
-// Using 20MB to be safe for encrypted payloads
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+// Body parsing - allow up to 20MB original files sent as base64 JSON
+// 20MB file + base64 (~33%) + JSON/encryption overhead ≈ ~30MB
+app.use(express.json({ limit: '30mb' }));
+app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 
 // Decrypt encrypted request bodies (after body parsing, before routes)
 app.use(decryptRequestMiddleware);

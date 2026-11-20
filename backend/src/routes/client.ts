@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { query, queryOne, pool } from '../config/database.js';
 import { verifyToken } from '../lib/auth.js';
+import { applyLoginStreak, serializeGamification } from '../lib/gamification.js';
 import { logAuditFromRequest } from '../lib/auditLogger.js';
 import fs from 'fs';
 import path from 'path';
@@ -163,19 +164,8 @@ router.get('/gamification', async (req: Request, res: Response): Promise<void> =
 
     console.log(`📊 Fetching gamification data for user: ${userId}`);
 
-    const gamification = await queryOne<UserGamification>(
-      `SELECT * FROM user_gamification WHERE user_id = $1`,
-      [userId]
-    );
-
-    if (!gamification) {
-      console.log(`ℹ️ No gamification record found for user: ${userId}`);
-      res.status(200).json({
-        success: true,
-        data: { gamification: null },
-      } as ApiResponse);
-      return;
-    }
+    // Visiting the client portal while authenticated counts as being logged in today.
+    const gamification = await applyLoginStreak(userId);
 
     console.log(`✅ Gamification data fetched`);
 
@@ -203,30 +193,7 @@ router.post('/gamification', async (req: Request, res: Response): Promise<void> 
 
     console.log(`📝 Creating gamification record for user: ${userId}`);
 
-    // Check if record already exists
-    const existing = await queryOne<UserGamification>(
-      `SELECT * FROM user_gamification WHERE user_id = $1`,
-      [userId]
-    );
-
-    if (existing) {
-      res.status(200).json({
-        success: true,
-        data: { gamification: existing },
-        message: 'Gamification record already exists',
-      } as ApiResponse);
-      return;
-    }
-
-    // Create new record
-    const newRecord = await queryOne<UserGamification>(
-      `INSERT INTO user_gamification (
-        user_id, points, level, current_streak, longest_streak, 
-        total_routines_completed, created_at, updated_at
-      ) VALUES ($1, 0, 'Bronze', 0, 0, 0, NOW(), NOW())
-      RETURNING *`,
-      [userId]
-    );
+    const newRecord = await applyLoginStreak(userId);
 
     console.log(`✅ Gamification record created`);
 
@@ -251,7 +218,8 @@ router.post('/gamification', async (req: Request, res: Response): Promise<void> 
 router.patch('/gamification', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId;
-    const { points, level, current_streak, longest_streak, total_routines_completed, last_completion_date } = req.body;
+    // Streak is owned by login days (applyLoginStreak). Do not accept client-sent streak fields.
+    const { points, level, total_routines_completed, last_completion_date } = req.body;
 
     console.log(`📝 Updating gamification for user: ${userId}`);
 
@@ -259,24 +227,22 @@ router.patch('/gamification', async (req: Request, res: Response): Promise<void>
       `INSERT INTO user_gamification (
         user_id, points, level, current_streak, longest_streak, 
         total_routines_completed, last_completion_date, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      ) VALUES ($1, $2, $3, 1, 1, $4, $5, NOW())
       ON CONFLICT (user_id) DO UPDATE SET
         points = COALESCE($2, user_gamification.points),
         level = COALESCE($3, user_gamification.level),
-        current_streak = COALESCE($4, user_gamification.current_streak),
-        longest_streak = COALESCE($5, user_gamification.longest_streak),
-        total_routines_completed = COALESCE($6, user_gamification.total_routines_completed),
-        last_completion_date = COALESCE($7, user_gamification.last_completion_date),
+        total_routines_completed = COALESCE($4, user_gamification.total_routines_completed),
+        last_completion_date = COALESCE($5, user_gamification.last_completion_date),
         updated_at = NOW()
       RETURNING *`,
-      [userId, points, level, current_streak, longest_streak, total_routines_completed, last_completion_date]
+      [userId, points, level, total_routines_completed, last_completion_date]
     );
 
     console.log(`✅ Gamification updated`);
 
     res.status(200).json({
       success: true,
-      data: { gamification: result },
+      data: { gamification: result ? serializeGamification(result) : result },
     } as ApiResponse);
 
   } catch (error) {

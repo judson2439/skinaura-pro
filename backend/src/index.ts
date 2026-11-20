@@ -4,6 +4,7 @@ import app from './app.js';
 import { env, validateEnv } from './config/env.js';
 import { testConnection, closePool } from './config/database.js';
 import { initLoginAttemptsTable } from './lib/accountLockout.js';
+import { ensureLoginStreakColumn } from './lib/gamification.js';
 import { initProfessionalInvitationNotificationsTable, initProfessionalPdfUploadsTable, initTreatmentPlanPdfsTable } from './routes/professional.js';
 
 // Validate environment variables
@@ -20,6 +21,13 @@ const initDatabase = async (): Promise<void> => {
 
   // Initialize login attempts table for account lockout feature
   await initLoginAttemptsTable();
+
+  // Ensure login-streak column exists on user_gamification
+  try {
+    await ensureLoginStreakColumn();
+  } catch (error) {
+    console.error('❌ Failed to ensure login streak column:', error);
+  }
   
   // Initialize professional invitation notifications table
   await initProfessionalInvitationNotificationsTable();
