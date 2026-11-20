@@ -34,6 +34,7 @@ import {
   LOCKOUT_DURATION_MINUTES,
 } from '../lib/accountLockout.js';
 import { query, queryOne } from '../config/database.js';
+import { applyLoginStreak } from '../lib/gamification.js';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -795,6 +796,14 @@ router.post('/signin', authRateLimiter, async (req: Request, res: Response): Pro
     // Clear failed login attempts on successful login
     await handleSuccessfulLogin(email, req);
 
+    if (actualRole === 'client' && result.user?.id) {
+      try {
+        await applyLoginStreak(result.user.id);
+      } catch (streakError) {
+        console.error('❌ Failed to update login streak:', streakError);
+      }
+    }
+
     // Log successful login
     await logAudit({
       userId: result.user?.id,
@@ -961,6 +970,14 @@ router.post('/client/signin', authRateLimiter, async (req: Request, res: Respons
         `UPDATE user_profiles SET last_logged_at = NOW() WHERE id = $1`,
         [result.user?.id]
       );
+    }
+
+    if (result.user?.id) {
+      try {
+        await applyLoginStreak(result.user.id);
+      } catch (streakError) {
+        console.error('❌ Failed to update login streak:', streakError);
+      }
     }
 
     // Log successful login

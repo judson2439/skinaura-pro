@@ -717,12 +717,11 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
     if (!token) return;
 
     const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
     try {
       apiClient.setAuthToken(token);
       
-      // Get current gamification data
+      // Get current gamification data (also records today's login streak)
       const fetchResponse = await apiClient.get<{
         success: boolean;
         data?: { gamification: UserGamification | null };
@@ -730,24 +729,10 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
 
       const currentData = fetchResponse.data.data?.gamification;
 
-      let newStreak = 1;
-      let longestStreak = 1;
       let totalPoints = 50;
       let totalRoutines = 1;
 
       if (currentData) {
-        const lastDate = currentData.last_completion_date;
-        
-        // Calculate streak
-        if (lastDate === yesterday) {
-          newStreak = (currentData.current_streak || 0) + 1;
-        } else if (lastDate === today) {
-          newStreak = currentData.current_streak || 1;
-        } else {
-          newStreak = 1;
-        }
-
-        longestStreak = Math.max(newStreak, currentData.longest_streak || 0);
         totalPoints = (currentData.points || 0) + 50;
         totalRoutines = (currentData.total_routines_completed || 0) + 1;
       }
@@ -759,13 +744,11 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
       else if (totalPoints >= 1500) level = 'Gold';
       else if (totalPoints >= 500) level = 'Silver';
 
-      // Upsert gamification data
+      // Upsert points/routines only — streak is updated by signing in
       const updateResponse = await apiClient.patch<{
         success: boolean;
         data?: { gamification: UserGamification };
       }>('/api/client/gamification', {
-        current_streak: newStreak,
-        longest_streak: longestStreak,
         points: totalPoints,
         total_routines_completed: totalRoutines,
         level: level,
@@ -777,19 +760,19 @@ const DashboardSection: React.FC<DashboardSectionProps> = ({
         return;
       }
 
-      // Refresh gamification data
+      const updated = updateResponse.data.data?.gamification;
       const authSession = getAuthSession();
       setGamificationData({
-        id: currentData?.id || '',
-        user_id: authSession?.user?.id || '',
-        current_streak: newStreak,
-        longest_streak: longestStreak,
+        id: updated?.id || currentData?.id || '',
+        user_id: updated?.user_id || authSession?.user?.id || '',
+        current_streak: updated?.current_streak ?? currentData?.current_streak ?? 0,
+        longest_streak: updated?.longest_streak ?? currentData?.longest_streak ?? 0,
         points: totalPoints,
         total_routines_completed: totalRoutines,
         level: level,
         last_completion_date: today,
-        created_at: currentData?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: updated?.created_at || currentData?.created_at || new Date().toISOString(),
+        updated_at: updated?.updated_at || new Date().toISOString(),
       });
 
     } catch (error) {

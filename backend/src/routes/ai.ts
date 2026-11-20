@@ -43,9 +43,12 @@ const SKIN_TYPES = [
 
 router.post('/product-recognition', async (req: Request, res: Response): Promise<void> => {
   try {
-
-    console.log('🔐 Product recognition request:', req.body);
     const { imageBase64 } = req.body;
+
+    console.log(
+      '🔐 Product recognition request: imageBase64 length=',
+      typeof imageBase64 === 'string' ? imageBase64.length : 0
+    );
 
     if (!imageBase64) {
       res.status(400).json({ 

@@ -320,15 +320,15 @@ const HelpSection: React.FC<HelpSectionProps> = ({ userRole = 'client' }) => {
               <h3 className="font-medium text-gray-900 mb-2">How do I track my routine?</h3>
               <p className="text-gray-600 text-sm">
                 Simply mark your morning and evening routines as complete each day.
-                You'll earn points and build streaks for consistency!
+                You'll earn points for each completion. Signing in consecutive days builds your streak.
               </p>
             </div>
 
             <div className="p-4 bg-gray-50 rounded-xl">
               <h3 className="font-medium text-gray-900 mb-2">How does the gamification work?</h3>
               <p className="text-gray-600 text-sm">
-                Complete routines to earn 50 points each, with bonus points for maintaining streaks.
-                Progress through Bronze, Silver, Gold, Platinum, and Diamond levels.
+                Complete routines to earn 50 points each.
+                Sign in consecutive days to build your streak. Progress through Bronze, Silver, Gold, Platinum, and Diamond levels.
               </p>
             </div>
 
@@ -343,7 +343,7 @@ const HelpSection: React.FC<HelpSectionProps> = ({ userRole = 'client' }) => {
             <div className="p-4 bg-gray-50 rounded-xl">
               <h3 className="font-medium text-gray-900 mb-2">How do streaks work?</h3>
               <p className="text-gray-600 text-sm">
-                A streak represents consecutive days where you've completed at least one skincare routine.
+                A streak is consecutive days you've signed in. Just log in each day — you don't need to complete a routine to keep it going.
                 Missing a day will reset your streak, so try to be consistent!
               </p>
             </div>
